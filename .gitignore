@@ -1,0 +1,23 @@
+.env
+.env.*
+.claude/backups/
+.claude/settings.local.json
+CLAUDE.local.md
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.DS_Store
+
+# Live runtime state, models and local-only files (never committed; migration 2026-09-14)
+data/
+models/
+logs/
+data_snapshot_*/
+models_snapshot_*/
+logs_snapshot_*/
+_backups/
+telegram_config.py
+.claude.json
+ntuser*
+*.log

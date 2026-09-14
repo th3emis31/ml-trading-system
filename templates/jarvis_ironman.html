@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS - Iron Man Trading AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Orbitron', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0a1428 0%, #0f1d3d 25%, #001d3d 50%, #0a1428 75%, #000);
+            color: #00ff88;
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+        
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 20% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(0, 153, 255, 0.05) 0%, transparent 50%);
+            animation: glow-shift 8s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        @keyframes glow-shift {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 136, 0.02) 25%, rgba(0, 255, 136, 0.02) 26%, transparent 27%, transparent 74%, rgba(0, 255, 136, 0.02) 75%, rgba(0, 255, 136, 0.02) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 136, 0.02) 25%, rgba(0, 255, 136, 0.02) 26%, transparent 27%, transparent 74%, rgba(0, 255, 136, 0.02) 75%, rgba(0, 255, 136, 0.02) 76%, transparent 77%, transparent);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .container {
+            position: relative;
+            z-index: 2;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* HEADER */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
+        
+        .header-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .arc-reactor {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #00ff88, #0099ff);
+            box-shadow: 
+                0 0 30px #00ff88,
+                0 0 60px rgba(0, 255, 136, 0.5),
+                0 0 90px rgba(0, 153, 255, 0.3),
+                inset -20px -20px 40px rgba(0, 0, 0, 0.5),
+                inset 10px 10px 20px rgba(255, 255, 255, 0.2);
+            animation: pulse-reactor 2s ease-in-out infinite;
+            border: 3px solid #00ff88;
+        }
+        
+        @keyframes pulse-reactor {
+            0%, 100% { 
+                box-shadow: 
+                    0 0 30px #00ff88,
+                    0 0 60px rgba(0, 255, 136, 0.5),
+                    0 0 90px rgba(0, 153, 255, 0.3),
+                    inset -20px -20px 40px rgba(0, 0, 0, 0.5),
+                    inset 10px 10px 20px rgba(255, 255, 255, 0.2);
+            }
+            50% { 
+                box-shadow: 
+                    0 0 40px #00ff88,
+                    0 0 80px rgba(0, 255, 136, 0.7),
+                    0 0 120px rgba(0, 153, 255, 0.5),
+                    inset -20px -20px 40px rgba(0, 0, 0, 0.5),
+                    inset 10px 10px 20px rgba(255, 255, 255, 0.3);
+            }
+        }
+        
+        .header h1 {
+            font-size: 3.5em;
+            font-weight: 900;
+            color: #00ff88;
+            text-shadow: 
+                0 0 10px #00ff88,
+                0 0 20px #0099ff,
+                0 0 30px rgba(0, 255, 136, 0.5);
+            letter-spacing: 4px;
+            margin: 0;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            color: #0099ff;
+            text-shadow: 0 0 10px rgba(0, 153, 255, 0.5);
+            margin-top: 10px;
+            letter-spacing: 2px;
+        }
+        
+        /* MAIN GRID */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        /* CARDS */
+        .card {
+            background: linear-gradient(135deg, rgba(10, 20, 40, 0.95), rgba(15, 29, 61, 0.95));
+            border: 2px solid #00ff88;
+            border-radius: 8px;
+            padding: 25px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 
+                0 0 20px rgba(0, 255, 136, 0.3),
+                inset 0 0 20px rgba(0, 255, 136, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.1), transparent);
+            animation: shine 3s infinite;
+        }
+        
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .card:hover {
+            transform: translateY(-8px);
+            border-color: #0099ff;
+            box-shadow: 
+                0 10px 40px rgba(0, 255, 136, 0.5),
+                inset 0 0 20px rgba(0, 153, 255, 0.1);
+        }
+        
+        .card h2 {
+            font-size: 1.3em;
+            color: #00ff88;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #0099ff;
+            padding-bottom: 10px;
+        }
+        
+        /* STATS */
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin: 10px 0;
+            background: rgba(0, 255, 136, 0.05);
+            border-left: 3px solid #0099ff;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .stat-label {
+            color: #0099ff;
+            font-size: 0.95em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 5px #00ff88;
+        }
+        
+        /* PROGRESS BAR */
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: rgba(0, 153, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #0099ff;
+            margin-top: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #0099ff, #00ff88);
+            border-radius: 10px;
+            box-shadow: 0 0 10px #00ff88;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+        
+        /* VOICE SECTION */
+        .voice-section {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, rgba(0, 99, 99, 0.3), rgba(0, 51, 102, 0.3));
+            border: 3px solid #0099ff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 
+                0 0 30px rgba(0, 153, 255, 0.4),
+                inset 0 0 30px rgba(0, 255, 136, 0.05);
+        }
+        
+        .voice-section::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(0, 255, 136, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: scan 10s linear infinite;
+        }
+        
+        @keyframes scan {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+        
+        .voice-section h2 {
+            font-size: 2em;
+            color: #00ff88;
+            text-shadow: 0 0 20px #00ff88;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        #voice-status {
+            font-size: 1.5em;
+            font-weight: 700;
+            padding: 25px;
+            margin: 20px 0;
+            border: 2px solid #0099ff;
+            border-radius: 8px;
+            background: rgba(0, 20, 40, 0.8);
+            min-height: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0099ff;
+            text-shadow: 0 0 10px rgba(0, 153, 255, 0.5);
+            position: relative;
+            z-index: 1;
+            font-family: 'Courier New', monospace;
+        }
+        
+        #voice-status.listening {
+            color: #00ff88;
+            border-color: #00ff88;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            animation: listening-pulse 1s infinite;
+        }
+        
+        @keyframes listening-pulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(0, 255, 136, 0.8); }
+        }
+        
+        #voice-status.verified {
+            color: #00ff88;
+            border-color: #00ff88;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+        }
+        
+        #voice-status.rejected {
+            color: #ff0055;
+            border-color: #ff0055;
+            box-shadow: 0 0 20px rgba(255, 0, 85, 0.5);
+        }
+        
+        .voice-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* BUTTONS */
+        .btn {
+            padding: 15px 30px;
+            border: 2px solid #0099ff;
+            border-radius: 6px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.95em;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.3s;
+        }
+        
+        .btn:hover::before {
+            left: 100%;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #0099ff, #00ff88);
+            color: #000;
+            box-shadow: 0 0 20px rgba(0, 153, 255, 0.5);
+        }
+        
+        .btn-primary:hover {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.8), 0 8px 25px rgba(0, 99, 99, 0.4);
+            transform: translateY(-3px);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #0099ff;
+            box-shadow: inset 0 0 10px rgba(0, 153, 255, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(0, 153, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 153, 255, 0.5), inset 0 0 10px rgba(0, 153, 255, 0.3);
+            transform: translateY(-3px);
+        }
+        
+        /* HOLOGRAM EFFECT */
+        .hologram {
+            background: linear-gradient(135deg, rgba(0, 153, 255, 0.1), rgba(0, 255, 136, 0.05));
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 0.95em;
+            line-height: 1.6;
+            position: relative;
+        }
+        
+        .hologram::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #0099ff, #00ff88, #0099ff);
+            border-radius: 4px;
+            z-index: -1;
+            opacity: 0;
+            animation: glow-border 2s ease-in-out infinite;
+        }
+        
+        @keyframes glow-border {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 0.3; }
+        }
+        
+        .command-list {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.8;
+        }
+        
+        .command-list strong {
+            color: #00ff88;
+            display: block;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .command-list code {
+            color: #0099ff;
+        }
+        
+        /* INSIGHTS LIST */
+        .insights-list {
+            list-style: none;
+            margin-top: 15px;
+        }
+        
+        .insights-list li {
+            padding: 12px;
+            margin: 10px 0;
+            background: rgba(0, 255, 136, 0.08);
+            border-left: 4px solid #0099ff;
+            border-radius: 4px;
+            font-size: 0.95em;
+            line-height: 1.5;
+            color: #00ff88;
+        }
+        
+        /* NOTIFICATIONS */
+        .ai-notification {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 20px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(10, 20, 40, 0.95), rgba(0, 51, 102, 0.95));
+            border: 2px solid #0099ff;
+            color: #00ff88;
+            max-width: 350px;
+            animation: slide-in 0.4s ease;
+            z-index: 1000;
+            box-shadow: 0 0 30px rgba(0, 153, 255, 0.4);
+        }
+        
+        @keyframes slide-in {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .ai-notification strong {
+            display: block;
+            color: #0099ff;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        
+        .ai-notification.ai-success {
+            border-color: #00ff88;
+        }
+        
+        .ai-notification.ai-error {
+            border-color: #ff0055;
+            color: #ff0055;
+        }
+        
+        /* RESPONSIVE */
+        @media (max-width: 1024px) {
+            .header h1 {
+                font-size: 2.5em;
+            }
+            
+            .arc-reactor {
+                width: 80px;
+                height: 80px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .header-logo {
+                flex-direction: column;
+            }
+            
+            .arc-reactor {
+                width: 60px;
+                height: 60px;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .voice-section {
+                padding: 25px;
+            }
+            
+            .ai-notification {
+                bottom: 15px;
+                right: 15px;
+                max-width: calc(100% - 30px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <div class="header-logo">
+                <div class="arc-reactor"></div>
+                <h1>JARVIS</h1>
+            </div>
+            <p>Iron Man Trading AI - Advanced Autonomous Response Intelligence System</p>
+        </div>
+        
+        <!-- VOICE CONTROL SECTION -->
+        <div class="voice-section">
+            <h2>Voice Command Center</h2>
+            <p style="color: #0099ff; margin: 10px 0; letter-spacing: 1px;">Say "Hey JARVIS" followed by your command</p>
+            <div id="voice-status">Initializing systems...</div>
+            <div class="voice-buttons">
+                <button class="btn btn-primary" onclick="startListening()">START LISTENING</button>
+                <button class="btn btn-secondary" onclick="stopListening()">STOP</button>
+                <button class="btn btn-secondary" onclick="JARVIS_AI.speakResponse('Voice system ready. Say analyze to get started')">TEST VOICE</button>
+            </div>
+            <div class="command-list">
+                <strong>Available Commands:</strong>
+                <code>analyze</code> - Chart pattern analysis<br>
+                <code>recommend</code> - Smart trade entry<br>
+                <code>trade</code> - Setup detection<br>
+                <code>learn</code> - Learning progress<br>
+                <code>improve</code> - System suggestions<br>
+                <code>insights</code> - Performance data
+            </div>
+        </div>
+        
+        <!-- MAIN GRID -->
+        <div class="grid">
+            <!-- Learning Profile -->
+            <div class="card">
+                <h2>Learning Profile</h2>
+                <div class="stat">
+                    <span class="stat-label">Learning Score</span>
+                    <span class="stat-value" id="learning-score">0</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="learning-progress" style="width: 0%"></div>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Total Trades</span>
+                    <span class="stat-value" id="total-trades">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="win-rate">0%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Patterns</span>
+                    <span class="stat-value" id="patterns-learned">0</span>
+                </div>
+            </div>
+            
+            <!-- System Status -->
+            <div class="card">
+                <h2>System Status</h2>
+                <div class="stat">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value" id="expert-level">ONLINE</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Voice Auth</span>
+                    <span class="stat-value" id="voice-verified" style="color: #ff0055;">INACTIVE</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Best Timeframe</span>
+                    <span class="stat-value" id="best-timeframe">4H</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Risk Level</span>
+                    <span class="stat-value" id="risk-tolerance">MODERATE</span>
+                </div>
+                <button class="btn btn-secondary" onclick="refreshProfile()" style="width: 100%; margin-top: 15px;">REFRESH DATA</button>
+            </div>
+            
+            <!-- AI Insights -->
+            <div class="card">
+                <h2>AI Insights</h2>
+                <ul class="insights-list" id="insights-list">
+                    <li>System initializing...</li>
+                </ul>
+            </div>
+            
+            <!-- Performance Metrics -->
+            <div class="card">
+                <h2>Performance Metrics</h2>
+                <div class="stat">
+                    <span class="stat-label">Avg Win</span>
+                    <span class="stat-value" id="avg-win" style="color: #00ff88;">+0%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Avg Loss</span>
+                    <span class="stat-value" id="avg-loss" style="color: #ff0055;">-0%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Risk/Reward</span>
+                    <span class="stat-value" id="rr-ratio">1:2</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Accuracy</span>
+                    <span class="stat-value" id="accuracy">0%</span>
+                </div>
+            </div>
+            
+            <!-- Trading Hours -->
+            <div class="card">
+                <h2>Optimal Trading Hours</h2>
+                <div id="trading-hours" style="font-size: 0.95em; line-height: 1.8; color: #0099ff;">
+                    <div class="hologram">Analyzing your trading patterns...</div>
+                </div>
+            </div>
+            
+            <!-- System Improvements -->
+            <div class="card">
+                <h2>Recommended Updates</h2>
+                <div id="improvements-container" style="font-size: 0.95em;">
+                    <div class="hologram">System analyzing performance...</div>
+                </div>
+                <button class="btn btn-primary" onclick="applyAutoImprovements()" style="width: 100%; margin-top: 15px;">APPLY UPDATES</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include Voice Script -->
+    <script src="/static/jarvis_ai_voice.js"></script>
+    
+    <script>
+        // Voice Control Functions
+        function startListening() {
+            const voiceStatus = document.getElementById('voice-status');
+            if (!JARVIS_AI.recognition) {
+                voiceStatus.textContent = 'ERROR: Speech Recognition not supported';
+                voiceStatus.classList.add('rejected');
+                return;
+            }
+            try {
+                JARVIS_AI.recognition.start();
+                voiceStatus.textContent = 'Listening...';
+                voiceStatus.classList.add('listening');
+            } catch (e) {
+                console.error('Error starting voice:', e);
+            }
+        }
+        
+        function stopListening() {
+            if (JARVIS_AI.recognition) {
+                JARVIS_AI.recognition.stop();
+                document.getElementById('voice-status').textContent = 'Stopped';
+            }
+        }
+        
+        async function refreshProfile() {
+            try {
+                const response = await fetch('/api/jarvis/learning-dashboard');
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error('API Error:', data.error);
+                    return;
+                }
+                
+                const p = data.profile;
+                document.getElementById('learning-score').textContent = p.learning_score;
+                document.getElementById('learning-progress').style.width = p.learning_score + '%';
+                document.getElementById('total-trades').textContent = p.trades;
+                document.getElementById('win-rate').textContent = p.win_rate + '%';
+                document.getElementById('patterns-learned').textContent = p.patterns_learned;
+                document.getElementById('expert-level').textContent = data.status.toUpperCase();
+                document.getElementById('voice-verified').textContent = p.voice_verified ? 'ACTIVE' : 'INACTIVE';
+                document.getElementById('voice-verified').style.color = p.voice_verified ? '#00ff88' : '#ff0055';
+                document.getElementById('best-timeframe').textContent = p.best_timeframe.toUpperCase();
+                
+                const insights = data.insights || [];
+                const insightsList = document.getElementById('insights-list');
+                if (insights.length > 0) {
+                    insightsList.innerHTML = insights.map(i => `<li>${i}</li>`).join('');
+                }
+                
+                const improvements = data.improvements || [];
+                const improvementsDiv = document.getElementById('improvements-container');
+                if (improvements.length > 0) {
+                    improvementsDiv.innerHTML = improvements.map((imp, i) => `
+                        <div class="hologram">
+                            <strong>${i+1}. ${imp.type}</strong><br>
+                            ${imp.reason}
+                        </div>
+                    `).join('');
+                } else {
+                    improvementsDiv.innerHTML = '<div class="hologram">All systems operating at peak efficiency</div>';
+                }
+            } catch (e) {
+                console.error('Profile refresh failed:', e);
+            }
+        }
+        
+        async function applyAutoImprovements() {
+            try {
+                const response = await fetch('/api/jarvis/auto-improve', { method: 'POST' });
+                const data = await response.json();
+                alert('System Updates Applied:\n' + data.improvements_made);
+                await refreshProfile();
+            } catch (e) {
+                alert('Error applying updates: ' + e);
+            }
+        }
+        
+        // Initialize on load
+        window.addEventListener('load', () => {
+            console.log('JARVIS Dashboard loaded');
+            setTimeout(refreshProfile, 1000);
+        });
+        
+        // Auto-refresh every 30 seconds
+        setInterval(refreshProfile, 30000);
+    </script>
+</body>
+</html>

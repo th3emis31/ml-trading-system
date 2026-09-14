@@ -1,0 +1,145 @@
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src import system_doctor as doc
+
+NETSTAT = """
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:5000           0.0.0.0:0              LISTENING       43300
+  TCP    127.0.0.1:5000         127.0.0.1:61000        ESTABLISHED     43300
+  TCP    0.0.0.0:32768          0.0.0.0:0              LISTENING       1200
+"""
+
+
+def test_app_process_detects_down_single_and_duplicate_servers():
+    assert doc.check_app_process(NETSTAT)["status"] == "ok"
+    duplicate = NETSTAT + "  TCP    0.0.0.0:5000           0.0.0.0:0              LISTENING       44804\n"
+    result = doc.check_app_process(duplicate)
+    assert result["status"] == "fail" and result["detail"]["pids"] == ["43300", "44804"]
+    assert doc.check_app_process("  TCP    0.0.0.0:80   0.0.0.0:0   LISTENING   4\n")["status"] == "fail"
+
+
+def test_brokers_and_http_use_the_app_endpoints():
+    answers = {
+        "/api/mt4/status": (200, {"connected": True, "account": 12755139, "account_matches": True}),
+        "/api/mt5/status": (200, {"connected": True}),
+        "/api/self-test": (200, {"ok": True}),
+    }
+    get = lambda path, timeout: answers[path]
+    assert doc.check_brokers(get)["status"] == "ok"
+    assert doc.check_app_http(get)["status"] == "ok"
+    answers["/api/mt4/status"] = (200, {"connected": True, "account": 1, "account_matches": False, "expected_account": 2})
+    assert doc.check_brokers(get)["status"] == "warn"
+    down = lambda path, timeout: (None, {"error": "connection refused"})
+    assert doc.check_app_http(down)["status"] == "fail" and doc.check_brokers(down)["status"] == "fail"
+
+
+def test_autonomy_flags(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"jarvis": {"autonomy": {"enabled": False, "auto_execute": False}},
+                                "settings": {"asset_settings": {"XAUUSD": {"auto_enabled": False}}}}), encoding="utf-8")
+    assert doc.check_autonomy(path)["status"] == "ok"
+    # Asset switches on, but no session and auto-execute off: reported, not alarming.
+    path.write_text(json.dumps({"jarvis": {"autonomy": {"enabled": False, "auto_execute": False}},
+                                "settings": {"asset_settings": {"XAUUSD": {"auto_enabled": True}}}}), encoding="utf-8")
+    partial = doc.check_autonomy(path)
+    assert partial["status"] == "info" and "cannot trade by itself" in partial["summary"]
+    # Everything the app needs to execute on its own is on: warn.
+    path.write_text(json.dumps({"jarvis": {"autonomy": {"enabled": True, "auto_execute": True}}, "session": {"active": True},
+                                "settings": {"asset_settings": {"XAUUSD": {"auto_enabled": True}}}}), encoding="utf-8")
+    armed = doc.check_autonomy(path)
+    assert armed["status"] == "warn" and "ARMED for XAUUSD" in armed["summary"]
+
+
+def test_paper_trader_and_lab_staleness(tmp_path):
+    now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+    paper = tmp_path / "paper.json"
+    paper.write_text(json.dumps({"last_run": "2026-09-14 11:05", "last_error": None, "decisions": [1, 2]}), encoding="utf-8")
+    assert doc.check_paper_trader(paper, now)["status"] == "ok"
+    paper.write_text(json.dumps({"last_run": "2026-09-14 06:05", "last_error": "broker candles unavailable"}), encoding="utf-8")
+    assert doc.check_paper_trader(paper, now)["status"] == "warn"
+    lab = tmp_path / "status.json"
+    lab.write_text(json.dumps({"state": "idle", "last_finished_at": "2026-09-14 11:30", "evaluated_last_run": 1000, "problems": {}}), encoding="utf-8")
+    assert doc.check_strategy_lab(lab, now)["status"] == "ok"
+    lab.write_text(json.dumps({"state": "running", "heartbeat": "2026-09-14 10:00"}), encoding="utf-8")
+    assert doc.check_strategy_lab(lab, now)["status"] == "warn"
+
+
+def test_scheduled_task_csv_parsing_and_missing_task_fix(tmp_path):
+    header = '"HostName","TaskName","Next Run Time","Status","Logon Mode","Last Run Time","Last Result"\n'
+    rows = header + '"PC","\\SmartEntry Paper Trader","14/09/2026 13:05:00","Ready","Interactive only","14/09/2026 12:05:01","0"\n' \
+                  + header + '"PC","\\SmartEntry Strategy Lab","14/09/2026 13:20:00","Ready","Interactive only","14/09/2026 12:20:00","1"\n'
+    parsed = doc.parse_task_csv(rows)
+    assert parsed["SmartEntry Paper Trader"]["last_result"] == "0"
+    check = doc.check_scheduled_tasks(rows)
+    assert check["status"] == "warn"
+    assert "SmartEntry System Doctor" in check["detail"]["missing"]
+    assert check["detail"]["failing"] == {"SmartEntry Strategy Lab": "1"}
+    calls = []
+
+    class Done:
+        returncode, stdout, stderr = 0, "SUCCESS", ""
+
+    applied = doc.fix_missing_tasks({"detail": {"missing": ["SmartEntry Paper Trader"]}},
+                                    run=lambda args, **kw: calls.append(args) or Done())
+    assert applied and calls and calls[0][:4] == ["schtasks", "/create", "/tn", "SmartEntry Paper Trader"]
+
+
+def test_app_error_log_window(tmp_path):
+    log = tmp_path / "app_stderr.log"
+    log.write_text("2026-09-13 09:00:00,001 ERROR app old failure\n"
+                   "2026-09-14 11:00:00,001 INFO werkzeug fine\n"
+                   "2026-09-14 11:30:00,001 ERROR app something broke\n"
+                   "Traceback (most recent call last):\n"
+                   "2026-09-14 11:40:00,001 INFO werkzeug 127.0.0.1 - - \"GET /x HTTP/1.1\" 500 -\n", encoding="utf-8")
+    result = doc.check_app_errors(log, now_local=datetime(2026, 9, 14, 12, 0), hours=24)
+    assert result["status"] == "warn" and result["detail"]["count"] == 3
+
+
+def test_resources_and_overall_status():
+    assert doc.check_resources(ram_mb=2000, disk_free_gb=50)["status"] == "ok"
+    assert doc.check_resources(ram_mb=300, disk_free_gb=50)["status"] == "warn"
+    checks = [{"status": "ok"}, {"status": "info"}]
+    assert doc.overall_status(checks) == "healthy"
+    assert doc.overall_status(checks + [{"status": "warn"}]) == "warnings"
+    assert doc.overall_status(checks + [{"status": "fail"}]) == "problems"
+
+
+def test_ram_trend_flags_a_sharp_drop_only_within_the_same_app_process():
+    now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+    history = [{"generated_at": "2026-09-14 10:00:00", "free_ram_mb": 1500, "app_pid": "43300"},
+               {"generated_at": "2026-09-14 11:30:00", "free_ram_mb": 1200, "app_pid": "43300"},
+               {"generated_at": "2026-09-14 11:45:00", "free_ram_mb": 2500, "app_pid": "99999"},  # another app process
+               {"generated_at": "2026-09-13 20:00:00", "free_ram_mb": 3000, "app_pid": "43300"}]  # outside the window
+    checks = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=800, disk_free_gb=50)]
+    doc.apply_ram_trend(checks, history, now)
+    resources = checks[1]
+    assert resources["status"] == "info" and resources["detail"]["ram_trend"]["drop_mb"] == 700
+    assert resources["detail"]["ram_trend"]["since"] == "2026-09-14 10:00:00" and "memory leak" in resources["summary"]
+    steady = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=1400, disk_free_gb=50)]
+    doc.apply_ram_trend(steady, history, now)
+    assert steady[1]["status"] == "ok" and steady[1]["detail"]["ram_trend"]["sharp_drop"] is False
+    low = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=300, disk_free_gb=50)]
+    doc.apply_ram_trend(low, history, now)
+    assert low[1]["status"] == "warn"  # the existing low-RAM warning is unchanged
+    assert doc.ram_trend([], 800, "43300", now) is None and doc.ram_trend(history, None, "43300", now) is None
+
+
+def test_run_doctor_never_crashes_and_saves_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(doc, "check_app_process", lambda: doc._result("App server", "app", "ok", "fake"))
+    monkeypatch.setattr(doc, "check_scheduled_tasks", lambda: (_ for _ in ()).throw(RuntimeError("schtasks missing")))
+    monkeypatch.setattr(doc, "check_resources", lambda: doc._result("PC resources", "pc", "ok", "fake"))
+    down = lambda path, timeout: (None, {"error": "down"})
+    report = doc.run_doctor(get=down, save=False)
+    json.dumps(report)
+    names = [c["name"] for c in report["checks"]]
+    assert "App responds" in names and report["overall"] in ("warnings", "problems") and report["places_orders"] is False
+    assert any("Check could not run" in c["summary"] for c in report["checks"])
+    doc.store_health_report(report, health_dir=tmp_path)
+    doc.store_health_report(report, health_dir=tmp_path)
+    history = json.loads((tmp_path / "doctor_history.json").read_text(encoding="utf-8"))
+    assert len(history) == 2 and (tmp_path / "doctor_latest.json").exists()

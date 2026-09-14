@@ -1,0 +1,473 @@
+[
+  {
+    "timestamp": "2026-06-29T10:52:56.600445",
+    "total_plans": 2,
+    "plans": [
+      {
+        "id": 1,
+        "asset": "EURUSD",
+        "direction": "SELL",
+        "confidence": "78%",
+        "signal_strength": "72%",
+        "REASONING": "Trend: DOWNTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "MEDIUM - 72% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$750",
+          "entry_price": 1.085,
+          "stop_loss": 1.0459,
+          "take_profit": 1.1436,
+          "risk_reward_ratio": "1:0.1",
+          "potential_profit": "$43.95"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      },
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-06-29T10:53:05.377837",
+    "plan_id": 1,
+    "user_decision": "APPROVED",
+    "user_notes": "Good setup, let's execute this trade"
+  },
+  {
+    "timestamp": "2026-06-29T10:53:13.063799",
+    "plan_id": 1,
+    "action": "TRADE_EXECUTED",
+    "message": "Trade opened: EURUSD SELL @ 1.085"
+  },
+  {
+    "timestamp": "2026-06-29T10:53:20.095066",
+    "plan_id": 1,
+    "action": "TRADE_CLOSED",
+    "profit_loss": 250,
+    "success": true
+  },
+  {
+    "timestamp": "2026-06-29T11:19:51.855835",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-06-29T11:20:49.274219",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-06-29T11:27:55.415706",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-06-29T16:50:16.786944",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-06-30T21:32:56.982046",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-07-01T12:56:37.235575",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-07-01T16:24:09.765776",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-07-01T16:24:31.704590",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-07-01T16:24:46.684782",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-07-01T16:25:18.217392",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-09-12T20:13:38.470154",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-09-12T20:26:20.664815",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-09-12T20:48:13.625848",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-09-12T22:12:11.268442",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  },
+  {
+    "timestamp": "2026-09-12T23:04:56.920631",
+    "total_plans": 1,
+    "plans": [
+      {
+        "id": 2,
+        "asset": "BTCUSD",
+        "direction": "BUY",
+        "confidence": "82%",
+        "signal_strength": "85%",
+        "REASONING": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+        "RISK_LEVEL": "LOW RISK - High confidence, stable market",
+        "PROFIT_POTENTIAL": "HIGH - 85% potential",
+        "EXECUTION_PLAN": {
+          "position_size": "$835",
+          "entry_price": 45000,
+          "stop_loss": 42750.0,
+          "take_profit": 48375.0,
+          "risk_reward_ratio": "1:0.15",
+          "potential_profit": "$2818125.00"
+        },
+        "status": "WAITING FOR YOUR APPROVAL",
+        "action": "Approve trade? (yes/no)"
+      }
+    ],
+    "user_action_needed": true
+  }
+]

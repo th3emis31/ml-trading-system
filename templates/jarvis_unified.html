@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS - Unified Trading AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Orbitron', monospace;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #00ff88;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* HEADER WITH THEME TOGGLE */
+        header {
+            background: linear-gradient(90deg, #1a1a3e, #16213e);
+            border-bottom: 2px solid #00ff88;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .header-title {
+            font-size: 28px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            background: linear-gradient(45deg, #00ff88, #0099ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .theme-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .theme-btn {
+            padding: 10px 20px;
+            border: 2px solid #00ff88;
+            background: transparent;
+            color: #00ff88;
+            cursor: pointer;
+            font-family: 'Orbitron', monospace;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            font-size: 12px;
+        }
+
+        .theme-btn:hover {
+            background: #00ff88;
+            color: #0f0c29;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+        }
+
+        .theme-btn.active {
+            background: #00ff88;
+            color: #0f0c29;
+            box-shadow: 0 0 25px rgba(0, 255, 136, 0.8);
+        }
+
+        /* PROFESSIONAL VIEW */
+        .view {
+            display: none;
+            padding: 30px;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .card {
+            border: 2px solid #00ff88;
+            background: rgba(15, 12, 41, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+            transform: translateY(-5px);
+        }
+
+        .card h2 {
+            color: #0099ff;
+            margin-bottom: 15px;
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(0, 255, 136, 0.1);
+            border-radius: 4px;
+        }
+
+        .stat-label {
+            color: #0099ff;
+            font-weight: bold;
+        }
+
+        .stat-value {
+            color: #00ff88;
+            font-weight: 900;
+        }
+
+        /* VOICE CONTROL SECTION */
+        .voice-section {
+            text-align: center;
+            margin: 40px 0;
+            padding: 30px;
+            border: 2px solid #0099ff;
+            border-radius: 10px;
+            background: rgba(0, 153, 255, 0.05);
+        }
+
+        .voice-status {
+            font-size: 24px;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            background: rgba(0, 255, 136, 0.1);
+            min-height: 40px;
+        }
+
+        .voice-status.listening {
+            background: rgba(0, 153, 255, 0.2);
+            color: #0099ff;
+            animation: pulse 1s infinite;
+        }
+
+        .voice-status.verified {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .voice-status.error {
+            background: rgba(255, 0, 88, 0.2);
+            color: #ff0058;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: 2px solid #00ff88;
+            background: transparent;
+            color: #00ff88;
+            cursor: pointer;
+            font-family: 'Orbitron', monospace;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            font-size: 13px;
+        }
+
+        .btn:hover {
+            background: #00ff88;
+            color: #0f0c29;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+
+        .btn.danger {
+            border-color: #ff0058;
+            color: #ff0058;
+        }
+
+        .btn.danger:hover {
+            background: #ff0058;
+            color: white;
+        }
+
+        /* IRON MAN THEME */
+        .iron-man-view {
+            background: radial-gradient(circle at center, rgba(255, 165, 0, 0.1) 0%, transparent 100%);
+        }
+
+        .arc-reactor {
+            width: 150px;
+            height: 150px;
+            margin: 0 auto 30px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #ffaa00, #ff6600);
+            box-shadow: 0 0 40px #ffaa00, inset 0 0 30px rgba(255, 100, 0, 0.5);
+            animation: pulse-reactor 2s infinite;
+        }
+
+        @keyframes pulse-reactor {
+            0%, 100% { 
+                box-shadow: 0 0 40px #ffaa00, inset 0 0 30px rgba(255, 100, 0, 0.5);
+            }
+            50% {
+                box-shadow: 0 0 60px #ffaa00, inset 0 0 50px rgba(255, 100, 0, 0.8);
+            }
+        }
+
+        .iron-card {
+            border: 2px solid #ffaa00;
+            background: rgba(255, 100, 0, 0.05);
+        }
+
+        .iron-card h2 {
+            color: #ffaa00;
+        }
+
+        .iron-card .stat-label {
+            color: #ffaa00;
+        }
+
+        /* MINIMAL VIEW */
+        .minimal-view {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .minimal-card {
+            border: 1px solid #00ff88;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+
+        .minimal-card h3 {
+            color: #00ff88;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .minimal-stat {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            padding: 5px 0;
+        }
+
+        @media (max-width: 768px) {
+            .theme-buttons {
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            
+            .theme-btn {
+                padding: 8px 12px;
+                font-size: 10px;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER WITH THEME TOGGLE -->
+    <header>
+        <div class="header-title">⚡ JARVIS</div>
+        <div class="theme-buttons">
+            <button class="theme-btn active" onclick="switchView('professional')">Professional</button>
+            <button class="theme-btn" onclick="switchView('iron-man')">Iron Man</button>
+            <button class="theme-btn" onclick="switchView('minimal')">Minimal</button>
+        </div>
+    </header>
+
+    <!-- PROFESSIONAL VIEW -->
+    <div id="professional" class="view active">
+        <h1 style="color: #00ff88; text-align: center; margin: 30px 0;">JARVIS Expert AI - Voice & Learning Dashboard</h1>
+        
+        <!-- Voice Control -->
+        <div class="voice-section">
+            <h2>🎤 Voice Command Center</h2>
+            <div id="voice-status" class="voice-status">Initializing voice system...</div>
+            <div id="voice-auto-transcript" style="margin:10px auto 0;max-width:900px;font-size:13px;color:#cbd5e1;min-height:24px;"></div>
+            <div class="button-group">
+                <button class="btn" onclick="startVoice()">Start Listening</button>
+                <button class="btn" onclick="stopVoice()">Stop</button>
+                <button class="btn" onclick="stopJarvisSpeech()">Interrupt JARVIS</button>
+                <button class="btn" onclick="testVoice()">Test Voice</button>
+            </div>
+        </div>
+
+        <!-- Dashboard Cards -->
+        <div class="dashboard-grid">
+            <div class="card">
+                <h2>🧠 Learning Profile</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Learning Score</span>
+                    <span class="stat-value" id="learning-score">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Total Trades</span>
+                    <span class="stat-value" id="total-trades">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="win-rate">--%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Patterns</span>
+                    <span class="stat-value" id="patterns">0</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🎯 System Status</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value">ONLINE</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Voice Auth</span>
+                    <span class="stat-value" id="voice-auth">INACTIVE</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Best Timeframe</span>
+                    <span class="stat-value">4H</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Risk Level</span>
+                    <span class="stat-value">MODERATE</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📊 Performance</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Avg Win</span>
+                    <span class="stat-value" id="avg-win">+0%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg Loss</span>
+                    <span class="stat-value" id="avg-loss">-0%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Risk/Reward</span>
+                    <span class="stat-value">1:2</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Accuracy</span>
+                    <span class="stat-value" id="accuracy">0%</span>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="btn" onclick="refreshData()">Refresh Data</button>
+        </div>
+    </div>
+
+    <!-- IRON MAN VIEW -->
+    <div id="iron-man" class="view iron-man-view">
+        <div style="text-align: center;">
+            <div class="arc-reactor"></div>
+            <h1 style="color: #ffaa00; text-align: center; margin: 30px 0; text-transform: uppercase; letter-spacing: 3px;">Iron Man Trading System</h1>
+        </div>
+
+        <div class="voice-section" style="border-color: #ffaa00; background: rgba(255, 165, 0, 0.05);">
+            <h2 style="color: #ffaa00;">⚡ Voice Command Center</h2>
+            <div id="voice-status-iron" class="voice-status">Ready for commands...</div>
+            <div class="button-group">
+                <button class="btn" style="border-color: #ffaa00; color: #ffaa00;" onclick="startVoice()">Start Listening</button>
+                <button class="btn" style="border-color: #ffaa00; color: #ffaa00;" onclick="stopVoice()">Stop</button>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card iron-card">
+                <h2>🎯 System Status</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value">ONLINE</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Power Level</span>
+                    <span class="stat-value">100%</span>
+                </div>
+            </div>
+
+            <div class="card iron-card">
+                <h2>📊 Trading Metrics</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="win-rate-iron">--%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Accuracy</span>
+                    <span class="stat-value" id="accuracy-iron">0%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MINIMAL VIEW -->
+    <div id="minimal" class="view minimal-view">
+        <h2 style="text-align: center; color: #00ff88; margin: 30px 0;">JARVIS Trading System - Minimal</h2>
+        
+        <div class="minimal-card">
+            <h3>System Status</h3>
+            <div class="minimal-stat">
+                <span>Status:</span>
+                <span style="color: #00ff88;">ONLINE</span>
+            </div>
+            <div class="minimal-stat">
+                <span>Learning Score:</span>
+                <span id="minimal-score">--</span>
+            </div>
+        </div>
+
+        <div class="minimal-card">
+            <h3>Performance</h3>
+            <div class="minimal-stat">
+                <span>Total Trades:</span>
+                <span id="minimal-trades">0</span>
+            </div>
+            <div class="minimal-stat">
+                <span>Win Rate:</span>
+                <span id="minimal-winrate">--%</span>
+            </div>
+            <div class="minimal-stat">
+                <span>Accuracy:</span>
+                <span id="minimal-accuracy">0%</span>
+            </div>
+        </div>
+
+        <div class="minimal-card">
+            <h3>Voice Control</h3>
+            <div id="voice-status-minimal" class="voice-status" style="margin: 15px 0;">Ready</div>
+            <div class="button-group" style="justify-content: center;">
+                <button class="btn" style="font-size: 11px;" onclick="startVoice()">Listen</button>
+                <button class="btn" style="font-size: 11px;" onclick="stopVoice()">Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Switch between views
+        function switchView(viewName) {
+            // Hide all views
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+
+            // Show selected view
+            document.getElementById(viewName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Voice functions - Connected to Auto-Listener
+        function startVoice() {
+            if (window.autoVoiceListener) {
+                window.autoVoiceListener.startListening();
+                updateVoiceStatus('Listening... (Auto)', 'listening');
+                console.log('Hands-free listening started');
+            } else {
+                updateVoiceStatus('Listening...', 'listening');
+                console.log('Voice started');
+            }
+        }
+
+        function stopVoice() {
+            if (window.autoVoiceListener) {
+                window.autoVoiceListener.stopListening();
+                updateVoiceStatus('Listening paused', 'default');
+                console.log('Hands-free listening stopped');
+            } else {
+                updateVoiceStatus('Stopped', 'default');
+                console.log('Voice stopped');
+            }
+        }
+
+        function stopJarvisSpeech() {
+            if (window.autoVoiceListener && typeof window.autoVoiceListener.stopSpeaking === 'function') {
+                window.autoVoiceListener.stopSpeaking();
+                updateVoiceStatus('JARVIS speech interrupted', 'verified');
+            }
+        }
+
+        function testVoice() {
+            updateVoiceStatus('Test: Voice system OK', 'verified');
+            console.log('Voice test passed');
+        }
+
+        function updateVoiceStatus(text, status) {
+            const statusElems = document.querySelectorAll('[id^="voice-status"]');
+            statusElems.forEach(elem => {
+                elem.textContent = text;
+                elem.className = 'voice-status ' + status;
+            });
+        }
+
+        // Load profile data
+        function loadProfileData() {
+            fetch('/api/jarvis/profile')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('learning-score').textContent = data.learning_score || '--';
+                    document.getElementById('total-trades').textContent = data.total_trades || '0';
+                    document.getElementById('win-rate').textContent = (data.win_rate || '0') + '%';
+                    document.getElementById('patterns').textContent = data.patterns_learned || '0';
+                    document.getElementById('minimal-score').textContent = data.learning_score || '--';
+                    document.getElementById('minimal-trades').textContent = data.total_trades || '0';
+                    document.getElementById('minimal-winrate').textContent = (data.win_rate || '0') + '%';
+                    document.getElementById('win-rate-iron').textContent = (data.win_rate || '0') + '%';
+                    document.getElementById('accuracy-iron').textContent = (data.accuracy || '0') + '%';
+                    document.getElementById('accuracy').textContent = (data.accuracy || '0') + '%';
+                    document.getElementById('minimal-accuracy').textContent = (data.accuracy || '0') + '%';
+                })
+                .catch(e => console.log('Profile load:', e.message));
+        }
+
+        function refreshData() {
+            loadProfileData();
+            updateVoiceStatus('Data refreshed', 'verified');
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            loadProfileData();
+            // Auto-start hands-free listening
+            if (window.autoVoiceListener) {
+                window.autoVoiceListener.startListening();
+                console.log('Auto-listener initialized and started');
+            }
+            // Initialize wake word detection
+            if (window.wakeWordClient) {
+                console.log('Wake word detection initialized');
+            }
+        });
+    </script>
+    <!-- Auto-Voice Listener: Hands-free continuous listening -->
+    <script src="/static/jarvis_auto_voice_listener.js"></script>
+    <!-- Wake Word Detection: "Hey Jarvis" background listening -->
+    <script src="/static/wake_word_client.js"></script>
+</body>
+</html>

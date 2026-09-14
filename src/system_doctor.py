@@ -1,0 +1,551 @@
+"""System Doctor: one out-of-process health check for the whole trading system.
+
+It runs outside app.py (Windows tasks "SmartEntry System Doctor" every 30 minutes and
+"SmartEntry System Doctor Daily" with --deep), so it can still report when the app is down,
+duplicated or hung. It reads the app's own endpoints, state files and logs.
+
+Safety: the doctor never changes trading settings and never places, modifies or closes orders.
+With --fix it applies only the fixes in ``SAFE_FIXES`` (recreating a missing scheduled task from
+its known definition). Everything else - for example a second app server - is reported with the
+exact action to take, because it needs judgement.
+
+Each check returns {"name", "area", "status": ok | info | warn | fail, "summary", "detail"}.
+Run:  python -m src.system_doctor            quick checks
+      python -m src.system_doctor --deep     also compiles the code and runs the test suite
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Callable, Optional
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_URL = os.getenv("TRADING_APP_URL", "http://127.0.0.1:5000").rstrip("/")
+HEALTH_DIR = ROOT / "data" / "system_health"
+LATEST_PATH = HEALTH_DIR / "doctor_latest.json"
+HISTORY_PATH = HEALTH_DIR / "doctor_history.json"
+HISTORY_KEPT = 300
+STATUS_RANK = {"ok": 0, "info": 0, "warn": 1, "fail": 2}
+TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "tests/test_research_combine.py",
+              "tests/test_mtf_data.py", "tests/test_meta_research.py", "tests/test_paper_trader.py",
+              "tests/test_demo_executor.py", "tests/test_strategy_lab.py", "tests/test_system_doctor.py",
+              "tests/test_daily_report.py", "tests/test_performance_analytics.py", "tests/test_strategy_lab_swap.py",
+              "tests/test_strategy_book.py", "tests/test_ea_monitor.py", "tests/test_ai_employee.py",
+              "tests/test_tradingview_intake.py", "tests/test_tradingview_plan.py", "tests/test_learning_curve.py",
+              "tests/test_economic_calendar.py")
+TASKS = {
+    "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
+    "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
+    "SmartEntry System Doctor": {"script": "run_system_doctor.cmd", "schedule": ["/sc", "minute", "/mo", "30"]},
+    "SmartEntry System Doctor Daily": {"script": "run_system_doctor_deep.cmd", "schedule": ["/sc", "daily", "/st", "06:30"]},
+    "SmartEntry Daily Report": {"script": "run_daily_report.cmd", "schedule": ["/sc", "daily", "/st", "06:45"]},
+    "SmartEntry AI Employee": {"script": "run_ai_employee.cmd", "schedule": ["/sc", "daily", "/st", "07:15"]},
+    "SmartEntry Daily Learning": {"script": "run_daily_learning.cmd", "schedule": ["/sc", "daily", "/st", "05:30"]},
+    "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
+}
+# schtasks "Last Result" codes that are not failures: success, running, not run yet.
+TASK_OK_RESULTS = {"0", "267009", "267011"}
+SAFE_FIXES = ("recreate_missing_scheduled_task",)
+
+GetJson = Callable[[str, float], tuple[Optional[int], Optional[dict]]]
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _result(name: str, area: str, status: str, summary: str, **detail) -> dict:
+    return {"name": name, "area": area, "status": status, "summary": summary, "detail": detail}
+
+
+def get_json(path: str, timeout: float = 30.0) -> tuple[Optional[int], Optional[dict]]:
+    try:
+        with urllib.request.urlopen(APP_URL + path, timeout=timeout) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            return exc.code, None
+    except Exception as exc:
+        return None, {"error": str(exc)}
+
+
+def _parse_utc(text: Optional[str]) -> Optional[datetime]:
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(str(text)[:19], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _read_json(path: Path):
+    """JSON from a file, or None. Accepts UTF-8 (with or without BOM) and the ANSI text MetaTrader writes."""
+    try:
+        raw = Path(path).read_bytes()
+    except Exception:
+        return None
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return json.loads(raw.decode(encoding))
+        except (UnicodeDecodeError, ValueError):
+            continue
+    return None
+
+
+# --------------------------------------------------------------------------- checks
+def parse_listeners(netstat_text: str, port: int = 5000) -> list[str]:
+    pids = set()
+    for line in netstat_text.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[1].endswith(f":{port}") and parts[3].upper() == "LISTENING":
+            pids.add(parts[4])
+    return sorted(pids)
+
+
+def check_app_process(netstat_text: Optional[str] = None) -> dict:
+    if netstat_text is None:
+        netstat_text = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=60).stdout
+    pids = parse_listeners(netstat_text)
+    if not pids:
+        return _result("App server", "app", "fail", "Nothing listens on port 5000: the dashboard is down. "
+                       "start_trading.bat restarts it within seconds; if not, run it from C:\\Users\\th_em.", pids=pids)
+    if len(pids) > 1:
+        return _result("App server", "app", "fail", f"{len(pids)} app servers listen on port 5000 (PIDs {', '.join(pids)}). "
+                       "Stop the python app.py process that start_trading.bat did not start.", pids=pids)
+    return _result("App server", "app", "ok", f"One app server on port 5000 (PID {pids[0]}).", pids=pids)
+
+
+def check_app_http(get: GetJson = get_json) -> dict:
+    code, body = get("/api/self-test", 60)
+    if code is None:
+        return _result("App responds", "app", "fail", f"The app does not answer: {(body or {}).get('error')}")
+    if code != 200 or not (body or {}).get("ok"):
+        return _result("App responds", "app", "warn", "The app answers but its self-test reports a degraded state.", self_test=body)
+    return _result("App responds", "app", "ok", "The app answers and its self-test passes.")
+
+
+def check_brokers(get: GetJson = get_json) -> dict:
+    _, mt4 = get("/api/mt4/status", 30)
+    _, mt5 = get("/api/mt5/status", 30)
+    mt4, mt5 = mt4 or {}, mt5 or {}
+    problems = []
+    if not mt4.get("connected"):
+        problems.append(f"MT4 bridge disconnected ({mt4.get('message') or mt4.get('error') or 'no answer'})")
+    elif mt4.get("account_matches") is False:
+        problems.append(f"MT4 bridge is on account {mt4.get('account')}, expected {mt4.get('expected_account')}")
+    if not mt5.get("connected"):
+        problems.append(f"MT5 disconnected ({mt5.get('message') or mt5.get('error') or 'no answer'})")
+    detail = {"mt4": {k: mt4.get(k) for k in ("connected", "account", "account_matches", "server", "port", "message")},
+              "mt5": {k: mt5.get(k) for k in ("connected", "message")}}
+    if not problems:
+        return _result("Broker connections", "brokers", "ok", f"MT4 bridge on account {mt4.get('account')} and MT5 are connected.", **detail)
+    return _result("Broker connections", "brokers", "fail" if len(problems) == 2 else "warn", "; ".join(problems), **detail)
+
+
+def check_autonomy(state_path: Path = ROOT / "data" / "auto_trader_state.json") -> dict:
+    state = _read_json(state_path)
+    if not isinstance(state, dict):
+        return _result("App auto-trading flags", "safety", "warn", "auto_trader_state.json cannot be read.")
+    autonomy = (state.get("jarvis") or {}).get("autonomy") or {}
+    assets = {sym: bool((cfg or {}).get("auto_enabled")) for sym, cfg in ((state.get("settings") or {}).get("asset_settings") or {}).items()}
+    session_active = bool((state.get("session") or {}).get("active"))
+    flags = {"autonomy_enabled": bool(autonomy.get("enabled")), "auto_execute": bool(autonomy.get("auto_execute")),
+             "session_active": session_active, "asset_auto": assets}
+    # app._autonomy_should_execute needs an active session, auto_execute and the asset switch; the loop needs autonomy on.
+    armed = [sym for sym, on in assets.items() if on] if (flags["autonomy_enabled"] and flags["auto_execute"] and session_active) else []
+    if armed:
+        return _result("App auto-trading flags", "safety", "warn",
+                       f"App automatic execution is ARMED for {', '.join(armed)}: autonomy, auto-execute, an active session "
+                       "and the asset switch are all on. Confirm this is intended.", **flags)
+    switched_on = [name for name, on in (("autonomy", flags["autonomy_enabled"]), ("auto-execute", flags["auto_execute"]),
+                                         ("session", session_active)) if on] + [f"{sym} auto" for sym, on in assets.items() if on]
+    if switched_on:
+        missing = [name for name, on in (("autonomy", flags["autonomy_enabled"]), ("auto-execute", flags["auto_execute"]),
+                                          ("an active session", session_active)) if not on]
+        return _result("App auto-trading flags", "safety", "info",
+                       f"Some auto switches are on ({', '.join(switched_on)}), but the app cannot trade by itself: "
+                       f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} off.", **flags)
+    return _result("App auto-trading flags", "safety", "ok",
+                   "App autonomy and auto-execute are off (the gold 4H demo executor is separate).", **flags)
+
+
+def check_demo_execution(get: GetJson = get_json, config_path: Path = ROOT / "data" / "paper_trading" / "demo_execution.json",
+                         journal_path: Path = ROOT / "data" / "paper_trading" / "demo_execution_journal.json",
+                         now: Optional[datetime] = None) -> dict:
+    now = now or _now_utc()
+    config = _read_json(config_path)
+    if not isinstance(config, dict) or not config.get("enabled"):
+        return _result("Demo execution", "trading", "info", "Demo execution is off.")
+    mode = "dry run" if config.get("dry_run", True) else f"ON for demo account {config.get('account_login')}"
+    journal = _read_json(journal_path) or {}
+    recent = [e for e in journal.get("events") or [] if (_parse_utc(e.get("at")) or now - timedelta(days=9)) >= now - timedelta(hours=24)]
+    bad = [e for e in recent if e.get("event") in ("failed", "close_failed", "error", "sync_skipped")]
+    _, status = get("/api/demo-model/status", 30)
+    positions = (status or {}).get("open_positions")
+    issues = []
+    if not config.get("dry_run", True) and positions is None:
+        issues.append("MT5 positions cannot be read")
+    if bad:
+        issues.append(f"{len(bad)} failed execution events in 24 h (latest: {bad[-1].get('event')} - {bad[-1].get('reason')})")
+    detail = {"mode": mode, "volume": config.get("volume"), "magic": config.get("magic"), "events_24h": len(recent),
+              "failed_events_24h": len(bad), "open_model_positions": positions}
+    if issues:
+        return _result("Demo execution", "trading", "warn", f"Demo execution {mode}: " + "; ".join(issues), **detail)
+    return _result("Demo execution", "trading", "ok",
+                   f"Demo execution {mode}; {len(recent)} events in 24 h, none failed; "
+                   f"{0 if not positions else len(positions)} model position(s) open.", **detail)
+
+
+def check_paper_trader(state_path: Path = ROOT / "data" / "paper_trading" / "xauusd_4h_mtf_xgb_tight_q90.json",
+                       now: Optional[datetime] = None) -> dict:
+    now = now or _now_utc()
+    state = _read_json(state_path)
+    if not isinstance(state, dict):
+        return _result("Paper trader", "trading", "warn", "No paper-trading state file yet.")
+    last_run = _parse_utc(state.get("last_run"))
+    age_h = (now - last_run).total_seconds() / 3600 if last_run else None
+    closed = state.get("closed_trades") or []
+    detail = {"last_run": state.get("last_run"), "age_hours": round(age_h, 2) if age_h is not None else None,
+              "last_error": state.get("last_error"), "last_message": state.get("last_message"),
+              "decisions": len(state.get("decisions") or []), "closed_trades": len(closed)}
+    issues = []
+    if age_h is None or age_h > 2.5:
+        issues.append(f"last run {detail['age_hours']} h ago (it should run hourly)")
+    if state.get("last_error"):
+        issues.append(f"last error: {state.get('last_error')}")
+    if issues:
+        return _result("Paper trader", "trading", "warn", "Paper trader: " + "; ".join(issues), **detail)
+    return _result("Paper trader", "trading", "ok",
+                   f"Paper trader ran {detail['age_hours']} h ago; {detail['decisions']} decisions, {len(closed)} closed paper trades.", **detail)
+
+
+def check_strategy_lab(status_path: Path = ROOT / "data" / "strategy_lab" / "status.json", now: Optional[datetime] = None) -> dict:
+    now = now or _now_utc()
+    status = _read_json(status_path)
+    if not isinstance(status, dict):
+        return _result("Strategy Lab", "research", "warn", "The Strategy Lab has not run yet.")
+    issues = []
+    if status.get("state") == "running":
+        beat = _parse_utc(status.get("heartbeat"))
+        if beat and (now - beat) > timedelta(minutes=10):
+            issues.append(f"a run stopped without finishing (heartbeat {status.get('heartbeat')}); the next run ignores it")
+    else:
+        finished = _parse_utc(status.get("last_finished_at"))
+        if not finished or (now - finished) > timedelta(hours=3):
+            issues.append(f"last finished {status.get('last_finished_at')} (it should run hourly)")
+    if status.get("problems"):
+        issues.append(f"data problems: {status.get('problems')}")
+    if issues:
+        return _result("Strategy Lab", "research", "warn", "Strategy Lab: " + "; ".join(issues), **status)
+    return _result("Strategy Lab", "research", "ok",
+                   f"Strategy Lab {status.get('state')}; last run evaluated {status.get('evaluated_last_run', status.get('evaluated_this_run'))} strategies.",
+                   **status)
+
+
+def check_ai_employee(runs_path: Path = ROOT / "data" / "ai_employee" / "runs.json", now: Optional[datetime] = None) -> dict:
+    """The daily read-only Claude Code review (src/ai_employee.py): did it run, and did it succeed?"""
+    now = now or _now_utc()
+    runs = _read_json(runs_path)
+    if not isinstance(runs, list) or not runs:
+        return _result("AI employee", "research", "info", "The AI employee has not run yet (daily read-only review at 07:15).")
+    last = runs[-1]
+    last_ok = next((run for run in reversed(runs) if run.get("status") == "ok"), None)
+    finished = _parse_utc((last_ok or {}).get("finished_at"))
+    detail = {"last_status": last.get("status"), "last_error": last.get("error"), "last_ok": (last_ok or {}).get("finished_at"),
+              "runs": len(runs)}
+    if last.get("status") != "ok":
+        return _result("AI employee", "research", "warn", f"AI employee's last run failed: {str(last.get('error'))[:200]}", **detail)
+    if not finished or now - finished > timedelta(hours=30):
+        return _result("AI employee", "research", "warn",
+                       f"AI employee has not completed a review since {detail['last_ok']} UTC (it runs daily at 07:15).", **detail)
+    return _result("AI employee", "research", "ok",
+                   f"AI employee reviewed the system at {detail['last_ok']} UTC; {last.get('proposals_added', 0)} new proposal(s).",
+                   **detail)
+
+
+def parse_task_csv(csv_text: str) -> dict[str, dict]:
+    tasks = {}
+    for row in csv.DictReader(io.StringIO(csv_text)):
+        name = (row.get("TaskName") or "").strip()
+        if not name or name == "TaskName":
+            continue
+        tasks[name.lstrip("\\")] = {"status": row.get("Status"), "last_result": (row.get("Last Result") or "").strip(),
+                                    "last_run": row.get("Last Run Time"), "next_run": row.get("Next Run Time")}
+    return tasks
+
+
+def check_scheduled_tasks(csv_text: Optional[str] = None) -> dict:
+    if csv_text is None:
+        csv_text = subprocess.run(["schtasks", "/query", "/fo", "CSV", "/v"], capture_output=True, text=True, timeout=90).stdout
+    found = parse_task_csv(csv_text)
+    missing = [name for name in TASKS if name not in found]
+    failing = {name: found[name]["last_result"] for name in TASKS if name in found and found[name]["last_result"] not in TASK_OK_RESULTS}
+    detail = {"tasks": {name: found.get(name) for name in TASKS}, "missing": missing, "failing": failing}
+    if missing or failing:
+        parts = ([f"missing: {', '.join(missing)}"] if missing else []) + \
+                ([f"last result not OK: {', '.join(f'{k} ({v})' for k, v in failing.items())}"] if failing else [])
+        return _result("Scheduled tasks", "schedule", "warn", "Scheduled tasks " + "; ".join(parts), **detail)
+    return _result("Scheduled tasks", "schedule", "ok", f"All {len(TASKS)} scheduled tasks exist and last ran OK.", **detail)
+
+
+def check_data_freshness(get: GetJson = get_json) -> dict:
+    code, feed = get("/api/data-feed", 120)
+    if code != 200 or not isinstance(feed, dict):
+        return _result("Market data", "data", "warn", "The data feed could not be read.", error=(feed or {}).get("error"))
+    stale, closed = [], []
+    for item in feed.get("symbols") or []:
+        for row in item.get("timeframes") or []:
+            if not row.get("available"):
+                stale.append(f"{item.get('symbol')} {row.get('timeframe')} unavailable")
+            elif row.get("stale"):
+                (closed if item.get("market_closed") else stale).append(f"{item.get('symbol')} {row.get('timeframe')}")
+    if stale:
+        return _result("Market data", "data", "warn", "Stale or missing candles while the market is open: " + ", ".join(stale), stale=stale)
+    note = f" (market closed: {', '.join(closed)})" if closed else ""
+    return _result("Market data", "data", "ok", "Broker candles are fresh on every timeframe" + note + ".", closed=closed)
+
+
+ERROR_LINE = re.compile(r"\b(ERROR|CRITICAL)\b|^Traceback|\" 500 -")
+STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+
+
+def check_app_errors(log_path: Path = ROOT / "logs" / "app_stderr.log", now_local: Optional[datetime] = None,
+                     hours: int = 24) -> dict:
+    now_local = now_local or datetime.now()
+    path = Path(log_path)
+    if not path.exists():
+        return _result("App errors", "app", "info", "No app error log found.")
+    with path.open("rb") as handle:
+        size = path.stat().st_size
+        handle.seek(max(0, size - 600_000))
+        lines = handle.read().decode("utf-8", errors="replace").splitlines()
+    since = now_local - timedelta(hours=hours)
+    current, hits = None, []
+    for line in lines:
+        match = STAMP.match(line)
+        if match:
+            try:
+                current = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                pass
+        if current is not None and current >= since and ERROR_LINE.search(line):
+            hits.append(line.strip()[:240])
+    if hits:
+        return _result("App errors", "app", "warn", f"{len(hits)} error lines in the app log in the last {hours} h.",
+                       count=len(hits), latest=hits[-5:])
+    return _result("App errors", "app", "ok", f"No errors in the app log in the last {hours} h.")
+
+
+def _available_ram_mb() -> Optional[int]:
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class MemoryStatus(ctypes.Structure):
+        _fields_ = [("dwLength", wintypes.DWORD), ("dwMemoryLoad", wintypes.DWORD), ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong), ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong), ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong), ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+    status = MemoryStatus()
+    status.dwLength = ctypes.sizeof(status)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.c_void_p]
+    if not kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return None
+    return int(status.ullAvailPhys // 2 ** 20)
+
+
+def check_resources(ram_mb: Optional[int] = None, disk_free_gb: Optional[float] = None) -> dict:
+    ram_mb = _available_ram_mb() if ram_mb is None else ram_mb
+    disk_free_gb = shutil.disk_usage(ROOT.anchor).free / 2 ** 30 if disk_free_gb is None else disk_free_gb
+    detail = {"free_ram_mb": ram_mb, "free_disk_gb": round(disk_free_gb, 1)}
+    issues = []
+    if ram_mb is not None and ram_mb < 500:
+        issues.append(f"only {ram_mb} MB RAM free")
+    if disk_free_gb < 5:
+        issues.append(f"only {disk_free_gb:.1f} GB disk free")
+    if issues:
+        return _result("PC resources", "pc", "warn", "; ".join(issues), **detail)
+    return _result("PC resources", "pc", "ok", f"{ram_mb} MB RAM and {disk_free_gb:.0f} GB disk free.", **detail)
+
+
+RAM_DROP_MB = 500
+RAM_TREND_HOURS = 6
+
+
+def ram_trend(history: list, current_mb: Optional[int], app_pid: Optional[str], now: datetime) -> Optional[dict]:
+    """Free-RAM change against earlier checks of the same app process (no restart in between); None if nothing to compare."""
+    if current_mb is None or not app_pid:
+        return None
+    earlier = []
+    for row in history or []:
+        try:
+            at = datetime.strptime(str(row.get("generated_at")), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if row.get("app_pid") == app_pid and row.get("free_ram_mb") is not None and now - at <= timedelta(hours=RAM_TREND_HOURS):
+            earlier.append(row)
+    if not earlier:
+        return None
+    peak = max(earlier, key=lambda row: row["free_ram_mb"])
+    drop = int(peak["free_ram_mb"]) - int(current_mb)
+    return {"app_pid": app_pid, "since": peak["generated_at"], "peak_free_ram_mb": peak["free_ram_mb"], "drop_mb": drop,
+            "checks_compared": len(earlier), "sharp_drop": drop >= RAM_DROP_MB}
+
+
+def apply_ram_trend(checks: list, history: list, now: datetime) -> None:
+    """Add the RAM trend to the PC resources check; a sharp drop without an app restart is info, never a warning."""
+    resources = next((c for c in checks if c.get("name") == "PC resources"), None)
+    server = next((c for c in checks if c.get("name") == "App server"), None)
+    pids = ((server or {}).get("detail") or {}).get("pids") or []
+    if resources is None or len(pids) != 1:
+        return
+    trend = ram_trend(history, (resources.get("detail") or {}).get("free_ram_mb"), pids[0], now)
+    if trend is None:
+        return
+    resources.setdefault("detail", {})["ram_trend"] = trend
+    if trend["sharp_drop"]:
+        resources["summary"] += (f" Free RAM fell {trend['drop_mb']} MB since {trend['since']} UTC while the same app process"
+                                 f" (PID {trend['app_pid']}) kept running; watch for a memory leak.")
+        if resources["status"] == "ok":
+            resources["status"] = "info"
+
+
+def check_code_compiles() -> dict:
+    import py_compile
+
+    files = [ROOT / "app.py"] + sorted((ROOT / "src").glob("*.py")) + sorted((ROOT / "trading").glob("*.py"))
+    broken = []
+    for path in files:
+        try:
+            py_compile.compile(str(path), doraise=True)
+        except py_compile.PyCompileError as exc:
+            broken.append(f"{path.name}: {str(exc).splitlines()[-1][:160]}")
+    if broken:
+        return _result("Code compiles", "code", "fail", f"{len(broken)} file(s) do not compile.", broken=broken)
+    return _result("Code compiles", "code", "ok", f"{len(files)} Python files compile.")
+
+
+def check_tests(timeout: int = 900) -> dict:
+    files = [f for f in TEST_FILES if (ROOT / f).exists()]
+    try:
+        proc = subprocess.run([sys.executable, "-m", "pytest", "-q", *files], cwd=str(ROOT), capture_output=True, text=True,
+                              timeout=timeout, env={**os.environ, "PYTHONIOENCODING": "utf-8", "RESEARCH_JOBS": "1"})
+    except subprocess.TimeoutExpired:
+        return _result("Test suite", "code", "fail", f"Tests did not finish within {timeout} s.")
+    tail = [line for line in proc.stdout.splitlines() if line.strip()][-1:] or ["no output"]
+    if proc.returncode != 0:
+        failures = [line for line in proc.stdout.splitlines() if line.startswith("FAILED") or line.startswith("ERROR")][:10]
+        return _result("Test suite", "code", "fail", f"Tests failed: {tail[0]}", failures=failures)
+    return _result("Test suite", "code", "ok", f"Tests pass: {tail[0]}", files=len(files))
+
+
+# --------------------------------------------------------------------------- fixes and runner
+def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]:
+    applied = []
+    for name in (check.get("detail") or {}).get("missing") or []:
+        spec = TASKS[name]
+        script = ROOT / "scripts" / spec["script"]
+        if not script.exists():
+            applied.append({"fix": "recreate_missing_scheduled_task", "task": name, "ok": False, "reason": f"{script} missing"})
+            continue
+        proc = run(["schtasks", "/create", "/tn", name, "/tr", str(script), *spec["schedule"], "/f"],
+                   capture_output=True, text=True, timeout=60)
+        applied.append({"fix": "recreate_missing_scheduled_task", "task": name, "ok": proc.returncode == 0,
+                        "output": (proc.stdout or proc.stderr or "").strip()[:200]})
+    return applied
+
+
+def overall_status(checks: list[dict]) -> str:
+    worst = max((STATUS_RANK.get(c["status"], 0) for c in checks), default=0)
+    return {0: "healthy", 1: "warnings", 2: "problems"}[worst]
+
+
+def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, save: bool = True) -> dict:
+    started = _now_utc()
+    runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_autonomy,
+               lambda: check_demo_execution(get), check_paper_trader, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               lambda: check_data_freshness(get), check_app_errors, check_resources]
+    if deep:
+        runners += [check_code_compiles, check_tests]
+    checks = []
+    for runner in runners:
+        try:
+            checks.append(runner())
+        except Exception as exc:  # a broken check is itself a finding, never a crash
+            checks.append(_result(getattr(runner, "__name__", "check"), "doctor", "warn", f"Check could not run: {exc}"))
+    try:
+        apply_ram_trend(checks, _read_json(HISTORY_PATH) or [], started)
+    except Exception:  # the trend is an extra; the checks above stand without it
+        pass
+    fixes = []
+    if fix:
+        task_check = next((c for c in checks if c["name"] == "Scheduled tasks"), None)
+        if task_check and (task_check["detail"] or {}).get("missing"):
+            fixes = fix_missing_tasks(task_check)
+    report = {
+        "generated_at": started.strftime("%Y-%m-%d %H:%M:%S"),
+        "duration_sec": round((_now_utc() - started).total_seconds(), 1),
+        "deep": bool(deep), "fix": bool(fix), "overall": overall_status(checks),
+        "counts": {s: sum(1 for c in checks if c["status"] == s) for s in ("ok", "info", "warn", "fail")},
+        "checks": checks, "fixes_applied": fixes, "safe_fixes": list(SAFE_FIXES), "places_orders": False,
+    }
+    if save:
+        store_health_report(report)
+    return report
+
+
+def store_health_report(report: dict, health_dir: Path = HEALTH_DIR) -> None:
+    """Write the doctor's latest report and append it to the health history (unrelated to research reports)."""
+    health_dir.mkdir(parents=True, exist_ok=True)
+    latest = health_dir / LATEST_PATH.name
+    tmp = latest.with_suffix(".tmp")
+    tmp.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    os.replace(tmp, latest)
+    if report.get("deep"):
+        deep_path = health_dir / "doctor_latest_deep.json"
+        deep_path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    history_path = health_dir / HISTORY_PATH.name
+    history = _read_json(history_path) or []
+    history.append({"generated_at": report["generated_at"], "overall": report["overall"], "deep": report["deep"],
+                    "counts": report["counts"],
+                    "free_ram_mb": next(((c.get("detail") or {}).get("free_ram_mb") for c in report["checks"] if c["name"] == "PC resources"), None),
+                    "app_pid": next((((c.get("detail") or {}).get("pids") or [None])[0] for c in report["checks"]
+                                     if c["name"] == "App server" and len((c.get("detail") or {}).get("pids") or []) == 1), None),
+                    "problems": [f"{c['name']}: {c['summary']}" for c in report["checks"] if c["status"] in ("warn", "fail")]})
+    history_path.write_text(json.dumps(history[-HISTORY_KEPT:], indent=1, default=str), encoding="utf-8")
+
+
+def main(argv: Optional[list] = None) -> int:
+    parser = argparse.ArgumentParser(description="System Doctor: health checks for the trading system (never trades).")
+    parser.add_argument("--deep", action="store_true", help="also compile the code and run the test suite")
+    parser.add_argument("--fix", action="store_true", help=f"apply safe fixes only: {', '.join(SAFE_FIXES)}")
+    args = parser.parse_args(argv)
+    report = run_doctor(deep=args.deep, fix=args.fix)
+    print(f"overall: {report['overall']}  {report['counts']}  ({report['duration_sec']} s)")
+    for check in report["checks"]:
+        print(f"[{check['status'].upper():4s}] {check['name']}: {check['summary']}")
+    for applied in report["fixes_applied"]:
+        print("fix:", applied)
+    return 0 if report["overall"] != "problems" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

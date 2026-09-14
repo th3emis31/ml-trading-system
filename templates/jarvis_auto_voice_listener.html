@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Auto-Voice Listener</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #020617 0%, #111827 50%, #0a0e27 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 16px;
+            border: 1px solid #334155;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #0099ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header p {
+            color: #94a3b8;
+            font-size: 16px;
+        }
+        
+        .status-card {
+            background: rgba(17, 24, 39, 0.9);
+            border: 2px solid #0ea5e9;
+            border-radius: 14px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-card h2 {
+            color: #7dd3fc;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 14px;
+        }
+        
+        #voice-auto-status {
+            font-size: 24px;
+            font-weight: 600;
+            padding: 20px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 10px;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 16px 0;
+            border-left: 4px solid #0099ff;
+        }
+        
+        .status-listening {
+            border-left-color: #22c55e;
+            color: #22c55e;
+        }
+        
+        .status-ready {
+            border-left-color: #0ea5e9;
+            color: #0ea5e9;
+        }
+        
+        .status-stopped {
+            border-left-color: #f59e0b;
+            color: #f59e0b;
+        }
+        
+        .status-restarting {
+            border-left-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+        
+        .status-error {
+            border-left-color: #ef4444;
+            color: #ef4444;
+        }
+        
+        #voice-auto-transcript {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 50px;
+            margin-top: 12px;
+            font-style: italic;
+            color: #0099ff;
+        }
+        
+        .interim {
+            color: #64748b;
+            opacity: 0.7;
+        }
+        
+        .final {
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #0099ff, #00dd88);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 153, 255, 0.3);
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(239, 68, 68, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(15, 23, 42, 0.8);
+            color: #0ea5e9;
+            border: 1px solid #0ea5e9;
+        }
+        
+        .btn-secondary:hover {
+            background: #0ea5e9;
+            color: #0a0e27;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .stat-box {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #22c55e;
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .info-section {
+            background: rgba(17, 24, 39, 0.9);
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 24px;
+            margin-top: 24px;
+        }
+        
+        .info-section h3 {
+            color: #7dd3fc;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 14px;
+        }
+        
+        .info-section ul {
+            list-style: none;
+            color: #cbd5e1;
+            line-height: 1.8;
+        }
+        
+        .info-section li:before {
+            content: "✓ ";
+            color: #22c55e;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        .pulse {
+            animation: pulse-animation 2s infinite;
+        }
+        
+        @keyframes pulse-animation {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .voice-listening {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+        }
+        
+        .voice-error {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎤 JARVIS Auto-Voice Listener</h1>
+            <p>Automatic voice listening - JARVIS listens and responds to your commands</p>
+        </div>
+        
+        <!-- Main Status Card -->
+        <div class="status-card">
+            <h2>Voice Status</h2>
+            
+            <div id="voice-auto-status" class="status-ready">
+                🎤 Initializing...
+            </div>
+            
+            <div id="voice-auto-transcript">
+                Waiting for voice commands...
+            </div>
+            
+            <!-- Controls -->
+            <div class="controls">
+                <button class="btn-primary" onclick="controlAutoListen()">🎤 Enable Auto Listen</button>
+                <button class="btn-danger" onclick="stopAutoListen()">⏹️ Stop Listening</button>
+                <button class="btn-secondary" onclick="toggleAutoRestart()">⟳ Toggle Auto-Restart</button>
+                <button class="btn-secondary" onclick="showStatus()">📊 Show Status</button>
+                <button class="btn-secondary" onclick="resetStats()">🔄 Reset Stats</button>
+            </div>
+        </div>
+        
+        <!-- Statistics -->
+        <div class="status-card">
+            <h2>Listening Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value" id="stat-sessions">0</div>
+                    <div class="stat-label">Sessions</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="stat-commands">0</div>
+                    <div class="stat-label">Commands</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="stat-status">Ready</div>
+                    <div class="stat-label">Status</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Information -->
+        <div class="info-section">
+            <h3>How It Works</h3>
+            <ul>
+                <li>JARVIS automatically starts listening when you load this page</li>
+                <li>Speak your command - "analyze market", "what's Bitcoin price", etc.</li>
+                <li>JARVIS automatically recognizes and responds to your voice</li>
+                <li>When finished, JARVIS automatically waits for the next command</li>
+                <li>No manual clicking needed - hands-free operation!</li>
+                <li>Click "Stop Listening" to pause, or refresh to restart</li>
+            </ul>
+        </div>
+        
+        <!-- Debug Info -->
+        <div class="info-section" style="margin-top: 24px;">
+            <h3>Debug Info</h3>
+            <pre id="debug-info" style="background: rgba(15, 23, 42, 0.8); padding: 16px; border-radius: 8px; overflow-x: auto; max-height: 200px; color: #22c55e; font-size: 12px;"></pre>
+        </div>
+    </div>
+    
+    <!-- Load Auto-Voice Listener -->
+    <script src="/static/jarvis_auto_voice_listener.js"></script>
+    
+    <script>
+        // Control functions
+        function controlAutoListen() {
+            if (jarvisAutoVoiceListener) {
+                if (jarvisAutoVoiceListener.isListening) {
+                    jarvisAutoVoiceListener.stopListening();
+                } else {
+                    jarvisAutoVoiceListener.startListening();
+                }
+            }
+        }
+        
+        function stopAutoListen() {
+            if (jarvisAutoVoiceListener) {
+                jarvisAutoVoiceListener.stopListening();
+                jarvisAutoVoiceListener.disableListening();
+            }
+        }
+        
+        function toggleAutoRestart() {
+            if (jarvisAutoVoiceListener) {
+                jarvisAutoVoiceListener.toggleAutoRestart();
+                alert(`Auto-restart: ${jarvisAutoVoiceListener.autoRestartEnabled ? 'ENABLED' : 'DISABLED'}`);
+            }
+        }
+        
+        function showStatus() {
+            if (jarvisAutoVoiceListener) {
+                const status = jarvisAutoVoiceListener.getStatus();
+                console.table(status);
+                alert('Status:\n' + JSON.stringify(status, null, 2));
+            }
+        }
+        
+        function resetStats() {
+            if (jarvisAutoVoiceListener) {
+                if (confirm('Reset all statistics?')) {
+                    jarvisAutoVoiceListener.resetStats();
+                    alert('Statistics reset');
+                    updateStats();
+                }
+            }
+        }
+        
+        // Update display stats
+        function updateStats() {
+            if (jarvisAutoVoiceListener) {
+                document.getElementById('stat-sessions').textContent = 
+                    jarvisAutoVoiceListener.totalSessions;
+                document.getElementById('stat-commands').textContent = 
+                    jarvisAutoVoiceListener.totalCommands;
+                document.getElementById('stat-status').textContent = 
+                    jarvisAutoVoiceListener.isListening ? 'Listening' : 'Ready';
+                
+                // Update debug info
+                const debugInfo = {
+                    listening_enabled: jarvisAutoVoiceListener.listeningEnabled,
+                    is_listening: jarvisAutoVoiceListener.isListening,
+                    auto_restart: jarvisAutoVoiceListener.autoRestartEnabled,
+                    sessions: jarvisAutoVoiceListener.totalSessions,
+                    commands: jarvisAutoVoiceListener.totalCommands,
+                    restart_attempts: jarvisAutoVoiceListener.autoRestartAttempts,
+                    reconnect_delay: jarvisAutoVoiceListener.reconnectDelay + 'ms'
+                };
+                
+                document.getElementById('debug-info').textContent = 
+                    JSON.stringify(debugInfo, null, 2);
+            }
+        }
+        
+        // Update stats periodically
+        setInterval(updateStats, 1000);
+    </script>
+</body>
+</html>

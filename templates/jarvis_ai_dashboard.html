@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Expert AI - Voice & Learning Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #020617 0%, #111827 50%, #0a0e27 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .header {
+            background: rgba(15, 23, 42, 0.95);
+            border-bottom: 1px solid #334155;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header h1 {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 28px;
+            font-weight: 700;
+            color: #f8fafc;
+            text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        
+        .jarvis-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #0099ff, #00ff88);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 0 20px rgba(0, 153, 255, 0.6);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 153, 255, 0.6); }
+            50% { box-shadow: 0 0 40px rgba(0, 153, 255, 0.9); }
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: rgba(17, 24, 39, 0.9);
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: #0ea5e9;
+            box-shadow: 0 15px 40px rgba(14, 165, 233, 0.2);
+        }
+        
+        .card h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #7dd3fc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat {
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 8px;
+            border-left: 3px solid #0ea5e9;
+        }
+        
+        .stat-label {
+            color: #94a3b8;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #22c55e;
+        }
+        
+        .stat-value.warning {
+            color: #f59e0b;
+        }
+        
+        .stat-value.critical {
+            color: #ef4444;
+        }
+        
+        /* Voice Status */
+        .voice-section {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(79, 70, 229, 0.2));
+            border: 2px solid #0ea5e9;
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+        }
+        
+        #voice-status {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.8);
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+        }
+        
+        #voice-status.verified {
+            color: #22c55e;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+            border: 1px solid #22c55e;
+        }
+        
+        #voice-status.rejected {
+            color: #ef4444;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+            border: 1px solid #ef4444;
+        }
+        
+        #voice-status.listening {
+            color: #60a5fa;
+            animation: listening-pulse 1s infinite;
+        }
+        
+        @keyframes listening-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .voice-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            color: white;
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(96, 165, 250, 0.1);
+            color: #7dd3fc;
+            border: 1px solid #0ea5e9;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(96, 165, 250, 0.2);
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(96, 165, 250, 0.15);
+            border: 1px solid #0ea5e9;
+            color: #7dd3fc;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 8px;
+        }
+        
+        .badge.success {
+            background: rgba(34, 197, 94, 0.15);
+            border-color: #22c55e;
+            color: #22c55e;
+        }
+        
+        .badge.warning {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: #f59e0b;
+            color: #f59e0b;
+        }
+        
+        .insights-list {
+            list-style: none;
+            margin-top: 15px;
+        }
+        
+        .insights-list li {
+            padding: 12px;
+            margin: 8px 0;
+            background: rgba(15, 23, 42, 0.5);
+            border-left: 3px solid #0ea5e9;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2563eb, #0ea5e9);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .ai-notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.95);
+            border-left: 4px solid #0ea5e9;
+            color: #e2e8f0;
+            max-width: 350px;
+            animation: slide-in 0.3s ease;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        
+        .ai-notification strong {
+            display: block;
+            color: #7dd3fc;
+            margin-bottom: 8px;
+        }
+        
+        .ai-notification p {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        
+        .ai-notification.ai-success {
+            border-left-color: #22c55e;
+        }
+        
+        .ai-notification.ai-error {
+            border-left-color: #ef4444;
+        }
+        
+        .ai-notification.ai-warning {
+            border-left-color: #f59e0b;
+        }
+        
+        @keyframes slide-in {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .command-list {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #cbd5e1;
+        }
+        
+        .command-list strong {
+            color: #7dd3fc;
+            display: block;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 22px;
+            }
+            
+            .container {
+                padding: 15px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <div class="jarvis-icon">J</div>
+            JARVIS Expert AI - Voice Authentication & Smart Learning
+        </h1>
+    </div>
+    
+    <div class="container">
+        <!-- Voice Authentication Section -->
+        <div class="voice-section">
+            <h2>🎤 Voice Authentication System</h2>
+            <p>Your voice is your security & personalization key. Say commands to get smarter recommendations.</p>
+            <div id="voice-status">🎙️ Initializing voice system...</div>
+            <div class="voice-buttons">
+                <button class="btn btn-primary" onclick="JARVIS_AI.speakResponse('Say a phrase to enroll your voice')">📝 Enroll Voice</button>
+                <button class="btn btn-primary" onclick="startListening()">🎙️ Start Listening</button>
+                <button class="btn btn-secondary" onclick="stopListening()">⏹️ Stop Listening</button>
+            </div>
+            <div class="command-list">
+                <strong>Voice Commands:</strong>
+                "Hey JARVIS, analyze" - Chart analysis<br>
+                "Hey JARVIS, recommend" - Trade suggestion<br>
+                "Hey JARVIS, trade" - Setup detection<br>
+                "Hey JARVIS, learn" - Learning progress<br>
+                "Hey JARVIS, improve" - System suggestions<br>
+                "Hey JARVIS, insights" - Performance insights
+            </div>
+        </div>
+        
+        <!-- User Profile & Learning Score -->
+        <div class="grid">
+            <div class="card">
+                <h2>🧠 Learning Profile</h2>
+                <div class="stat">
+                    <span class="stat-label">Learning Score</span>
+                    <span class="stat-value" id="learning-score">--</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="learning-progress" style="width: 0%"></div>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Total Trades</span>
+                    <span class="stat-value" id="total-trades">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="win-rate">--%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Patterns Learned</span>
+                    <span class="stat-value" id="patterns-learned">0</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎯 System Status</h2>
+                <div class="stat">
+                    <span class="stat-label">Expert Level</span>
+                    <span class="stat-value" id="expert-level">Beginner</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Voice Verified</span>
+                    <span class="stat-value success" id="voice-verified">❌ No</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Best Timeframe</span>
+                    <span class="stat-value" id="best-timeframe">--</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Risk Tolerance</span>
+                    <span class="stat-value" id="risk-tolerance">--</span>
+                </div>
+                <button class="btn btn-primary" onclick="refreshProfile()" style="margin-top: 15px; width: 100%;">🔄 Refresh Data</button>
+            </div>
+            
+            <div class="card">
+                <h2>💡 System Insights</h2>
+                <ul class="insights-list" id="insights-list">
+                    <li>Loading insights...</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Improvement Suggestions -->
+        <div class="card full-width">
+            <h2>🚀 AI-Recommended Improvements</h2>
+            <div id="improvements-container">
+                <p>Loading improvements...</p>
+            </div>
+            <button class="btn btn-primary" onclick="applyAutoImprovements()" style="margin-top: 15px;">✨ Apply Auto-Improvements</button>
+        </div>
+        
+        <!-- Trading Stats -->
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Recent Trade Performance</h2>
+                <div class="stat">
+                    <span class="stat-label">Avg Win %</span>
+                    <span class="stat-value" id="avg-win">--%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Avg Loss %</span>
+                    <span class="stat-value critical" id="avg-loss">--%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Risk/Reward Ratio</span>
+                    <span class="stat-value" id="rr-ratio">--</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>⏰ Trading Hour Analysis</h2>
+                <div id="trading-hours">
+                    <p style="text-align: center; color: #94a3b8;">Loading hour analysis...</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎯 Entry Pattern Detection</h2>
+                <div id="entry-patterns">
+                    <p style="text-align: center; color: #94a3b8;">Analyzing patterns...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include the AI Voice Script -->
+    <script src="/static/jarvis_ai_voice.js"></script>
+    
+    <script>
+        // Voice Control Functions
+        function startListening() {
+            if (!JARVIS_AI.recognition) {
+                alert('Speech Recognition not available in your browser. Try Chrome or Edge.');
+                return;
+            }
+            try {
+                JARVIS_AI.recognition.start();
+                console.log('Listening started...');
+            } catch (e) {
+                console.error('Start listening error:', e);
+                alert('Error starting voice: ' + e.message);
+            }
+        }
+        
+        function stopListening() {
+            if (JARVIS_AI.recognition) {
+                JARVIS_AI.recognition.stop();
+                console.log('Listening stopped');
+            }
+        }
+        
+        async function refreshProfile() {
+            try {
+                const response = await fetch('/api/jarvis/learning-dashboard');
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error('API Error:', data.error);
+                    return;
+                }
+                
+                // Update profile
+                const p = data.profile;
+                document.getElementById('learning-score').textContent = p.learning_score;
+                document.getElementById('learning-progress').style.width = p.learning_score + '%';
+                document.getElementById('total-trades').textContent = p.trades;
+                document.getElementById('win-rate').textContent = p.win_rate + '%';
+                document.getElementById('patterns-learned').textContent = p.patterns_learned;
+                document.getElementById('expert-level').textContent = data.status;
+                document.getElementById('voice-verified').textContent = p.voice_verified ? 'Yes' : 'No';
+                document.getElementById('voice-verified').classList.toggle('success', p.voice_verified);
+                document.getElementById('best-timeframe').textContent = p.best_timeframe;
+                document.getElementById('risk-tolerance').textContent = (p.risk_tolerance * 100).toFixed(0) + '%';
+                
+                // Update insights
+                const insightsList = document.getElementById('insights-list');
+                if (data.insights && data.insights.length > 0) {
+                    insightsList.innerHTML = data.insights.map(i => `<li>${i}</li>`).join('');
+                }
+                
+                // Update improvements
+                const improvementsDiv = document.getElementById('improvements-container');
+                if (data.improvements && data.improvements.length > 0) {
+                    improvementsDiv.innerHTML = data.improvements.map((imp, i) => `
+                        <div style="padding: 12px; background: rgba(15, 23, 42, 0.5); margin: 10px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">
+                            <strong>${i+1}. ${imp.type}</strong><br>
+                            <span style="color: #94a3b8; font-size: 13px;">${imp.reason}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    improvementsDiv.innerHTML = '<p style="color: #22c55e;">System is optimal - no improvements needed!</p>';
+                }
+                
+            } catch (e) {
+                console.error('Profile refresh failed:', e);
+            }
+        }
+        
+        async function applyAutoImprovements() {
+            try {
+                const response = await fetch('/api/jarvis/auto-improve', { method: 'POST' });
+                const data = await response.json();
+                alert('Auto-improvements applied:\n' + data.improvements_made);
+                await refreshProfile();
+            } catch (e) {
+                alert('Auto-improve failed: ' + e);
+            }
+        }
+        
+        // Refresh profile on page load
+        window.addEventListener('load', () => {
+            console.log('Dashboard loaded');
+            refreshProfile();
+        });
+        
+        // Auto-refresh every 30 seconds
+        setInterval(refreshProfile, 30000);
+    </script>
+</body>
+</html>

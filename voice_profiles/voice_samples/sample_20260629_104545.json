@@ -1,0 +1,14 @@
+{
+  "sample_id": "sample_20260629_104545",
+  "timestamp": "2026-06-29T10:45:45.831020",
+  "characteristics": {
+    "pitch": 120,
+    "speed": 1.1,
+    "tone": "confident",
+    "confidence": 0.95,
+    "mfcc": [],
+    "duration": 2.5,
+    "noise_level": 0.1,
+    "transcript": "test command"
+  }
+}

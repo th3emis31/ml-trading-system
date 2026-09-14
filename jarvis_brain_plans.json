@@ -1,0 +1,94 @@
+[
+  {
+    "id": 1,
+    "timestamp": "2026-06-29T10:52:47.583469",
+    "status": "CLOSED",
+    "asset": "EURUSD",
+    "direction": "SELL",
+    "signal_strength": 0.72,
+    "confidence": 0.78,
+    "reasoning": {
+      "why": "Trend: DOWNTREND - Following market direction",
+      "market_conditions": {
+        "market": "MIXED"
+      },
+      "technical_signals": {
+        "rsi": 68,
+        "trend": "DOWNTREND"
+      },
+      "risk_assessment": "LOW RISK - High confidence, stable market",
+      "profit_potential": "MEDIUM - 72% potential"
+    },
+    "execution": {
+      "position_size": 750.0,
+      "entry_price": 1.085,
+      "stop_loss": 1.0459,
+      "take_profit": 1.1436,
+      "risk_reward_ratio": 0.1,
+      "risk_amount": 540.0,
+      "potential_profit": 43.94999999999999
+    },
+    "approval": {
+      "requested_at": "2026-06-29T10:52:47.583469",
+      "approved": true,
+      "approved_by": "USER",
+      "approved_at": "2026-06-29T10:53:05.377837",
+      "user_notes": "Good setup, let's execute this trade"
+    },
+    "execution_result": {
+      "executed": true,
+      "executed_at": "2026-06-29T10:53:13.056248",
+      "actual_entry": 1.085,
+      "actual_exit": 1.082,
+      "profit_loss": 250,
+      "status": "CLOSED"
+    }
+  },
+  {
+    "id": 2,
+    "timestamp": "2026-06-29T10:52:47.597902",
+    "status": "WAITING_APPROVAL",
+    "asset": "BTCUSD",
+    "direction": "BUY",
+    "signal_strength": 0.85,
+    "confidence": 0.82,
+    "reasoning": {
+      "why": "MACD showing positive crossover - momentum building | Trend: UPTREND - Following market direction",
+      "market_conditions": {
+        "market": "FAVORABLE",
+        "liquidity": "HIGH"
+      },
+      "technical_signals": {
+        "rsi": 32,
+        "trend": "UPTREND",
+        "macd": "positive_crossover"
+      },
+      "risk_assessment": "LOW RISK - High confidence, stable market",
+      "profit_potential": "HIGH - 85% potential"
+    },
+    "execution": {
+      "position_size": 835.0,
+      "entry_price": 45000,
+      "stop_loss": 42750.0,
+      "take_profit": 48375.0,
+      "risk_reward_ratio": 0.15,
+      "risk_amount": 709.75,
+      "potential_profit": 2818125.0
+    },
+    "approval": {
+      "requested_at": "2026-06-29T10:52:47.601845",
+      "approved": false,
+      "approved_by": null,
+      "approved_at": null,
+      "user_notes": null
+    },
+    "execution_result": {
+      "executed": false,
+      "executed_at": null,
+      "actual_entry": null,
+      "actual_exit": null,
+      "profit_loss": null,
+      "status": "PENDING"
+    }
+  }
+]

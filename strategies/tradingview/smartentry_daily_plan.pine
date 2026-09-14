@@ -1,0 +1,238 @@
+//@version=5
+// SmartEntry Daily Plan - Swing Trend Pullback (long only)
+// Same rules and default inputs as the SwingTrendPullback MT5 expert running on the demo account
+// (SwingTrendPullback_XAUUSD_H4_tradingview.set). Use it on XAUUSD H4.
+// Draws the live plan (entry, stop, target, trailing stop), daily support / resistance and swing levels,
+// and a daily plan table. Levels use completed candles only, so they do not repaint.
+// A research plan, not financial advice: no strategy has passed the system's full evidence test yet. Demo first.
+indicator("SmartEntry Daily Plan - Swing Trend Pullback", shorttitle="SmartEntry Plan", overlay=true, max_lines_count=200, max_labels_count=200)
+
+// ---------------------------------------------------------------- inputs
+grpS = "Strategy (same as the SwingTrendPullback EA)"
+emaFastLen = input.int(21, "Fast EMA (pullback line)", minval=1, group=grpS)
+emaSlowLen = input.int(51, "Slow EMA (trend filter)", minval=1, group=grpS)
+slopeLb = input.int(1, "Fast EMA slope lookback (bars)", minval=1, group=grpS)
+trendLen = input.int(0, "Extra trend EMA (0 = off)", minval=0, group=grpS)
+pushLb = input.int(15, "Momentum push lookback (bars)", minval=1, group=grpS)
+pushAtr = input.float(0.5, "Min push beyond slow EMA (x ATR)", step=0.05, group=grpS)
+tolAtr = input.float(0.55, "Pullback tolerance (x ATR)", step=0.05, group=grpS)
+needBull = input.bool(true, "Require bullish close on the signal bar", group=grpS)
+useRsi = input.bool(true, "RSI filter", group=grpS)
+rsiLen = input.int(14, "RSI length", minval=1, group=grpS)
+rsiMin = input.float(40.0, "Minimum RSI", group=grpS)
+atrLen = input.int(12, "ATR length", minval=1, group=grpS)
+stopMode = input.string("Swing", "Stop placement", options=["Swing", "ATR"], group=grpS)
+slMult = input.float(1.5, "Stop distance (x ATR)", step=0.1, group=grpS)
+swingLb = input.int(5, "Swing low lookback for the stop (bars)", minval=1, group=grpS)
+rr = input.float(2.0, "Reward : risk", step=0.1, group=grpS)
+trailAtr = input.float(4.5, "Trailing stop (x ATR, 0 = off)", step=0.1, minval=0.0, group=grpS)
+maxBars = input.int(150, "Max bars in trade", minval=1, group=grpS)
+
+grpL = "Support and resistance"
+showDaily = input.bool(true, "Previous day high / low / close", group=grpL)
+showRanges = input.bool(true, "5, 20 and 55-day high / low", group=grpL)
+showSwings = input.bool(true, "Swing highs / lows", group=grpL)
+pivotLen = input.int(10, "Swing strength (bars on each side)", minval=2, group=grpL)
+pivotKeep = input.int(3, "Swing levels kept on each side", minval=1, maxval=10, group=grpL)
+
+grpD = "Display"
+showZone = input.bool(true, "Pullback buy zone (fast EMA +/- tolerance)", group=grpD)
+showTable = input.bool(true, "Daily plan table", group=grpD)
+tablePos = input.string("Top right", "Table position", options=["Top right", "Top left", "Bottom right", "Bottom left"], group=grpD)
+
+// ---------------------------------------------------------------- strategy conditions (closed bars, like the EA)
+emaF = ta.ema(close, emaFastLen)
+emaS = ta.ema(close, emaSlowLen)
+emaT = trendLen > 0 ? ta.ema(close, trendLen) : na
+atr = ta.atr(atrLen)
+rsi = ta.rsi(close, rsiLen)
+tol = tolAtr * atr
+lowestSwing = ta.lowest(low, swingLb)
+
+trendUp = emaF > emaS and emaF > emaF[slopeLb]
+pushUp = ta.highest(high - emaS, pushLb) > pushAtr * atr
+touchUp = low <= emaF + tol and close >= emaF - tol and close > emaS
+bullOk = not needBull or close > open
+rsiOk = not useRsi or rsi > rsiMin
+filterOk = trendLen == 0 or close > emaT
+stopNow = stopMode == "Swing" ? math.min(lowestSwing, emaF) - slMult * atr : close - slMult * atr
+buySignal = barstate.isconfirmed and trendUp and pushUp and touchUp and bullOk and rsiOk and filterOk and close - stopNow > 0
+
+// ---------------------------------------------------------------- follow the trade (stop checked before target, trailing from closed bars)
+var float tEntry = na
+var float tStop = na
+var float tInitStop = na
+var float tTarget = na
+var float tHigh = na
+var int tBar = na
+var string tState = "none"
+
+if tState == "open" and bar_index > tBar
+    if trailAtr > 0
+        tStop := math.max(tStop, tHigh - trailAtr * atr[1])
+    if low <= tStop
+        tState := tStop > tInitStop ? "trail" : "sl"
+    else if high >= tTarget
+        tState := "tp"
+    else if bar_index - tBar >= maxBars
+        tState := "time"
+    tHigh := math.max(tHigh, high)
+
+if buySignal and tState != "open"
+    tEntry := close
+    tInitStop := stopNow
+    tStop := stopNow
+    tTarget := close + rr * (close - stopNow)
+    tHigh := high
+    tBar := bar_index
+    tState := "open"
+
+closedNow = tState[1] == "open" and tState != "open"
+tpHit = closedNow and tState == "tp"
+slHit = closedNow and (tState == "sl" or tState == "trail")
+
+// ---------------------------------------------------------------- daily levels (previous completed days only)
+[pdH, pdL, pdC] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead=barmerge.lookahead_on)
+[h5, l5, h20, l20, h55, l55] = request.security(syminfo.tickerid, "D", [ta.highest(high, 5)[1], ta.lowest(low, 5)[1], ta.highest(high, 20)[1], ta.lowest(low, 20)[1], ta.highest(high, 55)[1], ta.lowest(low, 55)[1]], lookahead=barmerge.lookahead_on)
+[dE50, dE200, dRsi] = request.security(syminfo.tickerid, "D", [ta.ema(close, 50)[1], ta.ema(close, 200)[1], ta.rsi(close, 14)[1]], lookahead=barmerge.lookahead_on)
+
+// ---------------------------------------------------------------- swing highs / lows
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+var float[] swingHi = array.new_float()
+var int[] swingHiBar = array.new_int()
+var float[] swingLo = array.new_float()
+var int[] swingLoBar = array.new_int()
+if not na(ph)
+    array.push(swingHi, ph)
+    array.push(swingHiBar, bar_index - pivotLen)
+    if array.size(swingHi) > pivotKeep
+        array.shift(swingHi)
+        array.shift(swingHiBar)
+if not na(pl)
+    array.push(swingLo, pl)
+    array.push(swingLoBar, bar_index - pivotLen)
+    if array.size(swingLo) > pivotKeep
+        array.shift(swingLo)
+        array.shift(swingLoBar)
+
+// ---------------------------------------------------------------- plots and markers
+plot(emaF, "Fast EMA", color=color.new(color.orange, 0), linewidth=2)
+plot(emaS, "Slow EMA", color=color.new(color.blue, 0), linewidth=2)
+plot(emaT, "Extra trend EMA", color=color.new(color.purple, 0), linewidth=1)
+zoneTop = plot(showZone and trendUp ? emaF + tol : na, "Buy zone top", color=color.new(color.teal, 100))
+zoneBottom = plot(showZone and trendUp ? emaF - tol : na, "Buy zone bottom", color=color.new(color.teal, 100))
+fill(zoneTop, zoneBottom, color=color.new(color.teal, 85), title="Pullback buy zone")
+plotshape(buySignal, "Buy setup", shape.triangleup, location.belowbar, color.new(color.lime, 0), text="BUY", textcolor=color.lime, size=size.small)
+plotshape(tpHit, "Target hit", shape.flag, location.abovebar, color.new(color.lime, 0), text="TP", textcolor=color.lime, size=size.tiny)
+plotshape(slHit, "Stop hit", shape.xcross, location.belowbar, color.new(color.red, 0), text="SL", textcolor=color.red, size=size.tiny)
+
+alertcondition(buySignal, "SmartEntry BUY setup", "SmartEntry: BUY setup on {{ticker}} {{interval}}, close {{close}}")
+alertcondition(tpHit, "SmartEntry target hit", "SmartEntry: target hit on {{ticker}} {{interval}}")
+alertcondition(slHit, "SmartEntry stop hit", "SmartEntry: stop hit on {{ticker}} {{interval}}")
+
+// ---------------------------------------------------------------- drawing helpers
+var line[] drawnLines = array.new_line()
+var label[] drawnLabels = array.new_label()
+
+addLevel(float price, int fromBar, color lineColor, string caption, string lineStyle, int lineWidth) =>
+    if not na(price)
+        array.push(drawnLines, line.new(fromBar, price, bar_index + 20, price, color=lineColor, style=lineStyle, width=lineWidth))
+        array.push(drawnLabels, label.new(bar_index + 20, price, caption + "  " + str.tostring(price, format.mintick), style=label.style_label_left, color=color.new(lineColor, 15), textcolor=color.white, size=size.small))
+
+fmtPrice(float value) =>
+    na(value) ? "-" : str.tostring(value, format.mintick)
+
+tPos = tablePos == "Top left" ? position.top_left : tablePos == "Bottom right" ? position.bottom_right : tablePos == "Bottom left" ? position.bottom_left : position.top_right
+var table plan = table.new(tPos, 2, 14, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+
+planRow(int row, string key, string value, color valueColor) =>
+    table.cell(plan, 0, row, key, text_color=color.new(#94a3b8, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(plan, 1, row, value, text_color=valueColor, text_size=size.small, text_halign=text.align_left)
+
+// ---------------------------------------------------------------- the plan on the last bar
+if barstate.islast
+    while array.size(drawnLines) > 0
+        line.delete(array.pop(drawnLines))
+    while array.size(drawnLabels) > 0
+        label.delete(array.pop(drawnLabels))
+
+    levelsFrom = math.max(0, bar_index - 60)
+    if showDaily
+        addLevel(pdH, levelsFrom, color.new(color.red, 35), "Prev day high", line.style_dashed, 1)
+        addLevel(pdL, levelsFrom, color.new(color.green, 35), "Prev day low", line.style_dashed, 1)
+        addLevel(pdC, levelsFrom, color.new(color.gray, 35), "Prev day close", line.style_dotted, 1)
+    if showRanges
+        addLevel(h5, levelsFrom, color.new(color.red, 55), "5-day high", line.style_dotted, 1)
+        addLevel(l5, levelsFrom, color.new(color.green, 55), "5-day low", line.style_dotted, 1)
+        addLevel(h20, levelsFrom, color.new(color.red, 45), "20-day high", line.style_dotted, 1)
+        addLevel(l20, levelsFrom, color.new(color.green, 45), "20-day low", line.style_dotted, 1)
+        addLevel(h55, levelsFrom, color.new(color.red, 35), "55-day high", line.style_dotted, 1)
+        addLevel(l55, levelsFrom, color.new(color.green, 35), "55-day low", line.style_dotted, 1)
+    if showSwings and array.size(swingHi) > 0
+        for i = 0 to array.size(swingHi) - 1
+            addLevel(array.get(swingHi, i), array.get(swingHiBar, i), color.new(color.maroon, 10), "Resistance (swing high)", line.style_solid, 2)
+    if showSwings and array.size(swingLo) > 0
+        for i = 0 to array.size(swingLo) - 1
+            addLevel(array.get(swingLo, i), array.get(swingLoBar, i), color.new(color.teal, 10), "Support (swing low)", line.style_solid, 2)
+
+    // nearest support and resistance around the current price
+    float[] levelValues = array.from(pdH, pdL, pdC, h5, l5, h20, l20, h55, l55)
+    string[] levelNames = array.from("Prev day high", "Prev day low", "Prev day close", "5-day high", "5-day low", "20-day high", "20-day low", "55-day high", "55-day low")
+    if array.size(swingHi) > 0
+        for i = 0 to array.size(swingHi) - 1
+            array.push(levelValues, array.get(swingHi, i))
+            array.push(levelNames, "Swing high")
+    if array.size(swingLo) > 0
+        for i = 0 to array.size(swingLo) - 1
+            array.push(levelValues, array.get(swingLo, i))
+            array.push(levelNames, "Swing low")
+    float nearRes = na
+    string nearResName = ""
+    float nearSup = na
+    string nearSupName = ""
+    for i = 0 to array.size(levelValues) - 1
+        v = array.get(levelValues, i)
+        if not na(v)
+            if v > close and (na(nearRes) or v < nearRes)
+                nearRes := v
+                nearResName := array.get(levelNames, i)
+            if v < close and (na(nearSup) or v > nearSup)
+                nearSup := v
+                nearSupName := array.get(levelNames, i)
+
+    // plan: the open trade, or the conditional pullback plan while the setup is forming
+    active = tState == "open"
+    forming = trendUp and pushUp and filterOk
+    pullbackStop = stopMode == "Swing" ? math.min(lowestSwing, emaF) - slMult * atr : emaF - slMult * atr
+    planEntry = active ? tEntry : forming ? emaF : na
+    planStop = active ? tStop : forming ? pullbackStop : na
+    planTarget = active ? tTarget : forming and emaF > pullbackStop ? emaF + rr * (emaF - pullbackStop) : na
+    planFrom = active ? tBar : math.max(0, bar_index - 8)
+    addLevel(planEntry, planFrom, color.new(color.aqua, 0), active ? "ENTRY" : "IF pullback: entry near fast EMA", line.style_solid, 3)
+    addLevel(planStop, planFrom, color.new(color.red, 0), active ? (tStop > tInitStop ? "TRAILING STOP" : "STOP LOSS") : "IF pullback: stop loss", line.style_solid, 3)
+    addLevel(planTarget, planFrom, color.new(color.lime, 0), active ? "TAKE PROFIT (" + str.tostring(rr, "#.#") + "R)" : "IF pullback: take profit", line.style_solid, 3)
+
+    if showTable
+        biasBull = close > dE50 and dE50 > dE200
+        biasBear = close < dE50 and dE50 < dE200
+        biasText = (biasBull ? "Bullish" : biasBear ? "Bearish" : "Mixed") + " (daily EMA50/200) · RSI " + str.tostring(dRsi, "#.0")
+        setupText = active ? "BUY ACTIVE since " + str.format_time(time[bar_index - tBar], "MM-dd HH:mm", "UTC") + " UTC" : buySignal ? "NEW BUY SETUP (enter next bar)" : forming ? "WAIT: pullback into the buy zone" : "NO TRADE: trend not up"
+        setupColor = active or buySignal ? color.lime : forming ? color.yellow : color.new(#94a3b8, 0)
+        risk = planEntry - planStop
+        table.cell(plan, 0, 0, "SmartEntry Daily Plan", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0369a1, 20), text_halign=text.align_left)
+        table.cell(plan, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color=color.white, text_size=size.normal, bgcolor=color.new(#0369a1, 20), text_halign=text.align_left)
+        planRow(1, "Updated (UTC)", str.format_time(timenow, "yyyy-MM-dd HH:mm", "UTC"), color.white)
+        planRow(2, "Daily bias", biasText, biasBull ? color.lime : biasBear ? color.red : color.yellow)
+        planRow(3, "Setup", setupText, setupColor)
+        planRow(4, active ? "Entry" : "Entry (if pullback)", fmtPrice(planEntry), color.aqua)
+        planRow(5, active ? "Stop loss" : "Stop (if pullback)", fmtPrice(planStop) + (active and tStop > tInitStop ? "  (trailing, was " + fmtPrice(tInitStop) + ")" : ""), color.red)
+        planRow(6, active ? "Take profit" : "Target (if pullback)", fmtPrice(planTarget), color.lime)
+        planRow(7, "Risk per unit", na(risk) ? "-" : fmtPrice(risk) + " (" + str.tostring(risk / atr, "#.0") + " ATR) · " + str.tostring(rr, "#.#") + "R target", color.white)
+        planRow(8, "Nearest resistance", na(nearRes) ? "-" : nearResName + " " + fmtPrice(nearRes) + " (+" + str.tostring((nearRes - close) / atr, "#.0") + " ATR)", color.new(#fda4af, 0))
+        planRow(9, "Nearest support", na(nearSup) ? "-" : nearSupName + " " + fmtPrice(nearSup) + " (-" + str.tostring((close - nearSup) / atr, "#.0") + " ATR)", color.new(#86efac, 0))
+        planRow(10, "Prev day H / L", fmtPrice(pdH) + " / " + fmtPrice(pdL), color.white)
+        checks = (trendUp ? "✔" : "✖") + " trend  " + (pushUp ? "✔" : "✖") + " push  " + (touchUp ? "✔" : "✖") + " pullback  " + (bullOk ? "✔" : "✖") + " close  " + (rsiOk ? "✔" : "✖") + " RSI"
+        planRow(11, "Conditions (last bar)", checks, color.white)
+        planRow(12, "Timeframe", timeframe.period == "240" ? "H4: same as the EA" : "Switch to H4 to match the EA", timeframe.period == "240" ? color.lime : color.yellow)
+        planRow(13, "Note", "Research plan, not advice · demo first", color.new(#94a3b8, 0))

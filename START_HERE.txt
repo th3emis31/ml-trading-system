@@ -1,0 +1,72 @@
+# JARVIS - 5 SIMPLE STEPS
+
+## STEP 1: Open Browser
+- Look for Chrome, Firefox, or Edge icon on desktop
+- Double-click it
+- Wait for browser to open
+
+## STEP 2: Copy This Address
+```
+http://127.0.0.1:5001/jarvis-voice
+```
+
+## STEP 3: Paste Address in Browser
+1. Click in the address bar (top of browser)
+2. Paste the address above
+3. Press ENTER key
+4. Wait 5 seconds for page to load
+
+## STEP 4: Click ALLOW for Microphone
+- Browser will ask permission
+- Click BLUE "ALLOW" button
+- Microphone is now ready
+
+## STEP 5: Use Voice
+1. Click the big MICROPHONE circle
+2. Say: **"Hey JARVIS, hello"**
+3. JARVIS will respond
+4. Done!
+
+---
+
+## EXAMPLE COMMANDS
+
+Try saying these after clicking microphone:
+
+```
+"Hey JARVIS, hello"
+"Hey JARVIS, what is the time"
+"Hey JARVIS, what is the price of gold"
+"Hey JARVIS, analyze EURUSD"
+"Hey JARVIS, market analysis"
+```
+
+---
+
+## QUICK CHECKLIST
+
+- [ ] Browser is open
+- [ ] Address typed: http://127.0.0.1:5001/jarvis-voice
+- [ ] Page loaded (see JARVIS logo)
+- [ ] Clicked ALLOW for microphone
+- [ ] Clicked microphone circle (it turns red)
+- [ ] Said "Hey JARVIS, hello"
+- [ ] JARVIS responded with voice
+
+---
+
+## IF ERROR APPEARS
+
+Try this:
+
+1. Close browser
+2. Wait 10 seconds
+3. Reopen browser
+4. Go to same address again
+5. Try microphone button again
+
+---
+
+## THAT'S ALL!
+
+Your JARVIS is ready to use!

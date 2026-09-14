@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Voice Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        button {
+            padding: 15px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .btn-start {
+            background: #22c55e;
+            color: white;
+        }
+        .btn-start:hover {
+            background: #16a34a;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(34, 197, 94, 0.4);
+        }
+        .btn-stop {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-stop:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+        }
+        .btn-test {
+            background: #0099ff;
+            color: white;
+            grid-column: 1 / -1;
+        }
+        .btn-test:hover {
+            background: #0077cc;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 153, 255, 0.4);
+        }
+        .status-box {
+            background: #f3f4f6;
+            border-left: 4px solid #0099ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            min-height: 100px;
+        }
+        .status-title {
+            color: #666;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .status-text {
+            color: #333;
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .transcript {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 10px;
+            font-style: italic;
+            color: #0099ff;
+            min-height: 30px;
+        }
+        .interim { color: #999; }
+        .final { color: #333; font-weight: bold; }
+        .error {
+            background: #fee;
+            border-left-color: #ef4444;
+            color: #dc2626;
+        }
+        .success {
+            background: #efe;
+            border-left-color: #22c55e;
+            color: #16a34a;
+        }
+        .command-buttons {
+            display: grid;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .cmd-btn {
+            padding: 12px;
+            background: #f3f4f6;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: #333;
+        }
+        .cmd-btn:hover {
+            background: #e5e7eb;
+            border-color: #0099ff;
+        }
+        .cmd-btn.active {
+            background: #0099ff;
+            color: white;
+            border-color: #0099ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 JARVIS Voice Test</h1>
+        <p class="subtitle">Test your microphone and voice commands</p>
+
+        <div class="button-group">
+            <button class="btn-start" onclick="startListening()">🎤 START LISTENING</button>
+            <button class="btn-stop" onclick="stopListening()">⏹️ STOP</button>
+            <button class="btn-test" onclick="testBrowserSupport()">🔍 CHECK MICROPHONE</button>
+        </div>
+
+        <div class="status-box" id="statusBox">
+            <div class="status-title">Status</div>
+            <div class="status-text">Ready to test</div>
+            <div class="transcript">Click START LISTENING to begin...</div>
+        </div>
+
+        <div class="command-buttons">
+            <button class="cmd-btn" onclick="simulateCommand('start briefing')">📋 Start Briefing</button>
+            <button class="cmd-btn" onclick="simulateCommand('recommend trades')">💹 Recommend Trades</button>
+            <button class="cmd-btn" onclick="simulateCommand('market analysis')">📊 Market Analysis</button>
+            <button class="cmd-btn" onclick="simulateCommand('stop')">🛑 Stop</button>
+        </div>
+    </div>
+
+    <script>
+        let recognition;
+        let isListening = false;
+        let lastTranscript = '';
+
+        // Initialize Web Speech API
+        function initializeRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                updateStatus('❌ Web Speech API NOT supported in your browser', 'error');
+                return false;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                console.log('[Voice Test] Recognition started');
+                isListening = true;
+                updateStatus('🎤 Listening... speak now!', 'success');
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript + ' ';
+                        lastTranscript = transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                updateTranscript(finalTranscript, interimTranscript);
+                
+                if (finalTranscript) {
+                    console.log('[Voice Test] HEARD:', finalTranscript);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('[Voice Test] Error:', event.error);
+                updateStatus(`❌ Error: ${event.error}`, 'error');
+            };
+
+            recognition.onend = () => {
+                console.log('[Voice Test] Recognition ended');
+                isListening = false;
+                // Auto-restart if still needed
+                if (isListeningRequested) {
+                    setTimeout(() => recognition.start(), 500);
+                }
+            };
+
+            return true;
+        }
+
+        let isListeningRequested = false;
+
+        function startListening() {
+            if (!recognition) {
+                if (!initializeRecognition()) {
+                    return;
+                }
+            }
+
+            try {
+                isListeningRequested = true;
+                recognition.start();
+                console.log('[Voice Test] START command sent');
+            } catch (e) {
+                if (e.message === 'speech recognition has already started') {
+                    console.log('[Voice Test] Already listening');
+                    updateStatus('🎤 Already listening...', 'success');
+                } else {
+                    console.error('[Voice Test] Error starting:', e);
+                    updateStatus(`❌ Error: ${e.message}`, 'error');
+                }
+            }
+        }
+
+        function stopListening() {
+            isListeningRequested = false;
+            if (recognition) {
+                recognition.stop();
+                updateStatus('⏹️ Stopped listening', 'info');
+            }
+        }
+
+        function updateStatus(message, type = 'info') {
+            const box = document.getElementById('statusBox');
+            box.className = 'status-box ' + type;
+            const text = box.querySelector('.status-text');
+            text.textContent = message;
+        }
+
+        function updateTranscript(final, interim) {
+            const box = document.getElementById('statusBox');
+            const transcript = box.querySelector('.transcript');
+            
+            if (interim) {
+                transcript.innerHTML = `<span class="interim">${interim}</span>`;
+            }
+            if (final) {
+                transcript.innerHTML += `<span class="final">${final}</span>`;
+            }
+            if (!final && !interim) {
+                transcript.textContent = 'Waiting...';
+            }
+        }
+
+        function testBrowserSupport() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                updateStatus('❌ Web Speech API NOT supported - Try Chrome, Edge, or Safari', 'error');
+                return;
+            }
+
+            updateStatus('✓ Web Speech API supported - Ready to use', 'success');
+
+            // Test microphone access
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(() => {
+                    updateStatus('✓ Microphone access GRANTED - System ready!', 'success');
+                })
+                .catch((err) => {
+                    if (err.name === 'NotAllowedError') {
+                        updateStatus('❌ Microphone access DENIED - Check browser permissions', 'error');
+                    } else if (err.name === 'NotFoundError') {
+                        updateStatus('❌ No microphone found - Check hardware', 'error');
+                    } else {
+                        updateStatus(`❌ Error: ${err.message}`, 'error');
+                    }
+                });
+        }
+
+        function simulateCommand(command) {
+            const buttons = document.querySelectorAll('.cmd-btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            updateTranscript(command, '');
+            updateStatus(`📢 Simulated: "${command}"`, 'success');
+            
+            setTimeout(() => {
+                event.target.classList.remove('active');
+            }, 500);
+        }
+
+        // Test on page load
+        window.addEventListener('load', () => {
+            console.log('[Voice Test] Page loaded');
+            initializeRecognition();
+            testBrowserSupport();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "created_at": "2026-06-29T10:45:45.831020",
+  "voice_commands": {
+    "buy bitcoin": 1
+  },
+  "trading_preferences": {
+    "favorite_assets": {
+      "BTCUSD": 1
+    },
+    "preferred_direction": "both",
+    "risk_tolerance": "medium",
+    "timeframe": "1h",
+    "avg_position_size": 0
+  },
+  "profitable_patterns": [],
+  "losing_patterns": [],
+  "voice_command_history": [
+    {
+      "timestamp": "2026-06-29T10:45:45.831020",
+      "command": "buy bitcoin",
+      "asset": "BTCUSD",
+      "action": "BUY",
+      "confidence": 0.92
+    }
+  ],
+  "trading_history": [
+    {
+      "timestamp": "2026-06-29T10:47:00.719513",
+      "asset": "BTCUSD",
+      "direction": "BUY",
+      "entry": 42000,
+      "exit": 43000,
+      "profit": 1000,
+      "loss": 0,
+      "win": true
+    }
+  ],
+  "accuracy_metrics": {
+    "wins": 1,
+    "losses": 0,
+    "win_rate": 100.0,
+    "avg_profit": 1000.0,
+    "avg_loss": 0.0
+  },
+  "learning_stage": "beginner",
+  "learning_progress": 3.3000000000000003
+}

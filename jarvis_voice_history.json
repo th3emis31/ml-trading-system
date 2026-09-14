@@ -1,0 +1,16 @@
+[
+  {
+    "timestamp": "2026-06-29T08:39:09.568510",
+    "command": "trade",
+    "transcript": "open trade",
+    "success": true,
+    "execution_time_ms": 0.0
+  },
+  {
+    "timestamp": "2026-06-29T08:39:48.987054",
+    "command": "trade",
+    "transcript": "open trade eurusd",
+    "success": true,
+    "execution_time_ms": 0.0
+  }
+]
