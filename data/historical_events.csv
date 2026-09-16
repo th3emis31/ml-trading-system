@@ -1,0 +1,414 @@
+event,date_et,time_et,datetime_utc,tier,currency,source,note
+NFP,2018-01-05,08:30,2018-01-05 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2017 Employment Situation (PDF)
+CPI,2018-01-12,08:30,2018-01-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2017 Consumer Price Index (PDF)
+FOMC_DECISION,2018-01-31,14:00,2018-01-31 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2018-02-02,08:30,2018-02-02 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2018 Employment Situation (PDF)
+CPI,2018-02-14,08:30,2018-02-14 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-02-21,14:00,2018-02-21 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-01-31 meeting
+NFP,2018-03-09,08:30,2018-03-09 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2018 Employment Situation (PDF)
+CPI,2018-03-13,08:30,2018-03-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2018-03-21,14:00,2018-03-21 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+FOMC_PRESS_CONFERENCE,2018-03-21,14:30,2018-03-21 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2018-04-06,08:30,2018-04-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2018 Employment Situation (PDF)
+CPI,2018-04-11,08:30,2018-04-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-04-11,14:00,2018-04-11 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-03-21 meeting
+FOMC_DECISION,2018-05-02,14:00,2018-05-02 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2018-05-04,08:30,2018-05-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2018 Employment Situation (PDF)
+CPI,2018-05-10,08:30,2018-05-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-05-23,14:00,2018-05-23 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-05-02 meeting
+NFP,2018-06-01,08:30,2018-06-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2018 Employment Situation (PDF)
+CPI,2018-06-12,08:30,2018-06-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2018-06-13,14:00,2018-06-13 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+FOMC_PRESS_CONFERENCE,2018-06-13,14:30,2018-06-13 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+FOMC_MINUTES,2018-07-05,14:00,2018-07-05 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-06-13 meeting
+NFP,2018-07-06,08:30,2018-07-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2018 Employment Situation (PDF)
+CPI,2018-07-12,08:30,2018-07-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2018-08-01,14:00,2018-08-01 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2018-08-03,08:30,2018-08-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2018 Employment Situation (PDF)
+CPI,2018-08-10,08:30,2018-08-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-08-22,14:00,2018-08-22 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-08-01 meeting
+NFP,2018-09-07,08:30,2018-09-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2018 Employment Situation (PDF)
+CPI,2018-09-13,08:30,2018-09-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2018-09-26,14:00,2018-09-26 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+FOMC_PRESS_CONFERENCE,2018-09-26,14:30,2018-09-26 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2018-10-05,08:30,2018-10-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2018 Employment Situation (PDF)
+CPI,2018-10-11,08:30,2018-10-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-10-17,14:00,2018-10-17 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-09-26 meeting
+NFP,2018-11-02,08:30,2018-11-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2018 Employment Situation (PDF)
+FOMC_DECISION,2018-11-08,14:00,2018-11-08 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+CPI,2018-11-14,08:30,2018-11-14 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2018 Consumer Price Index (PDF)
+FOMC_MINUTES,2018-11-29,14:00,2018-11-29 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-11-08 meeting
+NFP,2018-12-07,08:30,2018-12-07 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2018 Employment Situation (PDF)
+CPI,2018-12-12,08:30,2018-12-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2018-12-19,14:00,2018-12-19 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+FOMC_PRESS_CONFERENCE,2018-12-19,14:30,2018-12-19 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,
+NFP,2019-01-04,08:30,2019-01-04 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2018 Employment Situation (PDF)
+FOMC_MINUTES,2019-01-09,14:00,2019-01-09 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm,minutes of the 2018-12-19 meeting
+CPI,2019-01-11,08:30,2019-01-11 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2018 Consumer Price Index (PDF)
+FOMC_DECISION,2019-01-30,14:00,2019-01-30 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-01-30,14:30,2019-01-30 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-02-01,08:30,2019-02-01 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2019 Employment Situation (PDF)
+CPI,2019-02-13,08:30,2019-02-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2019 Consumer Price Index (PDF)
+FOMC_MINUTES,2019-02-20,14:00,2019-02-20 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-01-30 meeting
+NFP,2019-03-08,08:30,2019-03-08 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2019 Employment Situation (PDF)
+CPI,2019-03-12,08:30,2019-03-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-03-20,14:00,2019-03-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-03-20,14:30,2019-03-20 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-04-05,08:30,2019-04-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2019 Employment Situation (PDF)
+CPI,2019-04-10,08:30,2019-04-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2019 Consumer Price Index (PDF)
+FOMC_MINUTES,2019-04-10,14:00,2019-04-10 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-03-20 meeting
+FOMC_DECISION,2019-05-01,14:00,2019-05-01 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-05-01,14:30,2019-05-01 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-05-03,08:30,2019-05-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2019 Employment Situation (PDF)
+CPI,2019-05-10,08:30,2019-05-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2019 Consumer Price Index (PDF)
+FOMC_MINUTES,2019-05-22,14:00,2019-05-22 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-05-01 meeting
+NFP,2019-06-07,08:30,2019-06-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2019 Employment Situation (PDF)
+CPI,2019-06-12,08:30,2019-06-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-06-19,14:00,2019-06-19 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-06-19,14:30,2019-06-19 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-07-05,08:30,2019-07-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2019 Employment Situation (PDF)
+FOMC_MINUTES,2019-07-10,14:00,2019-07-10 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-06-19 meeting
+CPI,2019-07-11,08:30,2019-07-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-07-31,14:00,2019-07-31 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-07-31,14:30,2019-07-31 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-08-02,08:30,2019-08-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2019 Employment Situation (PDF)
+CPI,2019-08-13,08:30,2019-08-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2019 Consumer Price Index (PDF)
+FOMC_MINUTES,2019-08-21,14:00,2019-08-21 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-07-31 meeting
+NFP,2019-09-06,08:30,2019-09-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2019 Employment Situation (PDF)
+CPI,2019-09-12,08:30,2019-09-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-09-18,14:00,2019-09-18 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-09-18,14:30,2019-09-18 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-10-04,08:30,2019-10-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2019 Employment Situation (PDF)
+FOMC_MINUTES,2019-10-09,14:00,2019-10-09 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-09-18 meeting
+CPI,2019-10-10,08:30,2019-10-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-10-30,14:00,2019-10-30 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-10-30,14:30,2019-10-30 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+NFP,2019-11-01,08:30,2019-11-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2019 Employment Situation (PDF)
+CPI,2019-11-13,08:30,2019-11-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2019 Consumer Price Index (PDF)
+FOMC_MINUTES,2019-11-20,14:00,2019-11-20 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-10-30 meeting
+NFP,2019-12-06,08:30,2019-12-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2019 Employment Situation (PDF)
+CPI,2019-12-11,08:30,2019-12-11 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2019-12-11,14:00,2019-12-11 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_PRESS_CONFERENCE,2019-12-11,14:30,2019-12-11 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,
+FOMC_MINUTES,2020-01-03,14:00,2020-01-03 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm,minutes of the 2019-12-11 meeting
+NFP,2020-01-10,08:30,2020-01-10 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2019 Employment Situation (PDF)
+CPI,2020-01-14,08:30,2020-01-14 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2019 Consumer Price Index (PDF)
+FOMC_DECISION,2020-01-29,14:00,2020-01-29 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-01-29,14:30,2020-01-29 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+NFP,2020-02-07,08:30,2020-02-07 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2020 Employment Situation (PDF)
+CPI,2020-02-13,08:30,2020-02-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2020 Consumer Price Index (PDF)
+FOMC_MINUTES,2020-02-19,14:00,2020-02-19 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-01-29 meeting
+FOMC_UNSCHEDULED,2020-03-03,,,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,"March 2 (unscheduled) meeting, statement released March 3, 2020; no release time on the Fed page, so it is not applied as a timed window"
+NFP,2020-03-06,08:30,2020-03-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2020 Employment Situation (PDF)
+CPI,2020-03-11,08:30,2020-03-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2020 Consumer Price Index (PDF)
+FOMC_UNSCHEDULED,2020-03-15,,,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,"March 15 (unscheduled) meeting; no release time on the Fed page, so it is not applied as a timed window"
+NFP,2020-04-03,08:30,2020-04-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2020 Employment Situation (PDF)
+CPI,2020-04-10,08:30,2020-04-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-04-29,14:00,2020-04-29 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-04-29,14:30,2020-04-29 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+NFP,2020-05-08,08:30,2020-05-08 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2020 Employment Situation (PDF)
+CPI,2020-05-12,08:30,2020-05-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2020 Consumer Price Index (PDF)
+FOMC_MINUTES,2020-05-20,14:00,2020-05-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-04-29 meeting
+NFP,2020-06-05,08:30,2020-06-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2020 Employment Situation (PDF)
+CPI,2020-06-10,08:30,2020-06-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-06-10,14:00,2020-06-10 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-06-10,14:30,2020-06-10 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_MINUTES,2020-07-01,14:00,2020-07-01 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-06-10 meeting
+NFP,2020-07-02,08:30,2020-07-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2020 Employment Situation (PDF)
+CPI,2020-07-14,08:30,2020-07-14 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-07-29,14:00,2020-07-29 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-07-29,14:30,2020-07-29 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+NFP,2020-08-07,08:30,2020-08-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2020 Employment Situation (PDF)
+CPI,2020-08-12,08:30,2020-08-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2020 Consumer Price Index (PDF)
+FOMC_MINUTES,2020-08-19,14:00,2020-08-19 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-07-29 meeting
+NFP,2020-09-04,08:30,2020-09-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2020 Employment Situation (PDF)
+CPI,2020-09-11,08:30,2020-09-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-09-16,14:00,2020-09-16 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-09-16,14:30,2020-09-16 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+NFP,2020-10-02,08:30,2020-10-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2020 Employment Situation (PDF)
+FOMC_MINUTES,2020-10-07,14:00,2020-10-07 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-09-16 meeting
+CPI,2020-10-13,08:30,2020-10-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-11-05,14:00,2020-11-05 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-11-05,14:30,2020-11-05 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+NFP,2020-11-06,08:30,2020-11-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2020 Employment Situation (PDF)
+CPI,2020-11-12,08:30,2020-11-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2020 Consumer Price Index (PDF)
+FOMC_MINUTES,2020-11-25,14:00,2020-11-25 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-11-05 meeting
+NFP,2020-12-04,08:30,2020-12-04 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2020 Employment Situation (PDF)
+CPI,2020-12-10,08:30,2020-12-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2020-12-16,14:00,2020-12-16 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_PRESS_CONFERENCE,2020-12-16,14:30,2020-12-16 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,
+FOMC_MINUTES,2021-01-06,14:00,2021-01-06 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm,minutes of the 2020-12-16 meeting
+NFP,2021-01-08,08:30,2021-01-08 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2020 Employment Situation (PDF)
+CPI,2021-01-13,08:30,2021-01-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2020 Consumer Price Index (PDF)
+FOMC_DECISION,2021-01-27,14:00,2021-01-27 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-01-27,14:30,2021-01-27 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-02-05,08:30,2021-02-05 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2021 Employment Situation (PDF)
+CPI,2021-02-10,08:30,2021-02-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2021 Consumer Price Index (PDF)
+FOMC_MINUTES,2021-02-17,14:00,2021-02-17 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-01-27 meeting
+NFP,2021-03-05,08:30,2021-03-05 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2021 Employment Situation (PDF)
+CPI,2021-03-10,08:30,2021-03-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-03-17,14:00,2021-03-17 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-03-17,14:30,2021-03-17 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-04-02,08:30,2021-04-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2021 Employment Situation (PDF)
+FOMC_MINUTES,2021-04-07,14:00,2021-04-07 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-03-17 meeting
+CPI,2021-04-13,08:30,2021-04-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-04-28,14:00,2021-04-28 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-04-28,14:30,2021-04-28 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-05-07,08:30,2021-05-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2021 Employment Situation (PDF)
+CPI,2021-05-12,08:30,2021-05-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2021 Consumer Price Index (PDF)
+FOMC_MINUTES,2021-05-19,14:00,2021-05-19 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-04-28 meeting
+NFP,2021-06-04,08:30,2021-06-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2021 Employment Situation (PDF)
+CPI,2021-06-10,08:30,2021-06-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-06-16,14:00,2021-06-16 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-06-16,14:30,2021-06-16 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-07-02,08:30,2021-07-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2021 Employment Situation (PDF)
+FOMC_MINUTES,2021-07-07,14:00,2021-07-07 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-06-16 meeting
+CPI,2021-07-13,08:30,2021-07-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-07-28,14:00,2021-07-28 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-07-28,14:30,2021-07-28 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-08-06,08:30,2021-08-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2021 Employment Situation (PDF)
+CPI,2021-08-11,08:30,2021-08-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2021 Consumer Price Index (PDF)
+FOMC_MINUTES,2021-08-18,14:00,2021-08-18 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-07-28 meeting
+NFP,2021-09-03,08:30,2021-09-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2021 Employment Situation (PDF)
+CPI,2021-09-14,08:30,2021-09-14 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-09-22,14:00,2021-09-22 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-09-22,14:30,2021-09-22 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-10-08,08:30,2021-10-08 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2021 Employment Situation (PDF)
+CPI,2021-10-13,08:30,2021-10-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2021 Consumer Price Index (PDF)
+FOMC_MINUTES,2021-10-13,14:00,2021-10-13 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-09-22 meeting
+FOMC_DECISION,2021-11-03,14:00,2021-11-03 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-11-03,14:30,2021-11-03 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2021-11-05,08:30,2021-11-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2021 Employment Situation (PDF)
+CPI,2021-11-10,08:30,2021-11-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2021 Consumer Price Index (PDF)
+FOMC_MINUTES,2021-11-24,14:00,2021-11-24 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-11-03 meeting
+NFP,2021-12-03,08:30,2021-12-03 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2021 Employment Situation (PDF)
+CPI,2021-12-10,08:30,2021-12-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2021-12-15,14:00,2021-12-15 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2021-12-15,14:30,2021-12-15 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2022-01-05,14:00,2022-01-05 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2021-12-15 meeting
+NFP,2022-01-07,08:30,2022-01-07 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2021 Employment Situation (PDF)
+CPI,2022-01-12,08:30,2022-01-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2021 Consumer Price Index (PDF)
+FOMC_DECISION,2022-01-26,14:00,2022-01-26 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-01-26,14:30,2022-01-26 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-02-04,08:30,2022-02-04 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2022 Employment Situation (PDF)
+CPI,2022-02-10,08:30,2022-02-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2022 Consumer Price Index (PDF)
+FOMC_MINUTES,2022-02-16,14:00,2022-02-16 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-01-26 meeting
+NFP,2022-03-04,08:30,2022-03-04 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2022 Employment Situation (PDF)
+CPI,2022-03-10,08:30,2022-03-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-03-16,14:00,2022-03-16 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-03-16,14:30,2022-03-16 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-04-01,08:30,2022-04-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2022 Employment Situation (PDF)
+FOMC_MINUTES,2022-04-06,14:00,2022-04-06 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-03-16 meeting
+CPI,2022-04-12,08:30,2022-04-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-05-04,14:00,2022-05-04 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-05-04,14:30,2022-05-04 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-05-06,08:30,2022-05-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2022 Employment Situation (PDF)
+CPI,2022-05-11,08:30,2022-05-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2022 Consumer Price Index (PDF)
+FOMC_MINUTES,2022-05-25,14:00,2022-05-25 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-05-04 meeting
+NFP,2022-06-03,08:30,2022-06-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2022 Employment Situation (PDF)
+CPI,2022-06-10,08:30,2022-06-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-06-15,14:00,2022-06-15 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-06-15,14:30,2022-06-15 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2022-07-06,14:00,2022-07-06 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-06-15 meeting
+NFP,2022-07-08,08:30,2022-07-08 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2022 Employment Situation (PDF)
+CPI,2022-07-13,08:30,2022-07-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-07-27,14:00,2022-07-27 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-07-27,14:30,2022-07-27 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-08-05,08:30,2022-08-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2022 Employment Situation (PDF)
+CPI,2022-08-10,08:30,2022-08-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2022 Consumer Price Index (PDF)
+FOMC_MINUTES,2022-08-17,14:00,2022-08-17 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-07-27 meeting
+NFP,2022-09-02,08:30,2022-09-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2022 Employment Situation (PDF)
+CPI,2022-09-13,08:30,2022-09-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-09-21,14:00,2022-09-21 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-09-21,14:30,2022-09-21 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-10-07,08:30,2022-10-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2022 Employment Situation (PDF)
+FOMC_MINUTES,2022-10-12,14:00,2022-10-12 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-09-21 meeting
+CPI,2022-10-13,08:30,2022-10-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-11-02,14:00,2022-11-02 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-11-02,14:30,2022-11-02 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2022-11-04,08:30,2022-11-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2022 Employment Situation (PDF)
+CPI,2022-11-10,08:30,2022-11-10 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2022 Consumer Price Index (PDF)
+FOMC_MINUTES,2022-11-23,14:00,2022-11-23 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-11-02 meeting
+NFP,2022-12-02,08:30,2022-12-02 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2022 Employment Situation (PDF)
+CPI,2022-12-13,08:30,2022-12-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2022-12-14,14:00,2022-12-14 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2022-12-14,14:30,2022-12-14 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2023-01-04,14:00,2023-01-04 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2022-12-14 meeting
+NFP,2023-01-06,08:30,2023-01-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2022 Employment Situation (PDF)
+CPI,2023-01-12,08:30,2023-01-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2022 Consumer Price Index (PDF)
+FOMC_DECISION,2023-02-01,14:00,2023-02-01 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-02-01,14:30,2023-02-01 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-02-03,08:30,2023-02-03 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2023 Employment Situation (PDF)
+CPI,2023-02-14,08:30,2023-02-14 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2023 Consumer Price Index (PDF)
+FOMC_MINUTES,2023-02-22,14:00,2023-02-22 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-02-01 meeting
+NFP,2023-03-10,08:30,2023-03-10 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2023 Employment Situation (PDF)
+CPI,2023-03-14,08:30,2023-03-14 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-03-22,14:00,2023-03-22 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-03-22,14:30,2023-03-22 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-04-07,08:30,2023-04-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2023 Employment Situation (PDF)
+CPI,2023-04-12,08:30,2023-04-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2023 Consumer Price Index (PDF)
+FOMC_MINUTES,2023-04-12,14:00,2023-04-12 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-03-22 meeting
+FOMC_DECISION,2023-05-03,14:00,2023-05-03 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-05-03,14:30,2023-05-03 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-05-05,08:30,2023-05-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2023 Employment Situation (PDF)
+CPI,2023-05-10,08:30,2023-05-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2023 Consumer Price Index (PDF)
+FOMC_MINUTES,2023-05-24,14:00,2023-05-24 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-05-03 meeting
+NFP,2023-06-02,08:30,2023-06-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2023 Employment Situation (PDF)
+CPI,2023-06-13,08:30,2023-06-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-06-14,14:00,2023-06-14 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-06-14,14:30,2023-06-14 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2023-07-05,14:00,2023-07-05 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-06-14 meeting
+NFP,2023-07-07,08:30,2023-07-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2023 Employment Situation (PDF)
+CPI,2023-07-12,08:30,2023-07-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-07-26,14:00,2023-07-26 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-07-26,14:30,2023-07-26 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-08-04,08:30,2023-08-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2023 Employment Situation (PDF)
+CPI,2023-08-10,08:30,2023-08-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2023 Consumer Price Index (PDF)
+FOMC_MINUTES,2023-08-16,14:00,2023-08-16 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-07-26 meeting
+NFP,2023-09-01,08:30,2023-09-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2023 Employment Situation (PDF)
+CPI,2023-09-13,08:30,2023-09-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-09-20,14:00,2023-09-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-09-20,14:30,2023-09-20 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-10-06,08:30,2023-10-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2023 Employment Situation (PDF)
+FOMC_MINUTES,2023-10-11,14:00,2023-10-11 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-09-20 meeting
+CPI,2023-10-12,08:30,2023-10-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-11-01,14:00,2023-11-01 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-11-01,14:30,2023-11-01 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2023-11-03,08:30,2023-11-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2023 Employment Situation (PDF)
+CPI,2023-11-14,08:30,2023-11-14 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2023 Consumer Price Index (PDF)
+FOMC_MINUTES,2023-11-21,14:00,2023-11-21 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-11-01 meeting
+NFP,2023-12-08,08:30,2023-12-08 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2023 Employment Situation (PDF)
+CPI,2023-12-12,08:30,2023-12-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2023-12-13,14:00,2023-12-13 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2023-12-13,14:30,2023-12-13 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2024-01-03,14:00,2024-01-03 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2023-12-13 meeting
+NFP,2024-01-05,08:30,2024-01-05 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2023 Employment Situation (PDF)
+CPI,2024-01-11,08:30,2024-01-11 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2023 Consumer Price Index (PDF)
+FOMC_DECISION,2024-01-31,14:00,2024-01-31 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-01-31,14:30,2024-01-31 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2024-02-02,08:30,2024-02-02 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2024 Employment Situation (PDF)
+CPI,2024-02-13,08:30,2024-02-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2024 Consumer Price Index (PDF)
+FOMC_MINUTES,2024-02-21,14:00,2024-02-21 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-01-31 meeting
+NFP,2024-03-08,08:30,2024-03-08 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2024 Employment Situation (PDF)
+CPI,2024-03-12,08:30,2024-03-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2024-03-20,14:00,2024-03-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-03-20,14:30,2024-03-20 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2024-04-05,08:30,2024-04-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2024 Employment Situation (PDF)
+CPI,2024-04-10,08:30,2024-04-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2024 Consumer Price Index (PDF)
+FOMC_MINUTES,2024-04-10,14:00,2024-04-10 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-03-20 meeting
+FOMC_DECISION,2024-05-01,14:00,2024-05-01 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-05-01,14:30,2024-05-01 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2024-05-03,08:30,2024-05-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2024 Employment Situation (PDF)
+CPI,2024-05-15,08:30,2024-05-15 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2024 Consumer Price Index (PDF)
+FOMC_MINUTES,2024-05-22,14:00,2024-05-22 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-05-01 meeting
+NFP,2024-06-07,08:30,2024-06-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2024 Employment Situation (PDF)
+CPI,2024-06-12,08:30,2024-06-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2024-06-12,14:00,2024-06-12 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-06-12,14:30,2024-06-12 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2024-07-03,14:00,2024-07-03 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-06-12 meeting
+NFP,2024-07-05,08:30,2024-07-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2024 Employment Situation (PDF)
+CPI,2024-07-11,08:30,2024-07-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2024-07-31,14:00,2024-07-31 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-07-31,14:30,2024-07-31 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2024-08-02,08:30,2024-08-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2024 Employment Situation (PDF)
+CPI,2024-08-14,08:30,2024-08-14 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2024 Consumer Price Index (PDF)
+FOMC_MINUTES,2024-08-21,14:00,2024-08-21 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-07-31 meeting
+NFP,2024-09-06,08:30,2024-09-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2024 Employment Situation (PDF)
+CPI,2024-09-11,08:30,2024-09-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2024-09-18,14:00,2024-09-18 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-09-18,14:30,2024-09-18 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2024-10-04,08:30,2024-10-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2024 Employment Situation (PDF)
+FOMC_MINUTES,2024-10-09,14:00,2024-10-09 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-09-18 meeting
+CPI,2024-10-10,08:30,2024-10-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2024 Consumer Price Index (PDF)
+NFP,2024-11-01,08:30,2024-11-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),October 2024 Employment Situation (PDF)
+FOMC_DECISION,2024-11-07,14:00,2024-11-07 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-11-07,14:30,2024-11-07 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+CPI,2024-11-13,08:30,2024-11-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),October 2024 Consumer Price Index (PDF)
+FOMC_MINUTES,2024-11-26,14:00,2024-11-26 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-11-07 meeting
+NFP,2024-12-06,08:30,2024-12-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2024 Employment Situation (PDF)
+CPI,2024-12-11,08:30,2024-12-11 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2024-12-18,14:00,2024-12-18 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2024-12-18,14:30,2024-12-18 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2025-01-08,14:00,2025-01-08 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2024-12-18 meeting
+NFP,2025-01-10,08:30,2025-01-10 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2024 Employment Situation (PDF)
+CPI,2025-01-15,08:30,2025-01-15 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2024 Consumer Price Index (PDF)
+FOMC_DECISION,2025-01-29,14:00,2025-01-29 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-01-29,14:30,2025-01-29 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2025-02-07,08:30,2025-02-07 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2025 Employment Situation (PDF)
+CPI,2025-02-12,08:30,2025-02-12 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2025 Consumer Price Index (PDF)
+FOMC_MINUTES,2025-02-19,14:00,2025-02-19 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-01-29 meeting
+NFP,2025-03-07,08:30,2025-03-07 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2025 Employment Situation (PDF)
+CPI,2025-03-12,08:30,2025-03-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2025-03-19,14:00,2025-03-19 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-03-19,14:30,2025-03-19 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2025-04-04,08:30,2025-04-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2025 Employment Situation (PDF)
+FOMC_MINUTES,2025-04-09,14:00,2025-04-09 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-03-19 meeting
+CPI,2025-04-10,08:30,2025-04-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2025 Consumer Price Index (PDF)
+NFP,2025-05-02,08:30,2025-05-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2025 Employment Situation (PDF)
+FOMC_DECISION,2025-05-07,14:00,2025-05-07 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-05-07,14:30,2025-05-07 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+CPI,2025-05-13,08:30,2025-05-13 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2025 Consumer Price Index (PDF)
+FOMC_MINUTES,2025-05-28,14:00,2025-05-28 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-05-07 meeting
+NFP,2025-06-06,08:30,2025-06-06 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2025 Employment Situation (PDF)
+CPI,2025-06-11,08:30,2025-06-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2025-06-18,14:00,2025-06-18 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-06-18,14:30,2025-06-18 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2025-07-03,08:30,2025-07-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2025 Employment Situation (PDF)
+FOMC_MINUTES,2025-07-09,14:00,2025-07-09 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-06-18 meeting
+CPI,2025-07-15,08:30,2025-07-15 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2025-07-30,14:00,2025-07-30 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-07-30,14:30,2025-07-30 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2025-08-01,08:30,2025-08-01 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2025 Employment Situation (PDF)
+CPI,2025-08-12,08:30,2025-08-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2025 Consumer Price Index (PDF)
+FOMC_MINUTES,2025-08-20,14:00,2025-08-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-07-30 meeting
+FOMC_UNSCHEDULED,2025-08-22,,,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,"August 22 (notation vote); no release time on the Fed page, so it is not applied as a timed window"
+NFP,2025-09-05,08:30,2025-09-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2025 Employment Situation (PDF)
+CPI,2025-09-11,08:30,2025-09-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),August 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2025-09-17,14:00,2025-09-17 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-09-17,14:30,2025-09-17 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2025-10-08,14:00,2025-10-08 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-09-17 meeting
+CPI,2025-10-24,08:30,2025-10-24 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),September 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2025-10-29,14:00,2025-10-29 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-10-29,14:30,2025-10-29 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_MINUTES,2025-11-19,14:00,2025-11-19 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-10-29 meeting
+NFP,2025-11-20,08:30,2025-11-20 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),September 2025 Employment Situation (PDF)
+FOMC_DECISION,2025-12-10,14:00,2025-12-10 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2025-12-10,14:30,2025-12-10 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2025-12-16,08:30,2025-12-16 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),November 2025 Employment Situation (PDF)
+CPI,2025-12-18,08:30,2025-12-18 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),November 2025 Consumer Price Index (PDF)
+FOMC_MINUTES,2025-12-30,14:00,2025-12-30 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2025-12-10 meeting
+NFP,2026-01-09,08:30,2026-01-09 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),December 2025 Employment Situation (PDF)
+CPI,2026-01-13,08:30,2026-01-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),December 2025 Consumer Price Index (PDF)
+FOMC_DECISION,2026-01-28,14:00,2026-01-28 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-01-28,14:30,2026-01-28 19:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2026-02-11,08:30,2026-02-11 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),January 2026 Employment Situation (PDF)
+CPI,2026-02-13,08:30,2026-02-13 13:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),January 2026 Consumer Price Index (PDF)
+FOMC_MINUTES,2026-02-18,14:00,2026-02-18 19:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2026-01-28 meeting
+NFP,2026-03-06,08:30,2026-03-06 13:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),February 2026 Employment Situation (PDF)
+CPI,2026-03-11,08:30,2026-03-11 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),February 2026 Consumer Price Index (PDF)
+FOMC_DECISION,2026-03-18,14:00,2026-03-18 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-03-18,14:30,2026-03-18 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2026-04-03,08:30,2026-04-03 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),March 2026 Employment Situation (PDF)
+FOMC_MINUTES,2026-04-08,14:00,2026-04-08 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2026-03-18 meeting
+CPI,2026-04-10,08:30,2026-04-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),March 2026 Consumer Price Index (PDF)
+FOMC_DECISION,2026-04-29,14:00,2026-04-29 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-04-29,14:30,2026-04-29 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2026-05-08,08:30,2026-05-08 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),April 2026 Employment Situation (PDF)
+CPI,2026-05-12,08:30,2026-05-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),April 2026 Consumer Price Index (PDF)
+FOMC_MINUTES,2026-05-20,14:00,2026-05-20 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2026-04-29 meeting
+NFP,2026-06-05,08:30,2026-06-05 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),May 2026 Employment Situation (PDF)
+CPI,2026-06-10,08:30,2026-06-10 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),May 2026 Consumer Price Index (PDF)
+FOMC_DECISION,2026-06-17,14:00,2026-06-17 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-06-17,14:30,2026-06-17 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2026-07-02,08:30,2026-07-02 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),June 2026 Employment Situation (PDF)
+FOMC_MINUTES,2026-07-08,14:00,2026-07-08 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2026-06-17 meeting
+CPI,2026-07-14,08:30,2026-07-14 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),June 2026 Consumer Price Index (PDF)
+FOMC_DECISION,2026-07-29,14:00,2026-07-29 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-07-29,14:30,2026-07-29 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+NFP,2026-08-07,08:30,2026-08-07 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),July 2026 Employment Situation (PDF)
+CPI,2026-08-12,08:30,2026-08-12 12:30,1,USD,https://www.bls.gov/bls/news-release/cpi.htm (Internet Archive copy 2026-08-30),July 2026 Consumer Price Index (PDF)
+FOMC_MINUTES,2026-08-19,14:00,2026-08-19 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,minutes of the 2026-07-29 meeting
+NFP,2026-09-04,08:30,2026-09-04 12:30,1,USD,https://www.bls.gov/bls/news-release/empsit.htm (Internet Archive copy 2026-09-05),August 2026 Employment Situation (PDF)
+CPI,2026-09-11,08:30,2026-09-11 12:30,1,USD,https://www.bls.gov/schedule/news_release/cpi.htm,August 2026 Consumer Price Index (released after the archive copy)
+FOMC_DECISION,2026-09-16,14:00,2026-09-16 18:00,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,
+FOMC_PRESS_CONFERENCE,2026-09-16,14:30,2026-09-16 18:30,1,USD,https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm,press conference link not yet posted on the calendar on 2026-09-16; the Fed has held one after every meeting since 2019

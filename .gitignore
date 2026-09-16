@@ -10,7 +10,8 @@ dist/
 .DS_Store
 
 # Live runtime state, models and local-only files (never committed; migration 2026-09-14)
-data/
+data/*
+!data/historical_events.csv
 models/
 logs/
 data_snapshot_*/

@@ -30,17 +30,18 @@ needs three additions to it: an H4 trend on H1 bars, a rejection-candle rule and
    - **TP2** at 3R: close the remaining 50 %.
    - Stop and targets are set at the broker on entry; checked on the H1 bar path, stop first when both are touched
      in one bar (the conservative order the walk-forward engine uses).
-   - **Time stop — OPEN, not specified by the owner.** Proposal to confirm before the backtest: flat at 21:00 UTC
-     (end of NY) so no position pays the overnight gold swap. Must be fixed before testing, not chosen on results.
+   - **Time stop (owner decision 2026-09-16, before any test):** flat at 21:00 UTC (end of NY), so no position pays
+     the overnight gold swap. In the backtest: exit at the open of the 21:00 bar, or the last close of the UTC day.
    - Invalidation: none beyond stop/targets/time stop (no discretionary exits).
 
 5. **Risk**
    - Risk 0.5 % of equity per trade, sized from R to the stop.
    - Max 2 entries per UTC day.
-   - **Max open positions — OPEN, not specified.** Proposal: 1 at a time.
+   - **Max open positions (owner decision 2026-09-16):** 1 at a time.
    - Max daily loss 3 %: no new entries for the rest of the UTC day once closed + floating P&L ≤ −3 % of the day's
      starting equity. With 0.5 % risk and 2 trades a day this cap only binds on gaps or slippage; note it is
-     effectively a gap guard, not a routine limit.
+     effectively a gap guard, not a routine limit. With one position at a time a new entry only happens when flat,
+     so closed P&L equals closed + floating at that moment; the backtest checks closed equity.
    - Halt at 15 % drawdown from the equity peak: stop trading, owner review required to restart.
    - Correlation: single instrument, but the live account also trades gold through other experts (for example
      magic 888888 and the Gold Reaper on demo). Their combined XAUUSD exposure is not controlled by this strategy.
@@ -48,9 +49,15 @@ needs three additions to it: an H4 trend on H1 bars, a rejection-candle rule and
 6. **Filters**
    - Session: London/NY entry window above.
    - News: no entries from 30 min before to 30 min after a High-impact USD event (`src/economic_calendar.py`,
-     `news_window`). **Testability gap:** that module caches only the current week's ForexFactory export, so the
-     filter cannot be applied to history as it stands; a historical calendar source is required, or the backtest
-     must report results without the news filter and label them so.
+     `news_window`). That module caches only the current week's ForexFactory export, so this 30-min filter cannot be
+     applied to history.
+   - **Tier-1 event window (added 2026-09-16 after the FOMC candle, owner request):** no new entries from 60 min
+     before to 90 min after an FOMC decision, FOMC press conference, FOMC minutes, CPI or NFP release
+     (`src/event_defence.py`). History comes from `data/historical_events.csv` (official Fed and BLS schedules,
+     2018 to 16 Sep 2026), so the backtest runs this window both off and on and reports both. The broader 30-min
+     High-impact filter is still not testable on history.
+   - **Volatility breaker (same request, reported as a separate labelled variant):** an H1 range above 3 × ATR14
+     (ATR up to the previous bar) blocks new entries on the next 3 bars.
    - Regime: the H4 EMA50/EMA200 trend only. No market-condition gate beyond it; entries are refused on AVOID if the
      live plan layer adds one.
 
@@ -76,10 +83,13 @@ needs three additions to it: an H4 trend on H1 bars, a rejection-candle rule and
    - Session-open spread widening (07:00 London, 12:30 US data) inflates costs on exactly the bars that trigger.
    - Trade count: strong trends often do not retrace to EMA20, so 100 out-of-sample trades may need several years of
      H1 broker history.
-   - News filter not testable on history (section 6).
+   - Only the tier-1 events are testable on history; other High-impact USD releases are not filtered in the backtest.
    - **Stop trading when**: the 15 % drawdown halt fires; live expectancy < 0R after 30 trades; rolling 50-trade
      expectancy < −0.10R; or three consecutive losing calendar months.
 
-10. **Status** — idea (2026-09-16, owner specification). Not backtested, no code, no paper or live use.
-    Before any backtest: close the two OPEN items (time stop, max open positions), confirm the rejection-candle
-    definition, decide how the news filter is handled on history, then run `/backtest` with a locked holdout.
+10. **Status** — backtest code written (2026-09-16): `python -m src.gold_session_pullback_lab run`
+    (`src/gold_session_pullback_lab.py`, tests `tests/test_gold_session_pullback_lab.py`). Owner decisions closed
+    before testing: flat 21:00 UTC, one position, the rejection candle above, news filter run off and on (tier-1
+    window from the historical file). Split: the Strategy Lab's locked XAUUSD 1h boundaries (holdout from
+    2025-01-08 01:00). Three variants (no filter, tier-1, tier-1 + breaker) count as three trials for the deflated
+    Sharpe. Results go to `.claude/memory/BASELINE.md`. No paper or live use.

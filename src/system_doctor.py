@@ -51,7 +51,8 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_broker_levels.py", "tests/test_approval_match.py", "tests/test_signal_freshness.py",
               "tests/test_autonomy_confidence.py", "tests/test_walkforward_live_engine.py",
               "tests/test_signals_live_api.py", "tests/test_approval_bypass.py", "tests/test_model_integrity.py",
-              "tests/test_learning_pollution.py", "tests/test_training_gate.py", "tests/test_retrain_routes_locked.py")
+              "tests/test_learning_pollution.py", "tests/test_training_gate.py", "tests/test_retrain_routes_locked.py",
+              "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -438,7 +439,7 @@ def apply_ram_trend(checks: list, history: list, now: datetime) -> None:
             resources["status"] = "info"
 
 
-from .runtime_paths import LEARNING_WINDOW  # noqa: E402  local time; shared with the training gate
+from .runtime_paths import LEARNING_WINDOW, inside_learning_window  # noqa: E402  shared with the training gate
 MODEL_FILE_PATTERNS = ("xauusd_*", "btcusd_*")
 
 
@@ -447,7 +448,7 @@ def check_model_integrity(models_dir: Path = ROOT / "models",
     """Fail when a live champion file changed outside the 05:30 learning window and is not a logged restore.
 
     On 15-16 Sep 2026 test runs trained straight into models/ and replaced the models behind /api/signals; nothing
-    noticed. A file is accepted when its local write time falls in LEARNING_WINDOW, or when its SHA-256 matches a
+    noticed. A file is accepted when its write time falls in the learning window (the task trigger converted to UTC), or when its SHA-256 matches a
     file recorded in data/model_restores.json (restores keep the champion's original write time).
     """
     restored: dict[str, set] = {}
@@ -461,7 +462,7 @@ def check_model_integrity(models_dir: Path = ROOT / "models",
     outside = []
     for path in files:
         written = datetime.fromtimestamp(path.stat().st_mtime)
-        if start <= written.strftime("%H:%M") <= end:
+        if inside_learning_window(datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)):
             continue
         if path.name in restored and hashlib.sha256(path.read_bytes()).hexdigest() in restored[path.name]:
             continue

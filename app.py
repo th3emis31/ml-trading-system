@@ -27069,6 +27069,69 @@ def economic_calendar_api():
         return jsonify({'available': False, 'places_orders': False, 'reason': f'calendar unavailable: {e}'})
 
 
+_EVENT_DEFENCE_LOGGED: set = set()
+
+
+@app.route('/api/event-defence', methods=['GET'])
+def event_defence_api():
+    """Tier-1 event window, pre-event alert and volatility breaker per symbol (src/event_defence.py).
+
+    Dry run: this only reports and logs to data/event_defence_log.jsonl. It never places, changes or closes an order and
+    is not used by /api/auto-trade/execute. ``?now=<ISO time>`` evaluates another moment (read-only).
+    """
+    import pandas as pd
+    from src import economic_calendar, event_defence
+    from src.paper_trader import drop_forming_bars
+
+    now_arg = str(request.args.get('now') or '').strip()
+    try:
+        if now_arg:
+            stamp = pd.Timestamp(now_arg)
+            now = (stamp.tz_localize('UTC') if stamp.tzinfo is None else stamp.tz_convert('UTC')).to_pydatetime()
+        else:
+            now = datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return jsonify({'available': False, 'dry_run': True, 'places_orders': False, 'reason': f'unreadable now: {now_arg}'}), 400
+    try:
+        calendar = economic_calendar.load_calendar(now)
+    except Exception as exc:
+        calendar = {'available': False, 'events': [], 'reason': str(exc)}
+    events = event_defence.tier1_events_from_calendar(calendar.get('events') or [])
+    symbols = {}
+    for symbol in ('XAUUSD', 'BTCUSD'):
+        window = event_defence.tier1_window(events, now, symbol)
+        try:
+            bars, source = get_bars(symbol, '1h', 60)
+            closed = drop_forming_bars(bars, 60, now) if bars is not None and not bars.empty else None
+            breaker = event_defence.breaker_status(closed) if closed is not None and not closed.empty else {
+                'available': False, 'reason': 'no closed broker H1 bars'}
+            breaker['source'] = source
+        except Exception as exc:
+            breaker = {'available': False, 'reason': f'bars unavailable: {exc}'}
+        to_log = []
+        if breaker.get('entries_blocked'):
+            to_log.append((('breaker', symbol, breaker['trigger']['bar_utc']), {'kind': 'volatility_breaker', **breaker['trigger']}))
+        for e in window['blocking_events']:
+            to_log.append((('window', symbol, e['event'], e['time_utc']), {'kind': 'tier1_window_block', **e}))
+        for e in window['alert']['events']:
+            to_log.append((('alert', symbol, e['event'], e['time_utc']), {'kind': 'tier1_pre_event_alert', 'message': window['alert'].get('message'), **e}))
+        for key, record in to_log:
+            if key not in _EVENT_DEFENCE_LOGGED:
+                _EVENT_DEFENCE_LOGGED.add(key)
+                event_defence.log_event_defence({'symbol': symbol, **record})
+        symbols[symbol] = {'entries_blocked': bool(window['entries_blocked'] or breaker.get('entries_blocked')),
+                           'tier1': window, 'volatility_breaker': breaker}
+    return jsonify({
+        'available': True, 'dry_run': True, 'places_orders': False,
+        'checked_at_utc': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'calendar_available': bool(calendar.get('available')),
+        'rules': {'tier1_events': list(event_defence.TIER1_EVENTS), 'window_before_min': event_defence.TIER1_BEFORE_MIN,
+                  'window_after_min': event_defence.TIER1_AFTER_MIN, 'alert_before_min': event_defence.ALERT_BEFORE_MIN,
+                  'breaker_atr_multiple': event_defence.BREAKER_ATR_MULTIPLE, 'breaker_block_bars': event_defence.BREAKER_BLOCK_BARS},
+        'symbols': symbols,
+    })
+
+
 @app.route('/api/jarvis/market/economic-calendar', methods=['GET'])
 def get_economic_calendar_api():
     """Get economic events calendar (real ForexFactory data; the old hard-coded sample events are no longer served)."""
