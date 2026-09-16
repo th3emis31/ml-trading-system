@@ -51,7 +51,7 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_broker_levels.py", "tests/test_approval_match.py", "tests/test_signal_freshness.py",
               "tests/test_autonomy_confidence.py", "tests/test_walkforward_live_engine.py",
               "tests/test_signals_live_api.py", "tests/test_approval_bypass.py", "tests/test_model_integrity.py",
-              "tests/test_learning_pollution.py", "tests/test_training_gate.py")
+              "tests/test_learning_pollution.py", "tests/test_training_gate.py", "tests/test_retrain_routes_locked.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},

@@ -4601,7 +4601,8 @@ HTML_TEMPLATE = """
                 try {
                   const response = await fetch('/api/quality-retrain', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    // Retraining needs the control secret (set window.SMARTENTRY_CONTROL_SECRET or localStorage smartentry_control_secret).
+                    headers: { 'Content-Type': 'application/json', 'X-Control-Secret': (window.SMARTENTRY_CONTROL_SECRET || (window.localStorage && localStorage.getItem('smartentry_control_secret')) || '') },
                     body: JSON.stringify(symbol ? { symbol } : {}),
                   });
                   const data = await response.json();
@@ -11513,7 +11514,8 @@ JARVIS_VOICE_TEMPLATE = """<!doctype html>
       
       const response = await fetch('/api/jarvis-command', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // Learning intents only retrain with the control secret; without it they answer read-only.
+        headers: { 'Content-Type': 'application/json', 'X-Control-Secret': (window.SMARTENTRY_CONTROL_SECRET || (window.localStorage && localStorage.getItem('smartentry_control_secret')) || '') },
         body: JSON.stringify({ command: contextualCommand, transcript: 'Hey JARVIS, ' + contextualCommand, intent })
       });
       
@@ -15121,8 +15123,8 @@ LEARN_TEMPLATE = """
         <li><code>POST /api/train-daily</code> - run daily training (needs X-Control-Secret; refused outside 05:25-06:30)</li>
         <li><code>/api/train-status</code> - current training summary</li>
         <li><code>/api/live-plan/XAUUSD</code> - live plan with entry/SL/TP/confidence/grade</li>
-        <li><code>/api/chart-learn/XAUUSD</code> - chart insights plus retraining</li>
-        <li><code>/api/screenshot-learn</code> - upload screenshot and learn with explanation</li>
+        <li><code>POST /api/chart-learn/XAUUSD</code> - chart insights plus retraining (needs X-Control-Secret; refused outside 05:25-06:30)</li>
+        <li><code>POST /api/screenshot-learn</code> - upload screenshot and learn with explanation (retraining needs X-Control-Secret)</li>
       </ul>
     </div>
   </div>
@@ -15688,7 +15690,9 @@ SCREENSHOT_LEARN_TEMPLATE = """
       form.append('notes', document.getElementById('ss-notes').value || '');
 
       try {
-        const response = await fetch('/api/screenshot-learn', { method: 'POST', body: form });
+        // Retraining from a screenshot needs the control secret (injected for this machine, or saved in localStorage).
+        const screenshotSecret = {{ control_secret|tojson }} || ((window.localStorage && localStorage.getItem('smartentry_control_secret')) || '');
+        const response = await fetch('/api/screenshot-learn', { method: 'POST', body: form, headers: { 'X-Control-Secret': screenshotSecret } });
         const data = await response.json();
         if (!response.ok) {
           statusNode.textContent = data.error || 'Upload failed.';
@@ -16691,8 +16695,12 @@ def chart_insights(symbol: str):
     return jsonify(build_chart_insights(symbol.upper()))
 
 
-@app.route('/api/chart-learn/<symbol>')
+@app.route('/api/chart-learn/<symbol>', methods=['POST'])
 def chart_learn(symbol: str):
+    # Retrains: POST-only with the control secret, like /api/train-daily (a GET gets 405).
+    refused = _training_request_refused()
+    if refused:
+        return refused
     symbol = symbol.upper()
     insights = build_chart_insights(symbol)
     training = DailyLearner(symbol).run_cycle()
@@ -16736,6 +16744,11 @@ def screenshot_learn_api():
   frequency = 'weekly' if frequency == 'weekly' else 'daily'
   retrain = str(request.form.get('retrain', 'true')).lower() != 'false'
   notes = str(request.form.get('notes', '') or '').strip()
+  if retrain:
+    # Retraining needs the control secret, like /api/train-daily; retrain=false only stores the screenshot and notes.
+    refused = _training_request_refused()
+    if refused:
+      return refused
 
   uploaded = request.files.get('file')
   if uploaded is None or not uploaded.filename:
@@ -18669,6 +18682,10 @@ def quality_monitor_api():
 
 @app.route('/api/quality-retrain', methods=['POST'])
 def quality_retrain_api():
+  # Retrains: needs the control secret, like /api/train-daily.
+  refused = _training_request_refused()
+  if refused:
+    return refused
   existing = load_signals() or build_signal_payload()
   enriched = [_enrich_signal_record(signal) for signal in existing[-40:]]
   monitor = build_quality_monitor(enriched)
@@ -18706,6 +18723,13 @@ def update_settings():
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok', 'service': 'trading-dashboard'})
+
+
+def _learning_retrain_secret_ok() -> bool:
+    """True when the request carries the shared control secret (used by JARVIS learning intents that retrain)."""
+    from src import execution_guard
+    return execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                          execution_guard.load_or_create_secret())
 
 
 def _training_request_refused():
@@ -23902,6 +23926,15 @@ def jarvis_command_api():
       })
   
   elif intent == 'check_learning':
+    if not _learning_retrain_secret_ok():
+      # "Check learning" used to run a full retrain; without the control secret it only reads the model status.
+      model = get_model_status(symbol)
+      return jsonify({
+        'success': True,
+        'response': f"📚 Learning Status (read-only): Accuracy {model.get('accuracy')} | Last trained {model.get('last_trained_at') or 'never'} | Retraining needs the control secret and runs only 05:25-06:30",
+        'speech': _jarvis_professional_speech('check_learning', f"Learning status, read only. Accuracy is {model.get('accuracy')}. Last training time is {model.get('last_trained_at') or 'never'}.", symbol=symbol),
+        'action': 'Learning Checked'
+      })
     try:
       daily_learner = DailyLearner(symbol)
       result = daily_learner.run_cycle('daily')
@@ -23923,6 +23956,15 @@ def jarvis_command_api():
       })
   
   elif intent == 'system_update':
+    if not _learning_retrain_secret_ok():
+      # "System update" also ran a full retrain; without the control secret it only reads the model status.
+      model = get_model_status(symbol)
+      return jsonify({
+        'success': True,
+        'response': f"🔧 System Performance (read-only): RF Accuracy {model.get('accuracy')} | LSTM Accuracy {model.get('lstm_accuracy')} | Retraining needs the control secret and runs only 05:25-06:30",
+        'speech': _jarvis_professional_speech('system_update', f"System status, read only. Random forest accuracy is {model.get('accuracy')}. L S T M accuracy is {model.get('lstm_accuracy')}.", symbol=symbol),
+        'action': 'System Analysis Complete'
+      })
     try:
       daily_learner = DailyLearner(symbol)
       result = daily_learner.run_cycle('daily')
