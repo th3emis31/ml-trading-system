@@ -458,6 +458,39 @@ def check_tests(timeout: int = 900) -> dict:
 
 
 # --------------------------------------------------------------------------- fixes and runner
+def _ps_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def task_trigger_ps(schedule: list) -> str:
+    """PowerShell trigger for a schtasks-style schedule (["/sc", "hourly", "/mo", "1", "/st", "00:05"] etc.)."""
+    opts = {schedule[i].lower(): schedule[i + 1] for i in range(0, len(schedule) - 1, 2)}
+    kind, every, start = opts.get("/sc", "").lower(), int(opts.get("/mo", "1")), opts.get("/st", "00:00")
+    if kind == "hourly":
+        return f"New-ScheduledTaskTrigger -Once -At {_ps_quote(start)} -RepetitionInterval (New-TimeSpan -Hours {every})"
+    if kind == "minute":
+        return f"New-ScheduledTaskTrigger -Once -At {_ps_quote(start)} -RepetitionInterval (New-TimeSpan -Minutes {every})"
+    if kind == "daily":
+        return f"New-ScheduledTaskTrigger -Daily -DaysInterval {every} -At {_ps_quote(start)}"
+    raise ValueError(f"unsupported schedule {schedule}")
+
+
+def task_register_command(name: str, script: Path, schedule: list) -> list[str]:
+    """Register a task for the current user with an interactive token and limited rights: no stored password, no prompt."""
+    ps = "; ".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$action = New-ScheduledTaskAction -Execute {_ps_quote(script)}",
+        f"$trigger = {task_trigger_ps(schedule)}",
+        "$principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        " -LogonType Interactive -RunLevel Limited",
+        "$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew",
+        f"Register-ScheduledTask -TaskName {_ps_quote(name)} -Action $action -Trigger $trigger -Principal $principal"
+        " -Settings $settings -Force | Out-Null",
+        f"'registered ' + {_ps_quote(name)}",
+    ])
+    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps]
+
+
 def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]:
     applied = []
     for name in (check.get("detail") or {}).get("missing") or []:
@@ -466,8 +499,7 @@ def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]
         if not script.exists():
             applied.append({"fix": "recreate_missing_scheduled_task", "task": name, "ok": False, "reason": f"{script} missing"})
             continue
-        proc = run(["schtasks", "/create", "/tn", name, "/tr", str(script), *spec["schedule"], "/f"],
-                   capture_output=True, text=True, timeout=60)
+        proc = run(task_register_command(name, script, spec["schedule"]), capture_output=True, text=True, timeout=120)
         applied.append({"fix": "recreate_missing_scheduled_task", "task": name, "ok": proc.returncode == 0,
                         "output": (proc.stdout or proc.stderr or "").strip()[:200]})
     return applied

@@ -86,7 +86,15 @@ def test_scheduled_task_csv_parsing_and_missing_task_fix(tmp_path):
 
     applied = doc.fix_missing_tasks({"detail": {"missing": ["SmartEntry Paper Trader"]}},
                                     run=lambda args, **kw: calls.append(args) or Done())
-    assert applied and calls and calls[0][:4] == ["schtasks", "/create", "/tn", "SmartEntry Paper Trader"]
+    assert applied and applied[0]["ok"] and calls and calls[0][0] == "powershell" and "-NonInteractive" in calls[0]
+    ps = calls[0][-1]
+    assert "Register-ScheduledTask -TaskName 'SmartEntry Paper Trader'" in ps and "schtasks" not in ps
+    assert "-LogonType Interactive -RunLevel Limited" in ps and "-Password" not in ps
+    assert str(doc.ROOT / "scripts" / "run_paper_trader.cmd") in ps
+    assert "-Once -At '00:05' -RepetitionInterval (New-TimeSpan -Hours 1)" in ps
+    assert doc.task_trigger_ps(["/sc", "minute", "/mo", "30"]).endswith("(New-TimeSpan -Minutes 30)")
+    assert doc.task_trigger_ps(["/sc", "daily", "/st", "06:30"]) == "New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At '06:30'"
+    assert "'it''s'" in doc.task_register_command("it's", doc.ROOT / "x.cmd", ["/sc", "daily", "/st", "01:00"])[-1]
 
 
 def test_app_error_log_window(tmp_path):
