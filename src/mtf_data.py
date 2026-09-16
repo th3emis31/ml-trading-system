@@ -32,6 +32,7 @@ import pandas as pd
 from .data import fetch_yahoo_history
 
 TIMEFRAMES = {
+    "5m": {"minutes": 5, "mt5": "TIMEFRAME_M5", "yahoo": ("60d", "5m"), "resample": None},
     "15m": {"minutes": 15, "mt5": "TIMEFRAME_M15", "yahoo": ("60d", "15m"), "resample": None},
     "1h": {"minutes": 60, "mt5": "TIMEFRAME_H1", "yahoo": ("729d", "1h"), "resample": None},
     "4h": {"minutes": 240, "mt5": "TIMEFRAME_H4", "yahoo": ("729d", "1h"), "resample": "4h"},
@@ -60,6 +61,15 @@ def resample_bars(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return agg
 
 
+def mt5_server_to_utc(seconds) -> pd.Series:
+    """MT5 rate times are the broker's server clock, not UTC. Vantage and IC Markets run New York time + 7 h (UTC+3 in
+    summer, UTC+2 in winter); verified 15 Sep 2026 against the app's /api/data/bars (exactly 3 h apart on 40 bars).
+    Times that do not exist or repeat around the New York clock change become NaT."""
+    server = pd.to_datetime(pd.Series(seconds), unit="s")
+    new_york = (server - pd.Timedelta(hours=7)).dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT")
+    return new_york.dt.tz_convert("UTC")
+
+
 def fetch_mt5_bars(symbol: str, timeframe: str, count: int = MT5_MAX_BARS) -> pd.DataFrame:
     """Broker candles from the running MT5 terminal (empty frame when unavailable)."""
     spec = TIMEFRAMES[timeframe]
@@ -77,7 +87,8 @@ def fetch_mt5_bars(symbol: str, timeframe: str, count: int = MT5_MAX_BARS) -> pd
             if rates is None or len(rates) == 0:
                 continue
             frame = pd.DataFrame(rates)
-            frame["datetime"] = pd.to_datetime(frame["time"], unit="s", utc=True)
+            frame["datetime"] = mt5_server_to_utc(frame["time"])
+            frame = frame.dropna(subset=["datetime"]).drop_duplicates(subset=["datetime"])
             frame = frame.rename(columns={"tick_volume": "volume"})[OHLCV]
             frame["symbol"] = symbol.upper()
             frame.attrs["source"] = f"mt5:{name}"

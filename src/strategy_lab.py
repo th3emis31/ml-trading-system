@@ -47,7 +47,7 @@ from .walkforward_backtest import BACKTEST_COSTS, _iso, summarize_trades
 LAB_DIR = Path("data") / "strategy_lab"
 REGISTRY_PATH = LAB_DIR / "registry.json"
 STATUS_PATH = LAB_DIR / "status.json"
-TIMEFRAME_MINUTES = {"15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+TIMEFRAME_MINUTES = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 DEFAULT_MARKETS = ("XAUUSD:4h", "XAUUSD:1h", "BTCUSD:4h", "BTCUSD:1h",
                    "XAUUSD:1d", "BTCUSD:1d", "XAUUSD:15m", "BTCUSD:15m")  # every symbol/timeframe the app's data feed serves
 WARMUP_BARS = 300
@@ -252,8 +252,16 @@ SIGNALS: dict[str, Callable] = {
 }
 
 
+# Families whose stops and targets come from their own pattern (for example the MT4 CRT expert in src/crt_lab.py)
+# register a builder here: builder(ind, spec) -> (side, stop, target), the same arrays strategy_orders returns.
+ORDER_BUILDERS: dict = {}
+
+
 def strategy_orders(ind: Indicators, spec: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per bar: side (+1/-1/0), stop and target computed from that closed bar (NaN without a signal)."""
+    builder = ORDER_BUILDERS.get(spec["family"])
+    if builder is not None:
+        return builder(ind, spec)
     params, exits = spec["params"], spec["exits"]
     long_sig, short_sig = SIGNALS[spec["family"]](ind, params)
     with np.errstate(invalid="ignore"):
@@ -284,8 +292,12 @@ def strategy_orders(ind: Indicators, spec: dict) -> tuple[np.ndarray, np.ndarray
 
 # --------------------------------------------------------------------------- simulation
 def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dict, cost_pct: float,
-                    holding: Optional[dict] = None) -> list[dict]:
+                    holding: Optional[dict] = None, entry_prices=None) -> list[dict]:
     """One position at a time over signal bars in ``rows``; entry at the next bar's open.
+
+    ``entry_prices`` (optional, per signal bar): a resting limit order filled on the next bar at that price. The
+    builder must only set it when that bar trades through the limit. A target is not credited on the fill bar
+    (the bar may have reached it before the fill); a stop touched on the fill bar still counts.
 
     ``holding`` charges overnight swap: {"roll": rollover_counts(times), "mode": "percent" | "price", "long": ..,
     "short": ..} per night (percent of the entry price, or price units); None keeps the spread-only cost model.
@@ -293,6 +305,22 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
     n = len(o)
     trail_atr = float(exits.get("trail_atr") or 0.0)
     max_bars = int(exits.get("max_bars") or 10 ** 9)
+    # Optional stop management like the MT4 CRT expert (absent keys change nothing): move the stop to entry +
+    # be_lock_price once the best price reaches be_trigger_r x the initial risk; trail trail_dist_price behind the
+    # best price once it is trail_start_price in profit, or trail_dist_r x risk once it is trail_start_r x risk in
+    # profit. Checked on the previous bar's extreme, so the stop moves from the next bar on.
+    be_trigger_r = float(exits.get("be_trigger_r") or 0.0)
+    be_lock = float(exits.get("be_lock_price") or 0.0)
+    trail_start_price = float(exits.get("trail_start_price") or 0.0)
+    trail_dist_price = float(exits.get("trail_dist_price") or 0.0)
+    trail_start_r = float(exits.get("trail_start_r") or 0.0)
+    trail_dist_r = float(exits.get("trail_dist_r") or 0.0)
+    managed = be_trigger_r > 0 or trail_dist_price > 0 or trail_dist_r > 0
+    # Optional swap avoidance (needs ``holding``): close at the close of the last bar before a rollover that would
+    # charge three nights ("exit_before_triple_swap") or any night ("exit_before_rollover"), so that night is not paid.
+    roll = holding["roll"] if holding is not None else None
+    exit_triple = bool(exits.get("exit_before_triple_swap")) and roll is not None
+    exit_any = bool(exits.get("exit_before_rollover")) and roll is not None
     rows = np.asarray(rows)
     trades: list[dict] = []
     free_from = -1
@@ -302,18 +330,26 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
             continue
         s = int(side[t])
         stop0, tgt, entry_i = float(stop[t]), float(target[t]), t + 1
-        entry = o[entry_i]
+        limit_fill = entry_prices is not None and np.isfinite(entry_prices[t])
+        entry = float(entry_prices[t]) if limit_fill else o[entry_i]
         if not np.isfinite(entry) or entry <= 0 or (s == 1 and entry <= stop0) or (s == -1 and entry >= stop0):
             continue
         if np.isfinite(tgt) and ((s == 1 and entry >= tgt) or (s == -1 and entry <= tgt)):
             continue
         current_stop, extreme = stop0, (h[t] if s == 1 else l[t])
+        best, risk0 = entry, abs(entry - stop0)
         exit_price = outcome = None
         j = entry_i
         while j < n:
             if j - entry_i >= max_bars:
                 exit_price, outcome = o[j], "TIME"
                 break
+            if j > entry_i and (exit_triple or exit_any):
+                nights_ahead = roll[j] - roll[j - 1]
+                if (exit_any and nights_ahead > 0) or (exit_triple and nights_ahead >= 3):
+                    j -= 1
+                    exit_price, outcome = c[j], "SWAP_EXIT"
+                    break
             if j > entry_i:
                 if trail_atr > 0 and np.isfinite(atr[j - 1]):
                     if s == 1:
@@ -322,13 +358,25 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
                     else:
                         extreme = min(extreme, l[j - 1])
                         current_stop = min(current_stop, extreme + trail_atr * atr[j - 1])
+                if managed:
+                    best = max(best, h[j - 1]) if s == 1 else min(best, l[j - 1])
+                    profit = s * (best - entry)
+                    moves = []
+                    if be_trigger_r > 0 and profit >= be_trigger_r * risk0:
+                        moves.append(entry + s * be_lock)
+                    if trail_dist_price > 0 and profit >= trail_start_price:
+                        moves.append(best - s * trail_dist_price)
+                    if trail_dist_r > 0 and profit >= trail_start_r * risk0:
+                        moves.append(best - s * trail_dist_r * risk0)
+                    for level in moves:
+                        current_stop = max(current_stop, level) if s == 1 else min(current_stop, level)
                 if (s == 1 and o[j] <= current_stop) or (s == -1 and o[j] >= current_stop):
                     exit_price, outcome = o[j], "STOP"
                     break
             if (s == 1 and l[j] <= current_stop) or (s == -1 and h[j] >= current_stop):
                 exit_price, outcome = current_stop, "STOP"
                 break
-            if np.isfinite(tgt) and ((s == 1 and h[j] >= tgt) or (s == -1 and l[j] <= tgt)):
+            if np.isfinite(tgt) and not (limit_fill and j == entry_i) and ((s == 1 and h[j] >= tgt) or (s == -1 and l[j] <= tgt)):
                 exit_price, outcome = tgt, "TARGET"
                 break
             j += 1
@@ -406,11 +454,13 @@ class Market:
                                  for name, r in self.rows.items() if len(r)}}
 
     def simulate(self, spec: dict, split: str, orders=None) -> list[dict]:
-        side, stop, target = orders if orders is not None else strategy_orders(self.ind, spec)
+        orders = orders if orders is not None else strategy_orders(self.ind, spec)
+        side, stop, target = orders[:3]
+        entry_prices = orders[3] if len(orders) > 3 else None   # builders with limit entries return a fourth array
         ind = self.ind
         atr = ind.atr(int(spec["params"].get("atr_len", 14)))
         return simulate_orders(ind.o, ind.h, ind.l, ind.c, atr, ind.times, side, stop, target, self.rows[split],
-                               spec["exits"], self.cost_pct, self.holding)
+                               spec["exits"], self.cost_pct, self.holding, entry_prices)
 
     def summary(self, split: str, trades: list[dict]) -> dict:
         rows, times, close = self.rows[split], self.ind.times, self.ind.c
@@ -565,6 +615,8 @@ def evaluate_candidate(market: Market, spec: dict, with_holdout: bool = False) -
 
 
 def describe_spec(spec: dict) -> str:
+    if spec.get("description"):
+        return str(spec["description"])
     p, x = spec["params"], spec["exits"]
     family = spec["family"]
     if family == "ema_pullback":

@@ -25,7 +25,9 @@ with changing markets.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -33,12 +35,13 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from .runtime_paths import smartentry_data_dir, smartentry_models_dir
 from .train import FEATURE_COLUMNS
 from .walkforward_backtest import BACKTEST_COSTS, LABEL_HORIZON_BARS, _simulate_trades, summarize_trades
 
-MODELS_DIR = Path("models")
+MODELS_DIR = smartentry_models_dir()
 ARCHIVE_DIR = MODELS_DIR / "archive"
-DECISIONS_PATH = Path("data") / "learning_decisions.json"
+DECISIONS_PATH = smartentry_data_dir() / "learning_decisions.json"
 
 RF_FILES = ("{s}_model.joblib", "{s}_metrics.json")
 LSTM_FILES = ("{s}_lstm.keras", "{s}_lstm_best.keras", "{s}_lstm_meta.json", "{s}_lstm_metrics.json", "{s}_lstm_scaler.joblib")
@@ -203,9 +206,26 @@ def decide_lstm(champion_accuracy: Optional[float], challenger_accuracy: Optiona
     return True, f"New LSTM validation accuracy {challenger_accuracy:.3f} vs previous {champion_accuracy:.3f}; promoted."
 
 
+def learning_caller_context() -> dict:
+    """Who asked for a learning cycle: the process and, inside the web app, the HTTP request.
+
+    Added after the 16 Sep 2026 incident, where two off-schedule retrains could not be traced to their caller.
+    """
+    context = {"pid": os.getpid(), "parent_pid": os.getppid(), "argv": " ".join(sys.argv)[:240]}
+    try:
+        from flask import has_request_context, request
+        if has_request_context():
+            context["http"] = {"method": request.method, "path": request.path, "remote_addr": request.remote_addr,
+                               "user_agent": str(request.user_agent)[:160], "referrer": request.referrer}
+    except Exception:  # attribution is best effort and must never stop a decision being recorded
+        pass
+    return context
+
+
 def record_decision(entry: dict) -> None:
     DECISIONS_PATH.parent.mkdir(exist_ok=True)
     decisions = load_decisions(limit=None)
+    entry = {**entry, "caller": entry.get("caller") or learning_caller_context()}
     decisions.append(entry)
     tmp = DECISIONS_PATH.with_name(DECISIONS_PATH.name + ".tmp")
     tmp.write_text(json.dumps(decisions, indent=1), encoding="utf-8")

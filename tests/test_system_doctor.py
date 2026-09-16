@@ -94,6 +94,10 @@ def test_scheduled_task_csv_parsing_and_missing_task_fix(tmp_path):
     assert "-Once -At '00:05' -RepetitionInterval (New-TimeSpan -Hours 1)" in ps
     assert doc.task_trigger_ps(["/sc", "minute", "/mo", "30"]).endswith("(New-TimeSpan -Minutes 30)")
     assert doc.task_trigger_ps(["/sc", "daily", "/st", "06:30"]) == "New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At '06:30'"
+    logon = doc.task_trigger_ps(doc.TASKS["SmartEntry Claude Code"]["schedule"])
+    assert logon.startswith("New-ScheduledTaskTrigger -AtLogOn -User ") and "GetCurrent().Name" in logon
+    assert doc.TASKS["SmartEntry Claude Code"]["script"] == "start_claude.cmd"
+    assert (doc.ROOT / "scripts" / "start_claude.cmd").exists() and (doc.ROOT / "scripts" / "claude_desk.ps1").exists()
     assert "'it''s'" in doc.task_register_command("it's", doc.ROOT / "x.cmd", ["/sc", "daily", "/st", "01:00"])[-1]
 
 

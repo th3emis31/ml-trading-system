@@ -103,9 +103,12 @@ def _gate(row: dict) -> Optional[dict]:
     }
 
 
-def _symbol_curve(data_dir: Path, symbol: str, decisions: list) -> Optional[dict]:
+def _symbol_curve(data_dir: Path, symbol: str, decisions: list, excluded_times=frozenset()) -> Optional[dict]:
     history = _read_json(data_dir / f"{symbol.lower()}_daily_history.json") or []
     history = [row for row in history if isinstance(row, dict)] if isinstance(history, list) else []
+    # Runs flagged test_polluted in the decisions file (tests trained into the live models/, 15-16 Sep 2026) stay on
+    # disk for the record but are not evidence, so their history rows are left out of the curve too.
+    history = [row for row in history if row.get("trained_at") not in excluded_times]
     mine = [row for row in decisions if isinstance(row, dict) and row.get("symbol") == symbol]
     seen = {row.get("trained_at") for row in history}
     # a run that crashed is recorded only in the decisions file; show it too
@@ -235,9 +238,11 @@ def build_learning_curve(data_dir=Path("data"), now: Optional[datetime] = None) 
     now = now or datetime.now()  # training times are written in local time
     decisions = _read_json(data_dir / "learning_decisions.json") or []
     decisions = decisions if isinstance(decisions, list) else []
+    polluted = {row.get("trained_at") for row in decisions if isinstance(row, dict) and row.get("test_polluted")}
+    decisions = [row for row in decisions if not (isinstance(row, dict) and row.get("test_polluted"))]
     symbols = {}
     for symbol in SYMBOLS:
-        curve = _symbol_curve(data_dir, symbol, decisions)
+        curve = _symbol_curve(data_dir, symbol, decisions, frozenset(polluted))
         if curve:
             symbols[symbol] = curve
     times = [t for t in (_parse_time(c["latest"]["trained_at"]) for c in symbols.values()) if t]
@@ -256,6 +261,7 @@ def build_learning_curve(data_dir=Path("data"), now: Optional[datetime] = None) 
         "available": True,
         "places_orders": False,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "excluded_test_polluted_runs": len(polluted),
         "task": task,
         "overall": _overall(symbols, task),
         "symbols": symbols,

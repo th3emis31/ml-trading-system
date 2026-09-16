@@ -22,6 +22,7 @@ from sklearn.model_selection import TimeSeriesSplit
 
 from .data import fetch_real_data
 from .features import build_features
+from .runtime_paths import smartentry_models_dir
 # LSTMTrader is imported inside train_lstm_model: importing it here loaded TensorFlow
 # (~1 GB private memory) into every module that only needs FEATURE_COLUMNS or the RF
 # helpers, including the research engine, on a machine with ~7 GB of RAM.
@@ -292,7 +293,7 @@ def train_model(df: pd.DataFrame, symbol: str):
 
 
 def save_model(model, symbol: str):
-    out_dir = Path("models")
+    out_dir = smartentry_models_dir()
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{symbol.lower()}_model.joblib"
     import joblib
@@ -301,7 +302,7 @@ def save_model(model, symbol: str):
 
 
 def load_model(symbol: str):
-    path = Path("models") / f"{symbol.lower()}_model.joblib"
+    path = smartentry_models_dir() / f"{symbol.lower()}_model.joblib"
     if not path.exists():
         return None
     import joblib
@@ -310,7 +311,7 @@ def load_model(symbol: str):
 
 
 def save_metrics(metrics: dict, symbol: str):
-    out_dir = Path("models")
+    out_dir = smartentry_models_dir()
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{symbol.lower()}_metrics.json"
     with path.open("w", encoding="utf-8") as fh:
@@ -318,7 +319,7 @@ def save_metrics(metrics: dict, symbol: str):
 
 
 def load_metrics(symbol: str):
-    path = Path("models") / f"{symbol.lower()}_metrics.json"
+    path = smartentry_models_dir() / f"{symbol.lower()}_metrics.json"
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
@@ -326,7 +327,7 @@ def load_metrics(symbol: str):
 
 
 def save_lstm_metrics(metrics: dict, symbol: str):
-    out_dir = Path("models")
+    out_dir = smartentry_models_dir()
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{symbol.lower()}_lstm_metrics.json"
     with path.open("w", encoding="utf-8") as fh:
@@ -334,7 +335,7 @@ def save_lstm_metrics(metrics: dict, symbol: str):
 
 
 def load_lstm_metrics(symbol: str):
-    path = Path("models") / f"{symbol.lower()}_lstm_metrics.json"
+    path = smartentry_models_dir() / f"{symbol.lower()}_lstm_metrics.json"
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
@@ -351,7 +352,7 @@ def train_lstm_model(df: pd.DataFrame, symbol: str):
 
 
 # PHASE 3.2 IMPROVEMENT: Ensemble Voting
-def ensemble_predict(lstm_prob: float, rf_prob: float, lstm_weight: float = 0.6, rf_weight: float = 0.4) -> dict:
+def ensemble_predict(lstm_prob: float, rf_prob: float, lstm_weight: float = None, rf_weight: float = None) -> dict:
     """
     Combine LSTM and RandomForest predictions using weighted voting.
     
@@ -377,6 +378,16 @@ def ensemble_predict(lstm_prob: float, rf_prob: float, lstm_weight: float = 0.6,
         >>> print(f"Signal: {result['signal']}, Confidence: {result['confidence']:.1f}%")
         Signal: BUY, Confidence: 98.0%
     """
+    # Weights and thresholds come from src/signal_engine.py (config "legacy_ensemble": LSTM 60 / RF 40, strict
+    # bounds), the same module the live dashboard uses, so there is one place that defines them.
+    from .signal_engine import classify_probability, get_config
+
+    legacy = get_config("legacy_ensemble")
+    if lstm_weight is None:
+        lstm_weight = legacy["weights"]["lstm"]
+    if rf_weight is None:
+        rf_weight = legacy["weights"]["rf"]
+
     # Validate inputs
     if not (0 <= lstm_prob <= 1) or not (0 <= rf_prob <= 1):
         raise ValueError("Probabilities must be between 0 and 1")
@@ -397,13 +408,8 @@ def ensemble_predict(lstm_prob: float, rf_prob: float, lstm_weight: float = 0.6,
     agreement = 1 - disagreement  # 0 = total disagreement, 1 = perfect agreement
     confidence = agreement * 100  # Convert to percentage (0-100%)
     
-    # Generate signal based on probability threshold
-    if ensemble_prob > 0.55:
-        signal = "BUY"
-    elif ensemble_prob < 0.45:
-        signal = "SELL"
-    else:
-        signal = "HOLD"
+    # Generate signal based on probability threshold (strictly above 0.55 / below 0.45, from the engine config)
+    signal = classify_probability(ensemble_prob, legacy)
     
     return {
         "probability": float(ensemble_prob),

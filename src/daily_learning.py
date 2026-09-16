@@ -9,12 +9,13 @@ from .features import build_features
 from .train import train_model, save_lstm_metrics, ensemble_predict
 from .lstm_model import LSTMTrader
 from . import model_promotion as promotion
+from .runtime_paths import live_training_allowed, smartentry_data_dir
 
 
 class DailyLearner:
     def __init__(self, symbol: str):
         self.symbol = symbol
-        self.history_dir = Path("data")
+        self.history_dir = smartentry_data_dir()
         self.history_dir.mkdir(exist_ok=True)
 
     def _history_path(self, frequency: str) -> Path:
@@ -43,6 +44,21 @@ class DailyLearner:
         Every outcome is recorded in data/learning_decisions.json. Training never
         runs on synthetic prices.
         """
+        # Training writes the challenger straight over the live files, so the learning-window gate must refuse here,
+        # before any data is fetched or any file is touched (see src/runtime_paths.py).
+        allowed, gate_reason = live_training_allowed()
+        if not allowed:
+            blocked = {
+                "symbol": self.symbol,
+                "frequency": frequency,
+                "status": "blocked_outside_learning_window",
+                "reason": gate_reason,
+                "rf_promoted": False,
+                "lstm_promoted": False,
+                "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            promotion.record_decision(blocked)
+            return blocked
         interval = "1h" if frequency == "daily" else "1d"
         period = "120d" if frequency == "daily" else "240d"
         data = fetch_real_data(self.symbol, period=period, interval=interval)

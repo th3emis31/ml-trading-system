@@ -12,7 +12,8 @@ from sklearn.preprocessing import StandardScaler
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from .features import build_features as build_classic_features
+from .features import build_features as build_classic_features, build_inference_features
+from .runtime_paths import smartentry_models_dir
 
 LSTM_FEATURE_COLUMNS = [
     "hour_sin",
@@ -44,12 +45,12 @@ class LSTMTrader:
         self.symbol = symbol
         self.lookback = lookback
         self.model = None
-        self.model_path = Path("models") / f"{symbol.lower()}_lstm.keras"
-        self.metadata_path = Path("models") / f"{symbol.lower()}_lstm_meta.json"
+        self.model_path = smartentry_models_dir() / f"{symbol.lower()}_lstm.keras"
+        self.metadata_path = smartentry_models_dir() / f"{symbol.lower()}_lstm_meta.json"
         # The scaler has to be persisted next to the network: a prediction made
         # in a fresh process has no fitted scaler otherwise, and every call
         # raises NotFittedError.
-        self.scaler_path = Path("models") / f"{symbol.lower()}_lstm_scaler.joblib"
+        self.scaler_path = smartentry_models_dir() / f"{symbol.lower()}_lstm_scaler.joblib"
         self.scaler = StandardScaler()
         self.scaler_ready = False
 
@@ -173,7 +174,8 @@ class LSTMTrader:
     def predict(self, df: pd.DataFrame):
         if self.model is None and self.model_path.exists():
             self.model = keras.models.load_model(self.model_path)
-        prepared = self.build_features(df)
+        # Inference keeps the newest bars whose 3-bar look-ahead target is still unknown (training uses build_features).
+        prepared = build_inference_features(df)
         X, _ = self.prepare_sequences(prepared, fit_scaler=False)
         if len(X) == 0:
             return None

@@ -139,9 +139,14 @@ def test_live_plan_endpoint():
     assert 'grade' in data
 
 
-def test_train_daily_endpoint():
+def test_train_daily_endpoint(tmp_path, monkeypatch):
+    from src import execution_guard
+    monkeypatch.setattr(execution_guard, "SECRET_PATH", tmp_path / "control_api.json")
     client = app.test_client()
-    response = client.get('/api/train-daily')
+    assert client.get('/api/train-daily').status_code == 405, "a GET (prefetch, crawler) must never start training"
+    assert client.post('/api/train-daily').status_code == 403, "training needs the control secret"
+    secret = execution_guard.load_or_create_secret(tmp_path / "control_api.json")
+    response = client.post('/api/train-daily', headers={execution_guard.SECRET_HEADER: secret})
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)

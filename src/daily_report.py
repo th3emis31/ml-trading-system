@@ -46,6 +46,7 @@ SCHEDULE = {
     "SmartEntry Daily Report": ("daily 06:45", "This report: market analysis for gold and bitcoin plus the system brief."),
     "SmartEntry Daily Learning": ("daily 05:30", "Self-learning: retrains gold and bitcoin models on new candles; keeps a new model only if better on unseen bars."),
     "SmartEntry Obsidian Notes": ("every hour at :50", "Writes daily notes, the daily plan, learning verdict, research log and trade journal into the Obsidian vault."),
+    "SmartEntry Daily Agent": ("every hour at :10", "Paper trading agent: research, decision per closed H4 candle for gold and bitcoin, and a journal entry for every decision."),
 }
 
 

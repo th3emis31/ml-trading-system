@@ -64,8 +64,24 @@ def add_quality_targets(df: pd.DataFrame, horizon: int = 3) -> pd.DataFrame:
     return out
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Create useful features for machine learning classification."""
+FUTURE_TARGET_COLUMNS = ("future_close", "future_move_pips", "future_abs_pips")
+
+
+def build_inference_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Features for a live prediction: the newest bars are kept even though their look-ahead target is unknown.
+
+    build_features drops every row whose 3-bar future target is missing, which silently removed the 3 newest bars
+    from live predictions (execution safety item 4, 15 Sep 2026). Training still uses build_features; the target
+    columns of the last rows here are NaN/0 and must never be used as labels.
+    """
+    return build_features(df, drop_future_rows=False)
+
+
+def build_features(df: pd.DataFrame, drop_future_rows: bool = True) -> pd.DataFrame:
+    """Create useful features for machine learning classification.
+
+    ``drop_future_rows=False`` keeps rows whose look-ahead target columns are still unknown (see build_inference_features).
+    """
     out = df.copy()
     out = out.sort_values("datetime").reset_index(drop=True)
     dt = pd.to_datetime(out.get("datetime", out.index), utc=True, errors="coerce")
@@ -106,7 +122,11 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["trend_5"] = np.sign(out["close"] - out["sma_5"])
     out["trend_20"] = np.sign(out["close"] - out["sma_20"])
     out = add_quality_targets(out, horizon=3)
-    out = out.dropna().reset_index(drop=True)
+    if drop_future_rows:
+        out = out.dropna().reset_index(drop=True)
+    else:
+        feature_cols = [c for c in out.columns if c not in FUTURE_TARGET_COLUMNS]
+        out = out.dropna(subset=feature_cols).reset_index(drop=True)
     return out
 
 

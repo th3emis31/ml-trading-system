@@ -20,8 +20,10 @@ import yfinance as yf
 import speech_recognition as sr
 
 from src.data import generate_synthetic_data, fetch_real_data
-from src.features import build_features, get_pip_profile, get_adaptive_pip_profile
+from src.features import build_features, build_inference_features, get_pip_profile, get_adaptive_pip_profile
 from src.train import FEATURE_COLUMNS, train_model, load_model, load_metrics, load_lstm_metrics
+from src.signal_engine import (SIGNAL_CONFIGS as ENGINE_SIGNAL_CONFIGS, classify_probability as engine_classify_probability,
+                               live_signal as engine_live_signal)
 from src.daily_learning import DailyLearner
 from src.lstm_model import LSTMTrader
 try:
@@ -469,17 +471,14 @@ def _jarvis_run_autonomy_cycle_once():
   should_execute, reason = _autonomy_should_execute(cycle_focus, state)
   if should_execute:
     dynamic_profile = _jarvis_dynamic_execution_profile(cycle_focus, state, focus_symbol)
-    with app.test_request_context(
-      '/api/auto-trade/execute',
-      method='POST',
-      json={
-        "symbol": focus_symbol,
-        "lot_size": dynamic_profile.get("lot_size"),
-        "risk_percent": dynamic_profile.get("risk_percent"),
-        "internal_auto_execute": True,
-      },
-    ):
-      response = auto_trade_execute_api()
+    autonomy_payload = {
+      "symbol": focus_symbol,
+      "lot_size": dynamic_profile.get("lot_size"),
+      "risk_percent": dynamic_profile.get("risk_percent"),
+    }
+    with app.test_request_context('/api/auto-trade/execute', method='POST', json=autonomy_payload):
+      # In-process call: 'internal' is set here, never taken from a request body (execution safety 1).
+      response = _logged_execute(autonomy_payload, internal_auto_execute=True, source='autonomy')
       response_obj = response[0] if isinstance(response, tuple) else response
       payload = response_obj.get_json(silent=True) or {}
       status = str(payload.get("status") or "ok")
@@ -726,6 +725,7 @@ MAIN_NAV_GROUPS = [
     ('/control', 'Control'),
     ('/ea-panel', 'EA Bridge'),
     ('/paper-trading', 'Paper Trading'),
+    ('/daily-agent', 'Daily Agent'),
   ]),
   ('AI', [
     ('/learn', 'Learn'),
@@ -743,6 +743,7 @@ MAIN_NAV_GROUPS = [
   ('Data', [
     ('/data-feed', 'Data Feed'),
     ('/daily-report', 'Daily Report'),
+    ('/economic-calendar', 'Economic Calendar'),
     ('/api/market-summary', 'API'),
   ]),
 ]
@@ -864,7 +865,8 @@ def auto_heal_self_test_api():
   code = 200 if report.get('ok') else 503
   return jsonify(report), code
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+# The test suite points SMARTENTRY_DATA_DIR at a temporary copy (tests/conftest.py); the live app never sets it.
+DATA_DIR = Path(os.environ["SMARTENTRY_DATA_DIR"]) if os.environ.get("SMARTENTRY_DATA_DIR") else Path(__file__).resolve().parent / "data"
 KNOWLEDGE = KnowledgeBase(str(DATA_DIR / "knowledge.json"))
 DATA_DIR.mkdir(exist_ok=True)
 SETTINGS_PATH = DATA_DIR / "settings.json"
@@ -1518,6 +1520,19 @@ def _jarvis_prune_approval_requests(approval: dict):
   approval["pending_requests"] = kept[-100:]
 
 
+def _approval_price_band_now(symbol: str, side: str) -> dict:
+  """Broker price band an approval is valid for, fixed at creation (execution safety 3). Never priced from Yahoo."""
+  from src import execution_guard
+  try:
+    bars, bars_source = get_bars(str(symbol).upper(), '1h', 60)
+    quote = MT5_ENGINE.quote(str(symbol).upper()) if MT5_ENGINE is not None else {'ok': False, 'message': 'MT5 engine unavailable'}
+    levels = execution_guard.broker_trade_levels(symbol=str(symbol).upper(), side=side, quote=quote,
+                                                 quote_source=f'mt5:{str(symbol).upper()}', bars=bars, bars_source=bars_source)
+    return execution_guard.approval_price_band(levels)
+  except Exception as exc:
+    return {'available': False, 'reason': f'broker price band unavailable: {exc}'}
+
+
 def _jarvis_enqueue_approval_request(state: dict, symbol: str, side: str, readiness: dict, execution_mode: str, risk_percent: float, lot_size: float) -> dict:
   approval = _jarvis_approval_block(state)
   _jarvis_prune_approval_requests(approval)
@@ -1539,6 +1554,8 @@ def _jarvis_enqueue_approval_request(state: dict, symbol: str, side: str, readin
     "market": readiness.get("market"),
     "entry_plan": readiness.get("entry_plan"),
     "diagnosis": readiness.get("diagnosis"),
+    # the exact broker band this approval is valid for; execution outside it (or on another side/symbol) is refused
+    "price_band": _approval_price_band_now(symbol, str(side or "").upper()),
   }
   pending = approval.get("pending_requests") if isinstance(approval.get("pending_requests"), list) else []
   pending.append(request_item)
@@ -1655,6 +1672,14 @@ def _jarvis_symbol_memory_adjustment(state: dict, symbol: str) -> dict:
   stats = memory.get("symbol_stats") if isinstance(memory.get("symbol_stats"), dict) else {}
   bucket = stats.get(str(symbol or "").upper()) if isinstance(stats.get(str(symbol or "").upper()), dict) else {}
 
+  # Execution safety item 5: only stats marked as real broker fills move the threshold. Older counters may include
+  # simulated demo outcomes, so they are ignored until real fills accumulate.
+  if not bucket.get("auto_exec_real_fills_only"):
+    return {
+      "confidence_shift": 0.0,
+      "basis": "insufficient history (real broker fills only)",
+    }
+
   wins = int(bucket.get("auto_exec_wins", 0) or 0)
   losses = int(bucket.get("auto_exec_losses", 0) or 0)
   total = int(bucket.get("auto_exec_total", wins + losses) or 0)
@@ -1752,6 +1777,29 @@ def _jarvis_memory_record_execution_result(state: dict, symbol: str, trade_recor
   memory = _jarvis_memory_block(state)
   stats = memory.get("symbol_stats") if isinstance(memory.get("symbol_stats"), dict) else {}
   bucket = stats.get(key) if isinstance(stats.get(key), dict) else {}
+
+  from src import execution_guard
+  if not execution_guard.is_real_broker_fill(trade_record):
+    # Simulated demo outcomes are kept for display only and never reach auto_exec_* (the threshold input).
+    sim_total = int(bucket.get("simulated_exec_total", 0) or 0) + 1
+    sim_wins = int(bucket.get("simulated_exec_wins", 0) or 0)
+    sim_pnl = (trade_record or {}).get("pnl_pct") if isinstance(trade_record, dict) else None
+    if isinstance(sim_pnl, (int, float)) and sim_pnl > 0:
+      sim_wins += 1
+    bucket["simulated_exec_total"] = sim_total
+    bucket["simulated_exec_wins"] = sim_wins
+    bucket["last_trade_status"] = str((trade_record or {}).get("status") or "unknown").lower()
+    bucket["updated_at"] = datetime.now(timezone.utc).isoformat()
+    stats[key] = bucket
+    memory["symbol_stats"] = stats
+    return
+
+  if not bucket.get("auto_exec_real_fills_only"):
+    # Counters from before the real-fill rule may hold simulated outcomes: keep them under legacy_* and start clean.
+    for field in ("auto_exec_total", "auto_exec_wins", "auto_exec_losses", "auto_exec_avg_pnl_pct"):
+      if field in bucket:
+        bucket["legacy_" + field] = bucket.pop(field)
+    bucket["auto_exec_real_fills_only"] = True
 
   total = int(bucket.get("auto_exec_total", 0) or 0)
   wins = int(bucket.get("auto_exec_wins", 0) or 0)
@@ -2348,8 +2396,9 @@ def evaluate_signal_outcome(signal: dict, frame=None):
   }
 
 
-SIGNAL_BUY_THRESHOLD = 0.55
-SIGNAL_SELL_THRESHOLD = 0.45
+# Thresholds live in src/signal_engine.py (config "live"); these names stay for existing callers.
+SIGNAL_BUY_THRESHOLD = ENGINE_SIGNAL_CONFIGS["live"]["buy_threshold"]
+SIGNAL_SELL_THRESHOLD = ENGINE_SIGNAL_CONFIGS["live"]["sell_threshold"]
 
 
 def _classify_signal(probability: float) -> str:
@@ -2357,16 +2406,9 @@ def _classify_signal(probability: float) -> str:
 
   The band between the two thresholds is genuine uncertainty: the model has no
   directional edge there, so it must not be reported as a tradeable side.
+  Thin wrapper over src.signal_engine.classify_probability (live config), the rule the backtests use too.
   """
-  try:
-    value = float(probability)
-  except (TypeError, ValueError):
-    return "HOLD"
-  if value >= SIGNAL_BUY_THRESHOLD:
-    return "BUY"
-  if value <= SIGNAL_SELL_THRESHOLD:
-    return "SELL"
-  return "HOLD"
+  return engine_classify_probability(probability, "live")
 
 
 def _is_tradeable_side(side: str) -> bool:
@@ -2504,6 +2546,15 @@ def get_model_status(symbol: str):
     metrics = load_metrics(symbol) or {}
     lstm_metrics = load_lstm_metrics(symbol) or {}
     history = load_daily_history(symbol)
+    # Runs flagged test_polluted in learning_decisions.json (tests trained into the live models/, 15-16 Sep 2026) did
+    # not produce the model that is loaded, so "last trained" must skip them instead of showing a test run's time.
+    try:
+        decisions = json.loads((DATA_DIR / "learning_decisions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        decisions = []
+    polluted_times = {row.get("trained_at") for row in decisions if isinstance(row, dict) and row.get("test_polluted")} \
+        if isinstance(decisions, list) else set()
+    history = [row for row in history if isinstance(row, dict) and row.get("trained_at") not in polluted_times]
     last_entry = history[-1] if history else {}
     return {
         'symbol': symbol,
@@ -6564,6 +6615,28 @@ def build_signal_payload():
   return payload
 
 
+def _signal_bar_time_text(signal_time):
+    """UTC text of the bar the live signal was predicted on, or None."""
+    import pandas as pd
+    if signal_time is None:
+        return None
+    try:
+        return pd.Timestamp(signal_time).tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def _signal_bar_age_minutes(signal_time, now):
+    """Minutes between the signal bar's open time and ``now`` (a closed 1h bar is 60-120 min old)."""
+    import pandas as pd
+    if signal_time is None:
+        return None
+    try:
+        return round((pd.Timestamp(now) - pd.Timestamp(signal_time).tz_convert("UTC")).total_seconds() / 60.0, 1)
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_signal_payload_uncached():
     auto_state = load_auto_trader_state()
     payload = []
@@ -6571,34 +6644,34 @@ def _build_signal_payload_uncached():
         data = fetch_real_data(symbol, period="120d", interval="1h")
         if data.empty:
             data = generate_synthetic_data(symbol, n=500)
-        features = build_features(data)
+        # Execution safety item 4: predict on the newest CLOSED 1h bar. The forming bar is dropped, and inference
+        # features keep the last 3 rows that build_features used to discard for their unknown look-ahead target.
+        from src.paper_trader import drop_forming_bars
+        signal_now = datetime.now(timezone.utc)
+        closed_data = drop_forming_bars(data, 60, signal_now)
+        if closed_data is not None and not closed_data.empty:
+            data = closed_data
+        features = build_inference_features(data)
         clf = load_model(symbol)
         metrics = load_metrics(symbol) or {"accuracy": 0.5}
         lstm_metrics = load_lstm_metrics(symbol) or {}
-        lstm_probability = None
+        lstm_trader = None
         try:
             lstm_trader = LSTMTrader(symbol)
-            lstm_probability = lstm_trader.predict(data)
         except Exception:
-            lstm_probability = None
+            lstm_trader = None
         if clf is None:
             clf, metrics = train_model(data, symbol)
         latest = features.iloc[-1:]
-        rf_probability = 0.5
-        try:
-          if hasattr(clf, "predict_proba"):
-            rf_probability = float(clf.predict_proba(latest[FEATURE_COLUMNS])[0, 1])
-          else:
-            rf_probability = float(clf.predict(latest[FEATURE_COLUMNS])[0])
-        except Exception:
-          rf_probability = 0.5
-        ensemble_probability = rf_probability
-        if lstm_probability is not None:
-            ensemble_probability = round((rf_probability + lstm_probability) / 2, 4)
-        # Symmetric bands with a neutral zone. The old rule was
-        # "BUY if >= 0.55 else SELL", which turned every probability below the
-        # buy threshold - including a dead-neutral 0.50 - into a short.
-        signal = _classify_signal(ensemble_probability)
+        # One engine for live and backtests (src/signal_engine.py, config "live"): RF + LSTM blend, 0.55 / 0.45
+        # bands with a neutral HOLD zone. The old rule "BUY if >= 0.55 else SELL" turned every probability below
+        # the buy threshold - including a dead-neutral 0.50 - into a short.
+        engine_result = engine_live_signal(data, {"rf": clf, "lstm": lstm_trader, "feature_columns": FEATURE_COLUMNS},
+                                           features=features)
+        rf_probability = float(engine_result["rf_probability"])
+        lstm_probability = engine_result["lstm_probability"]
+        ensemble_probability = float(engine_result["probability"])
+        signal = engine_result["signal"]
         model_accuracy = metrics.get("accuracy", 0.5)
         lstm_accuracy = lstm_metrics.get("accuracy") if lstm_metrics.get("accuracy") is not None else model_accuracy
         confidence = round(min(0.99, max(0.55, (model_accuracy * 0.55 + lstm_accuracy * 0.35 + ensemble_probability * 0.1))), 2)
@@ -6651,6 +6724,8 @@ def _build_signal_payload_uncached():
                     "lstm_recall": lstm_metrics.get("recall"),
                     "lstm_f1_score": lstm_metrics.get("f1_score"),
                 },
+                "signal_bar_time": _signal_bar_time_text(engine_result.get("signal_time")),
+                "signal_bar_age_minutes": _signal_bar_age_minutes(engine_result.get("signal_time"), signal_now),
                 "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
@@ -6995,9 +7070,13 @@ def compute_ensemble_probability(symbol: str, data, features, idx: int):
     except Exception:
         lstm_probability = None
 
+    # Same blend as the live signal (src/signal_engine.py, config "live").
+    from src.signal_engine import blend_probabilities as engine_blend_probabilities
+
+    ensemble_probability = round(engine_blend_probabilities(rf_probability, lstm_probability, "live"), 4)
     if lstm_probability is not None:
-        return round((rf_probability + lstm_probability) / 2, 4), round(rf_probability, 4), round(lstm_probability, 4)
-    return round(rf_probability, 4), round(rf_probability, 4), None
+        return ensemble_probability, round(rf_probability, 4), round(lstm_probability, 4)
+    return ensemble_probability, round(rf_probability, 4), None
 
 
 def build_shadow_simulation(symbol: str, entries: int = 6, horizon: int = 24):
@@ -13200,10 +13279,16 @@ AUTO_TRADER_TEMPLATE = """
       btn.textContent = content.classList.contains('show') ? '▼ Session Debug Info' : '▶ Session Debug Info';
     }
 
+    // Control secret for /api/auto-trade/execute: injected only when this page is opened on the trading PC;
+    // on another device paste it once with localStorage.setItem('smartentry_control_secret', '...').
+    const SMARTENTRY_CONTROL_SECRET = {{ control_secret|tojson }} || ((window.localStorage && localStorage.getItem('smartentry_control_secret')) || '');
     async function fetchJson(path, options) {
       // Every call is time-boxed. Without this a stalled bridge request never
       // settles, and the status poller below would queue requests forever.
       const opts = Object.assign({}, options || {});
+      if (String(path).indexOf('/api/auto-trade/execute') === 0 && SMARTENTRY_CONTROL_SECRET) {
+        opts.headers = Object.assign({}, opts.headers || {}, { 'X-Control-Secret': SMARTENTRY_CONTROL_SECRET });
+      }
       const timeoutMs = opts.timeoutMs || 20000;
       delete opts.timeoutMs;
       let controller = null;
@@ -15033,7 +15118,7 @@ LEARN_TEMPLATE = """
       <h2>API Endpoints</h2>
       <ul>
         <li><code>/api/learn</code> - learn endpoint map</li>
-        <li><code>/api/train-daily</code> - run daily training</li>
+        <li><code>POST /api/train-daily</code> - run daily training (needs X-Control-Secret; refused outside 05:25-06:30)</li>
         <li><code>/api/train-status</code> - current training summary</li>
         <li><code>/api/live-plan/XAUUSD</code> - live plan with entry/SL/TP/confidence/grade</li>
         <li><code>/api/chart-learn/XAUUSD</code> - chart insights plus retraining</li>
@@ -15426,7 +15511,9 @@ LEARN_TEMPLATE = """
     async function runTraining(endpoint, label) {
       document.getElementById('train-status').textContent = `Running ${label}...`;
       try {
-        const result = await fetch(endpoint);
+        // Training is POST-only with the control secret (injected for this machine, or saved in localStorage).
+        const secret = {{ control_secret|tojson }} || ((window.localStorage && localStorage.getItem('smartentry_control_secret')) || '');
+        const result = await fetch(endpoint, { method: 'POST', headers: { 'X-Control-Secret': secret } });
         const json = await result.json();
         document.getElementById('train-status').textContent = `${label} completed: ${json.map(r => `${r.symbol} ${r.status}`).join(', ')}`;
         await loadTrainStatus();
@@ -15644,12 +15731,17 @@ SCREENSHOT_LEARN_TEMPLATE = """
 
 @app.route('/learn')
 def learn_page():
-  return render_template_string(LEARN_TEMPLATE, signals=[], theme_css=THEME_CSS)
+  from src import execution_guard
+  control_secret = execution_guard.load_or_create_secret() if request.remote_addr in {'127.0.0.1', '::1'} else ''
+  return render_template_string(LEARN_TEMPLATE, signals=[], theme_css=THEME_CSS, control_secret=control_secret)
 
 
 @app.route('/auto-trader')
 def auto_trader_page():
-  return render_template_string(AUTO_TRADER_TEMPLATE, theme_css=THEME_CSS)
+  from src import execution_guard
+  # The control secret reaches the page only for requests from this PC (never over the LAN).
+  control_secret = execution_guard.load_or_create_secret() if request.remote_addr in {'127.0.0.1', '::1'} else ''
+  return render_template_string(AUTO_TRADER_TEMPLATE, theme_css=THEME_CSS, control_secret=control_secret)
 
 
 # SwingTrendPullback EA tab (src/ea_monitor.py): the MT5 expert exports its status and deals to
@@ -15973,9 +16065,13 @@ def auto_trade_recommend_api():
 
   approval = _jarvis_approval_block(state)
   _jarvis_prune_approval_requests(approval)
+  # This endpoint only creates approval requests; it never places an order. The whitelist decides whether the symbol
+  # may be traded at all, so a symbol outside it gets no request here and is refused outright by the execute path
+  # (execution safety 1b).
+  recommend_allowed_symbols = set(approval.get('allowed_symbols') or ['XAUUSD', 'BTCUSD'])
   approval_needed = bool(
     approval.get('require_user_approval', True)
-    and symbol in set(approval.get('allowed_symbols') or ['XAUUSD', 'BTCUSD'])
+    and symbol in recommend_allowed_symbols
     and action in {'BUY', 'SELL'}
   )
 
@@ -16061,9 +16157,50 @@ def jarvis_approvals_config_api():
   return jsonify({'status': 'saved', 'approval': approval})
 
 
+def _log_execution_rejection(source: str, symbol: str, http_status: int, body: dict) -> None:
+  """Every refused execution is written to data/execution_rejections.jsonl with its reason (execution safety 1)."""
+  from src import execution_guard
+  body = body if isinstance(body, dict) else {}
+  reason = body.get('error') or body.get('reason') or body.get('message') or body.get('status') or 'rejected'
+  execution_guard.log_rejection({
+    'source': source, 'symbol': symbol, 'http_status': int(http_status), 'reason': str(reason),
+    'status': body.get('status'), 'checks': body.get('checks'),
+  })
+  logger.warning('auto-trade execution rejected [%s] %s %s: %s', source, symbol, http_status, reason)
+
+
+def _logged_execute(payload: dict, internal_auto_execute: bool, source: str):
+  """Run the execution core and log any rejection. 'internal' is decided by the caller in-process, never by a request."""
+  payload = {k: v for k, v in dict(payload or {}).items() if k != 'internal_auto_execute'}
+  symbol = str(payload.get('symbol') or 'XAUUSD').strip().upper()
+  response = _auto_trade_execute_core(payload, internal_auto_execute=internal_auto_execute)
+  obj = response[0] if isinstance(response, tuple) else response
+  code = response[1] if isinstance(response, tuple) and len(response) > 1 else getattr(obj, 'status_code', 200)
+  if int(code) >= 400:
+    try:
+      body = obj.get_json(silent=True) or {}
+    except Exception:
+      body = {}
+    _log_execution_rejection(source, symbol, int(code), body)
+  return response
+
+
 @app.route('/api/auto-trade/execute', methods=['POST'])
 def auto_trade_execute_api():
+  """HTTP entry. Requires the control secret (X-Control-Secret, data/control_api.json); a request body can never
+  mark itself as the internal autonomy call - 'internal_auto_execute' from any request is ignored."""
+  from src import execution_guard
   payload = request.get_json(silent=True) or request.form.to_dict() or {}
+  if not execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                        execution_guard.load_or_create_secret()):
+    body = {'status': 'rejected', 'error': f'missing or wrong control secret ({execution_guard.SECRET_HEADER})'}
+    _log_execution_rejection('http', str(payload.get('symbol') or 'XAUUSD').upper(), 403, body)
+    return jsonify(body), 403
+  return _logged_execute(payload, internal_auto_execute=False, source='http')
+
+
+def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False):
+  payload = payload if isinstance(payload, dict) else {}
   state = load_auto_trader_state()
   session = state.get('session') if isinstance(state.get('session'), dict) else None
   if not session or not session.get('active'):
@@ -16074,8 +16211,8 @@ def auto_trade_execute_api():
   platform = str(session.get('platform') or 'mt5').strip().lower()
   risk_percent = _clamp_float_arg(payload.get('risk_percent') or session.get('risk_percent') or 1.0, default=1.0, low=0.1, high=5.0)
   lot_size = _clamp_float_arg(payload.get('lot_size') or session.get('lot_size') or 0.01, default=0.01, low=0.01, high=5.0)
-  internal_auto_execute = str(payload.get('internal_auto_execute', '0') or '0').strip().lower() in {'1', 'true', 'yes', 'on'}
-  
+  # internal_auto_execute is now a parameter set by in-process callers (autonomy loop); it is never read from payload.
+
   # Validate execution mode
   if execution_mode not in {'demo', 'mt5', 'mt5_live', 'mt4', 'mt4_live'}:
     execution_mode = 'demo'
@@ -16198,11 +16335,17 @@ def auto_trade_execute_api():
 
   approval = _jarvis_approval_block(state)
   _jarvis_prune_approval_requests(approval)
-  approval_required = bool(
-    approval.get('require_user_approval', True)
-    and symbol in set(approval.get('allowed_symbols') or ['XAUUSD', 'BTCUSD'])
-    and not internal_auto_execute
-  )
+  allowed_symbols = set(approval.get('allowed_symbols') or ['XAUUSD', 'BTCUSD'])
+  # Execution safety 1b: allowed_symbols is the whitelist of what may be traded at all (the TradingView intake reads
+  # it the same way). It used to sit inside approval_required, so a symbol outside the list skipped the approval gate
+  # completely and went straight to the order. Such a symbol is now refused, for internal callers too.
+  if symbol not in allowed_symbols:
+    return jsonify({
+      'status': 'blocked',
+      'error': f"{symbol} is not in the approved symbol list ({', '.join(sorted(allowed_symbols)) or 'none'}).",
+      'allowed_symbols': sorted(allowed_symbols),
+    }), 403
+  approval_required = bool(approval.get('require_user_approval', True) and not internal_auto_execute)
 
   if approval_required:
     request_id = str(payload.get('approval_request_id') or payload.get('request_id') or '').strip()
@@ -16247,6 +16390,68 @@ def auto_trade_execute_api():
       }), 400
 
   plan = build_live_plan(symbol)
+
+  # Pre-order checks (execution safety 1): fresh closed broker bar, spread vs stop, news window. Missing data rejects.
+  from src import execution_guard, economic_calendar
+  guard_now = datetime.now(timezone.utc)
+  try:
+    guard_bars, guard_source = get_bars(symbol, '1h', 60)
+  except Exception as exc:
+    guard_bars, guard_source = None, f'error: {exc}'
+  # Execution safety 2: entry, stop and targets from the broker that fills the order, never from Yahoo.
+  if platform == 'mt4' and execution_mode in {'mt4', 'mt4_live'}:
+    mt4_symbol = MT4_ENGINE.check_symbol(symbol) if MT4_ENGINE is not None else {'valid': False, 'reason': 'MT4 engine unavailable'}
+    guard_quote = {'ok': bool(mt4_symbol.get('valid')), 'bid': mt4_symbol.get('bid'), 'ask': mt4_symbol.get('ask'),
+                   'message': mt4_symbol.get('reason')}
+    guard_quote_source = f'mt4:{symbol}'
+    # The MT4 bridge serves quotes but no bars, so an MT4-only ATR is not available: levels are refused, not mixed.
+    level_bars, level_bars_source = None, 'mt4 bridge has no bars'
+  else:
+    guard_quote = MT5_ENGINE.quote(symbol) if MT5_ENGINE is not None else {'ok': False, 'message': 'MT5 engine unavailable'}
+    guard_quote_source = f'mt5:{symbol}'
+    level_bars, level_bars_source = guard_bars, guard_source
+  broker_levels = execution_guard.broker_trade_levels(
+    symbol=symbol, side=side, quote=guard_quote, quote_source=guard_quote_source,
+    bars=level_bars, bars_source=level_bars_source,
+  )
+  if not broker_levels.get('available') or not execution_guard.levels_share_source(broker_levels):
+    return jsonify({
+      'status': 'blocked',
+      'error': 'No broker-priced entry/stop/target: ' + str(broker_levels.get('reason') or 'entry, stop and targets are not from one broker feed'),
+      'levels': broker_levels,
+    }), 409
+  # Execution safety 3: an approved request executes only its exact symbol, side and broker price band.
+  approval_request_id = str(payload.get('approval_request_id') or payload.get('request_id') or '').strip()
+  if approval_request_id:
+    approved_req = _jarvis_find_approval_request(approval, approval_request_id)
+    match = execution_guard.approval_matches(approved_req, symbol=symbol, side=side, broker_entry=broker_levels['entry'],
+                                             price_source=broker_levels.get('price_source'))
+    if not match['ok']:
+      if approved_req:
+        approved_req['last_mismatch'] = {'at': datetime.now(timezone.utc).isoformat(), 'reason': match['reason'],
+                                         'side_now': side, 'broker_entry_now': broker_levels['entry']}
+        save_auto_trader_state(state)
+      return jsonify({
+        'status': 'blocked',
+        'error': f"Approval {approval_request_id} does not match this order: {match['reason']}",
+        'approval_request_id': approval_request_id,
+      }), 409
+  try:
+    guard_calendar = economic_calendar.load_calendar(guard_now)
+  except Exception as exc:
+    guard_calendar = {'available': False, 'reason': str(exc)}
+  guard_stop_distance = abs(float(broker_levels['entry']) - float(broker_levels['stop_loss']))
+  pre_order = execution_guard.pre_order_checks(
+    symbol=symbol, now=guard_now, bars=guard_bars, bars_source=guard_source, quote=guard_quote,
+    stop_distance=guard_stop_distance, calendar=guard_calendar,
+  )
+  if not pre_order['ok']:
+    return jsonify({
+      'status': 'blocked',
+      'error': 'Pre-order checks failed: ' + '; '.join(pre_order['reasons']),
+      'checks': pre_order['checks'],
+    }), 409
+
   trade_record = {
     'symbol': symbol,
     'side': side,
@@ -16254,9 +16459,11 @@ def auto_trade_execute_api():
     'execution_mode': execution_mode,
     'status': 'queued',
     'executed_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-    'entry': plan.get('entry'),
-    'stop_loss': plan.get('stop_loss'),
-    'take_profit': plan.get('take_profit_1'),
+    'entry': broker_levels['entry'],
+    'stop_loss': broker_levels['stop_loss'],
+    'take_profit': broker_levels['take_profit_1'],
+    'price_sources': broker_levels['sources'],
+    'display_plan_entry': plan.get('entry'),   # the dashboard plan (Yahoo-based) kept for comparison only
     'risk_percent': round(risk_percent, 2),
     'lot_size': round(lot_size, 3),
     'pnl_pct': None,
@@ -16271,14 +16478,15 @@ def auto_trade_execute_api():
       symbol=symbol,
       side=side,
       volume=lot_size,
-      stop_loss=float(plan.get('stop_loss') or 0.0) if plan.get('stop_loss') is not None else None,
-      take_profit=float(plan.get('take_profit_1') or 0.0) if plan.get('take_profit_1') is not None else None,
+      stop_loss=float(broker_levels['stop_loss']),
+      take_profit=float(broker_levels['take_profit_1']),
       comment='AI Auto Trader',
     )
     trade_record['mt4'] = mt4_order
     trade_record['status'] = 'open' if mt4_order.get('executed') else 'failed'
     trade_record['entry'] = mt4_order.get('entry')
     trade_record['ticket'] = mt4_order.get('ticket')
+    trade_record['outcome_source'] = 'broker_fill' if mt4_order.get('executed') else 'broker_rejected'
     message = mt4_order.get('message') or 'MT4 order attempted'
     if not mt4_order.get('executed'):
       http_status = 502
@@ -16287,13 +16495,14 @@ def auto_trade_execute_api():
       symbol=symbol,
       side=side,
       volume=lot_size,
-      stop_loss=float(plan.get('stop_loss') or 0.0) if plan.get('stop_loss') is not None else None,
-      take_profit=float(plan.get('take_profit_1') or 0.0) if plan.get('take_profit_1') is not None else None,
+      stop_loss=float(broker_levels['stop_loss']),
+      take_profit=float(broker_levels['take_profit_1']),
       comment='AI Auto Trader',
     )
     trade_record['mt5'] = mt5_order
     trade_record['status'] = 'open' if mt5_order.get('executed') else 'failed'
     trade_record['ticket'] = (mt5_order.get('result') or {}).get('order') or (mt5_order.get('result') or {}).get('deal')
+    trade_record['outcome_source'] = 'broker_fill' if mt5_order.get('executed') else 'broker_rejected'
     message = mt5_order.get('message') or 'MT5 order attempted'
     if not mt5_order.get('executed'):
       http_status = 502
@@ -16308,6 +16517,8 @@ def auto_trade_execute_api():
     trade_record['entry'] = simulation.get('entry')
     trade_record['pnl_pct'] = simulation.get('pnl_pct')
     trade_record['status'] = simulation.get('outcome')
+    # Execution safety item 5: a simulated outcome never feeds the autonomy confidence threshold.
+    trade_record['outcome_source'] = 'simulated_demo'
     account_balance = float(session.get('current_balance') or session.get('starting_balance') or 10000)
     session['current_balance'] = round(account_balance * (1 + float(simulation.get('pnl_pct') or 0) / 100), 2)
     message = f"Demo trade {simulation.get('outcome')} with {simulation.get('pnl_pct')}%"
@@ -17990,6 +18201,171 @@ def learning_curve_api():
     return jsonify({'available': False, 'reason': f'{type(exc).__name__}: {exc}'})
 
 
+# Daily trading agent (src/daily_agent.py): research -> decision -> journal once per closed H4 candle for XAUUSD and
+# BTCUSD on the system's PAPER LEDGER (task SmartEntry Daily Agent, hourly :10). Read-only here: the page never trades.
+DAILY_AGENT_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Daily Agent</title>
+  {{ theme_css | safe }}
+  <style>
+    .da-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
+    .banner { border-radius:14px; padding:12px 16px; margin:12px 0; border:1px solid rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
+    .banner b { color:#7dd3fc; }
+    .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:10px 0; }
+    .tile { border-radius:12px; padding:10px 12px; border:1px solid rgba(148,176,222,.3); background:rgba(15,23,42,.8); border-left:3px solid #38bdf8; }
+    .tile.good { border-left-color:#22c55e; } .tile.bad { border-left-color:#ef4444; } .tile.mid { border-left-color:#fbbf24; }
+    .tile .k { font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; }
+    .tile .v { font-size:19px; font-weight:800; color:#f8fafc; }
+    .tile .s { font-size:12px; color:#94a3b8; }
+    .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; }
+    .chip { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid; white-space:nowrap; }
+    .chip.BUY { color:#a7f3d0; border-color:rgba(52,211,153,.6); background:rgba(52,211,153,.14); }
+    .chip.CLOSE { color:#bae6fd; border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.14); }
+    .chip.HOLD { color:#ddd6fe; border-color:rgba(167,139,250,.6); background:rgba(167,139,250,.14); }
+    .chip.WAIT { color:#fde68a; border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.14); }
+    .chip.SKIP_NEWS { color:#fecdd3; border-color:rgba(251,113,133,.6); background:rgba(251,113,133,.14); }
+    .chip.NO_TRADE, .chip.NO_DATA { color:#cbd5e1; border-color:rgba(148,163,184,.5); background:rgba(148,163,184,.12); }
+    ul.reasons { margin:6px 0 0 18px; padding:0; } ul.reasons li { margin:3px 0; color:#e2e8f0; font-size:13px; line-height:1.45; }
+    .check { font-size:13px; margin:2px 0; } .check.ok { color:#86efac; } .check.no { color:#fca5a5; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td.why { max-width:520px; font-size:12px; color:#cbd5e1; }
+    .filters button { margin:2px; }
+    .filters button.active { background:linear-gradient(135deg,#1d4ed8,#0ea5e9); color:#fff; }
+  </style>
+</head>
+<body>
+  <div class='nav'>{{ main_nav }}</div>
+  <div class='container'>
+    <div class='da-head'>
+      <div>
+        <h1>Daily Agent</h1>
+        <p class='muted'>Research, trade and journal for the TradingView daily plan. Once per closed H4 candle it reads gold and bitcoin (broker candles, Swing Trend Pullback v2 rules with your TradingView inputs, support/resistance, the economic calendar and ATOMIC V85), decides BUY / HOLD / CLOSE / WAIT / NO TRADE, and writes the reason for every decision, including the ones where it did nothing.</p>
+      </div>
+      <div><span class='muted' id='updated'></span> <button type='button' id='reload'>Refresh</button></div>
+    </div>
+    <div class='banner'><b>PAPER LEDGER.</b> Orders are simulated on the system's own ledger (entry at the next H4 open, spread and overnight swap charged, 1% risk per trade). Nothing here touches MetaTrader, TradingView or any broker. Going live is a separate decision after at least 100 paper trades and the evidence rules.</div>
+    <div class='tiles' id='tiles'><p class='muted'>Loading…</p></div>
+    <div class='grid2' id='symbols'></div>
+    <div class='card'>
+      <h2>Open paper positions</h2>
+      <div class='table-wrap' id='positions'></div>
+    </div>
+    <div class='card'>
+      <div class='da-head'><h2 style='margin:0;'>Journal (newest first)</h2>
+        <div class='filters'><button data-f='ALL' class='active'>All</button><button data-f='XAUUSD'>Gold</button><button data-f='BTCUSD'>Bitcoin</button><button data-f='ACTION'>Trades only</button></div></div>
+      <div class='table-wrap' id='journal'></div>
+    </div>
+    <div class='card'>
+      <h2>Closed paper trades</h2>
+      <div class='table-wrap' id='closed'></div>
+    </div>
+    <div class='card'>
+      <h2>How the agent decides</h2>
+      <ul class='reasons'>
+        <li><b>Research</b>: closed H4 candles from your broker via this app, the daily plan (EMA 21/50, slope 9, pullback 0.65 ATR, push 15 bars &gt; 0.6 ATR, bullish close, RSI &gt; 40), daily bias and nearest support/resistance, the ForexFactory calendar, and the ATOMIC V85 feed from MT5 (shown as evidence, never used to decide).</li>
+        <li><b>BUY</b> only on a fresh setup on the last closed candle, filled at the next candle's open; stop from the plan (swing low − 2 ATR), target 3R, trailing stop 3.5 ATR, time exit after 150 candles. Size = 1% of the paper balance at risk.</li>
+        <li><b>SKIP_NEWS</b>: a setup inside ±30 minutes of high-impact USD news is not entered. <b>WAIT</b>: trend and momentum are there but no pullback yet. <b>NO_TRADE</b>: conditions missing (listed). <b>HOLD</b>: position kept; <b>CLOSE</b>: stop, trailing stop, target or time exit reached (net of spread and swap).</li>
+        <li>Runs every hour at :10 (task SmartEntry Daily Agent); each closed H4 candle is decided once. The journal is also in data/daily_agent/journal and the Obsidian vault (Agent folder).</li>
+      </ul>
+    </div>
+  </div>
+  <script>
+    const state = { data: null, filter: 'ALL' };
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const num = (v, d = 2) => v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+    const signed = (v, d = 2) => v === null || v === undefined ? '—' : (Number(v) > 0 ? '+' : '') + num(v, d);
+    const tile = (k, v, s, cls) => `<div class='tile ${cls || ''}'><div class='k'>${esc(k)}</div><div class='v'>${v}</div>${s ? `<div class='s'>${s}</div>` : ''}</div>`;
+    const chip = (d) => `<span class='chip ${esc(d)}'>${esc(d)}</span>`;
+    const NAMES = { XAUUSD: 'Gold', BTCUSD: 'Bitcoin' };
+
+    function renderTiles(d) {
+      const s = d.stats || {};
+      const pnl = (d.balance || 0) - (d.start_balance || 0);
+      document.getElementById('tiles').innerHTML = [
+        tile('Mode', 'PAPER', `strategy: ${esc(d.strategy && d.strategy.name)}`, 'mid'),
+        tile('Paper balance', num(d.balance) + ' USD', `start ${num(d.start_balance)} · realised ${signed(pnl)}`, pnl > 0 ? 'good' : pnl < 0 ? 'bad' : ''),
+        tile('Equity', num(d.equity) + ' USD', `${Object.keys(d.positions || {}).length} open position(s)`),
+        tile('Closed trades', `${esc(s.closed)} / ${esc(s.needed_for_evidence)}`, `win rate ${s.win_rate_pct ?? '—'}% · PF ${s.profit_factor ?? '—'} · avg ${s.avg_r ?? '—'}R`, s.closed >= 100 ? 'good' : 'mid'),
+        tile('Max drawdown', (s.max_drawdown_pct ?? 0) + '%', 'on closed trades'),
+        tile('Decisions logged', esc(Object.values(d.decision_counts || {}).reduce((a, b) => a + b, 0)), Object.entries(d.decision_counts || {}).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(' · ')),
+      ].join('');
+      document.getElementById('updated').textContent = `Agent last run ${d.updated_at || '—'} UTC`;
+    }
+
+    function renderSymbols(d) {
+      document.getElementById('symbols').innerHTML = (d.watchlist || []).map(sym => {
+        const e = (d.latest || {})[sym] || {};
+        const r = e.research || {};
+        const plan = (d.plans || {})[sym] || {};
+        const checks = (r.checklist || plan.checklist || []).map(c => `<div class='check ${c.ok ? 'ok' : 'no'}'>${c.ok ? '✔' : '✘'} ${esc(c.name)}</div>`).join('');
+        const a = r.atomic || {};
+        return `<div class='card'><div class='da-head'><h2 style='margin:0;'>${esc(NAMES[sym] || sym)} <span class='muted'>${esc(sym)} H4</span></h2>${e.decision ? chip(e.decision) : ''}</div>
+          <p class='muted' style='margin:4px 0;'>Candle ${esc(e.bar || '—')} · decided ${esc(e.time_utc || '—')} UTC · close ${num(r.close)}</p>
+          <div class='tiles'>${tile('Plan', esc(r.status || plan.status || '—'), esc(r.headline || plan.headline || ''))}
+            ${tile('Entry / SL / TP', `${num(r.entry)}`, `SL ${num(r.stop_loss)} · TP ${num(r.take_profit)}`)}
+            ${tile('Daily bias', esc(r.daily_bias || '—'), `RSI ${num(r.rsi, 1)} · ATR ${num(r.atr)}`)}
+            ${tile('News', r.news && r.news.in_window ? 'IN WINDOW' : 'clear', esc((r.news && r.news.next_high_impact) || 'no high-impact event listed'), r.news && r.news.in_window ? 'bad' : '')}
+            ${tile('ATOMIC V85', a.available ? esc(a.verdict) : 'n/a', a.available ? `${esc(a.agreement_pct)}% · trend ${esc(a.trend)} · evidence only` : esc(a.reason || ''))}</div>
+          <h3 style='margin:8px 0 2px;'>Why</h3><ul class='reasons'>${(e.reasons || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li>No decision yet.</li>'}</ul>
+          <h3 style='margin:8px 0 2px;'>Checklist</h3>${checks || "<p class='muted'>—</p>"}</div>`;
+      }).join('');
+    }
+
+    function renderTables(d) {
+      const pos = Object.values(d.positions || {});
+      document.getElementById('positions').innerHTML = pos.length ? `<table><thead><tr><th>Symbol</th><th>Since</th><th class='num'>Entry</th><th class='num'>Stop</th><th class='num'>Target</th><th class='num'>Units</th><th class='num'>Risk USD</th><th class='num'>Candles</th><th class='num'>Unrealised</th></tr></thead><tbody>${
+        pos.map(p => `<tr><td>${esc(p.symbol)}</td><td>${esc(p.entry_time)}</td><td class='num'>${num(p.entry)}</td><td class='num'>${num(p.stop)}${p.stop > p.initial_stop ? ' (trail)' : ''}</td><td class='num'>${num(p.target)}</td><td class='num'>${num(p.units, 4)}</td><td class='num'>${num(p.risk_money)}</td><td class='num'>${esc(p.bars_held)}</td><td class='num'>${signed(p.unrealized)}</td></tr>`).join('')}</tbody></table>` : `<p class='muted'>No open paper positions.</p>`;
+      let rows = d.journal || [];
+      if (state.filter === 'ACTION') rows = rows.filter(e => e.action && e.action !== 'none');
+      else if (state.filter !== 'ALL') rows = rows.filter(e => e.symbol === state.filter);
+      document.getElementById('journal').innerHTML = rows.length ? `<table><thead><tr><th>Decided (UTC)</th><th>Symbol</th><th>Candle</th><th>Decision</th><th class='num'>Close</th><th class='num'>Balance</th><th>Reasons</th></tr></thead><tbody>${
+        rows.map(e => `<tr><td>${esc(e.time_utc)}</td><td>${esc(e.symbol)}</td><td>${esc(e.bar || '—')}</td><td>${chip(e.decision)}</td><td class='num'>${num((e.research || {}).close)}</td><td class='num'>${num(e.balance)}</td><td class='why'>${(e.reasons || []).map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table>` : `<p class='muted'>No journal entries for this filter yet.</p>`;
+      const closed = d.closed_trades || [];
+      document.getElementById('closed').innerHTML = closed.length ? `<table><thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Reason</th><th class='num'>Entry px</th><th class='num'>Exit px</th><th class='num'>Gross</th><th class='num'>Spread</th><th class='num'>Swap</th><th class='num'>Net USD</th><th class='num'>R</th></tr></thead><tbody>${
+        closed.map(t => `<tr><td>${esc(t.symbol)}</td><td>${esc(t.entry_time)}</td><td>${esc(t.exit_time)}</td><td>${esc(t.exit_reason)}</td><td class='num'>${num(t.entry)}</td><td class='num'>${num(t.exit_price)}</td><td class='num'>${signed(t.gross)}</td><td class='num'>-${num(t.spread_cost)}</td><td class='num'>-${num(t.swap_cost)}</td><td class='num'>${signed(t.net)}</td><td class='num'>${signed(t.r_multiple)}</td></tr>`).join('')}</tbody></table>` : `<p class='muted'>No closed paper trades yet. The evidence rules need at least 100 before anything is judged.</p>`;
+    }
+
+    async function load() {
+      try {
+        const d = await (await fetch('/api/daily-agent', { cache: 'no-store' })).json();
+        if (!d.available) { document.getElementById('tiles').innerHTML = `<p class='muted'>${esc(d.reason || 'Daily agent unavailable')}</p>`; return; }
+        state.data = d; renderTiles(d); renderSymbols(d); renderTables(d);
+      } catch (error) {
+        document.getElementById('tiles').innerHTML = `<p class='muted'>Could not load the daily agent: ${esc(error.message || error)}</p>`;
+      }
+    }
+    document.querySelectorAll('[data-f]').forEach(b => b.addEventListener('click', () => {
+      state.filter = b.dataset.f;
+      document.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('active', x === b));
+      if (state.data) renderTables(state.data);
+    }));
+    document.getElementById('reload').addEventListener('click', load);
+    load();
+    setInterval(() => { if (document.visibilityState === 'visible') load(); }, 120000);
+  </script>
+</body>
+</html>
+"""
+
+
+@app.route('/daily-agent')
+def daily_agent_page():
+  return render_template_string(DAILY_AGENT_TEMPLATE, theme_css=THEME_CSS)
+
+
+@app.route('/api/daily-agent')
+def daily_agent_api():
+  try:
+    from src.daily_agent import summary
+    return jsonify(summary(DATA_DIR))
+  except Exception as exc:  # optional page: report, never a 500
+    return jsonify({'available': False, 'reason': f'{type(exc).__name__}: {exc}', 'places_orders': False})
+
+
 # Daily TradingView plan (src/tradingview_plan.py): SwingTrendPullback rules on broker H4 candles, with support and
 # resistance from the Daily Report. Saved per day in data/tradingview_plans. Read-only: places no orders.
 _tradingview_plan_cache = {}
@@ -18258,6 +18634,32 @@ def signal_api():
   return jsonify(payload)
 
 
+LIVE_SIGNAL_MAX_BAR_AGE_MINUTES = 120  # a closed 1h bar is 60-120 min old when its signal is computed
+
+
+@app.route('/api/signals/live')
+def signal_live_api():
+  # Read-only: the live payload (cached ~45 s), not the history file, with each row's signal bar time and age.
+  rows = []
+  for item in build_signal_payload() or []:
+    age = item.get("signal_bar_age_minutes")
+    rows.append({
+      "symbol": item.get("symbol"),
+      "signal": item.get("signal"),
+      "ensemble_probability": item.get("ensemble_probability"),
+      "signal_bar_time": item.get("signal_bar_time"),
+      "signal_bar_age_minutes": age,
+      "generated_at": item.get("generated_at"),
+      "fresh": bool(item.get("signal_bar_time")) and age is not None and float(age) <= LIVE_SIGNAL_MAX_BAR_AGE_MINUTES,
+    })
+  return jsonify({
+    "signals": rows,
+    "all_fresh": bool(rows) and all(row["fresh"] for row in rows),
+    "max_bar_age_minutes": LIVE_SIGNAL_MAX_BAR_AGE_MINUTES,
+    "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+  })
+
+
 @app.route('/api/quality-monitor')
 def quality_monitor_api():
   existing = load_signals() or build_signal_payload()
@@ -18306,16 +18708,32 @@ def health():
     return jsonify({'status': 'ok', 'service': 'trading-dashboard'})
 
 
-@app.route('/api/train-daily')
+def _training_request_refused():
+    """Retraining is POST-only with the shared control secret, so a browser prefetch, crawler or stray link can never
+    start one (a GET gets 405 from the route). Outside 05:25-06:30 the learner also refuses before touching any file."""
+    from src import execution_guard
+    if not execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                          execution_guard.load_or_create_secret()):
+        return jsonify({'status': 'refused', 'error': 'Training needs the control secret (X-Control-Secret header).'}), 403
+    return None
+
+
+@app.route('/api/train-daily', methods=['POST'])
 def train_daily():
+    refused = _training_request_refused()
+    if refused:
+        return refused
     results = []
     for symbol in ["XAUUSD", "BTCUSD"]:
         results.append(DailyLearner(symbol).run_cycle('daily'))
     return jsonify(results)
 
 
-@app.route('/api/train-weekly')
+@app.route('/api/train-weekly', methods=['POST'])
 def train_weekly():
+    refused = _training_request_refused()
+    if refused:
+        return refused
     results = []
     for symbol in ["XAUUSD", "BTCUSD"]:
         results.append(DailyLearner(symbol).run_cycle('weekly'))
@@ -19265,7 +19683,9 @@ TRAINING_PIPELINE_TEMPLATE = r"""
       const statusNode = document.getElementById('train-status');
       statusNode.textContent = `${label} running… this can take several minutes.`;
       try {
-        const response = await fetch(path);
+        // Training is POST-only with the control secret (injected for this machine, or saved in localStorage).
+        const secret = {{ control_secret|tojson }} || ((window.localStorage && localStorage.getItem('smartentry_control_secret')) || '');
+        const response = await fetch(path, { method: 'POST', headers: { 'X-Control-Secret': secret } });
         await response.json();
         statusNode.textContent = `${label} finished at ${new Date().toLocaleTimeString()}.`;
         loadTraining();
@@ -19312,7 +19732,10 @@ def pipeline_page():
 
 @app.route('/pipeline/training')
 def training_pipeline_page():
-  return render_template_string(TRAINING_PIPELINE_TEMPLATE, theme_css=THEME_CSS, ranges=BACKTEST_RANGES)
+  from src import execution_guard
+  control_secret = execution_guard.load_or_create_secret() if request.remote_addr in {'127.0.0.1', '::1'} else ''
+  return render_template_string(TRAINING_PIPELINE_TEMPLATE, theme_css=THEME_CSS, ranges=BACKTEST_RANGES,
+                                control_secret=control_secret)
 
 
 # ===================== Data feed =====================
@@ -20532,7 +20955,7 @@ DAILY_REPORT_TEMPLATE = r"""
         <p>${windows}</p>
         ${rows ? `<div class='table-wrap'><table><thead><tr><th>Time (UTC)</th><th>Impact</th><th>Currency</th><th>Event</th><th class='num'>Forecast</th><th class='num'>Previous</th></tr></thead><tbody>${rows}</tbody></table></div>`
           : `<p class='muted'>No USD high or medium impact events in the next 48 hours.</p>`}
-        <p class='muted'>Information only: nothing in the trading path reads the calendar.</p>`;
+        <p class='muted'>Information only: nothing in the trading path reads the calendar. <a href='/economic-calendar'>Full week calendar, all currencies &rarr;</a></p>`;
     }
 
     function renderSchedule(rows) {
@@ -20983,6 +21406,144 @@ PERFORMANCE_TEMPLATE = r"""
 @app.route('/performance')
 def performance_page():
   return render_template_string(PERFORMANCE_TEMPLATE, theme_css=THEME_CSS)
+
+
+ECONOMIC_CALENDAR_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Economic Calendar</title>
+  {{ theme_css | safe }}
+  <style>
+    .cal-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
+    .container a { color:#7dd3fc; text-decoration:underline; }
+    .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 4px; }
+    .fchip { cursor:pointer; user-select:none; padding:5px 11px; border-radius:999px; font-size:12px; font-weight:700;
+             border:1px solid rgba(148,176,222,.35); color:#cbd5e1; background:rgba(15,23,42,.6); }
+    .fchip.on { color:#0b1220; background:#7dd3fc; border-color:#7dd3fc; }
+    .imp { display:inline-block; width:12px; height:16px; border-radius:3px; vertical-align:middle; margin-right:6px; }
+    .imp.High { background:#ef4444; } .imp.Medium { background:#f97316; } .imp.Low { background:#facc15; }
+    .imp.Holiday, .imp.Non-Economic { background:#64748b; }
+    .day-row td { background:rgba(56,189,248,.10); font-weight:800; color:#e0f2fe; letter-spacing:.02em; }
+    tr.past td { opacity:.55; }
+    tr.next td { background:rgba(250,204,21,.14); }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td.time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .cur { font-weight:800; }
+    .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:12px 0; }
+    .tile { border-radius:12px; padding:10px 12px; border:1px solid rgba(148,176,222,.3); background:rgba(15,23,42,.8); border-left:3px solid #38bdf8; }
+    .tile .k { font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; }
+    .tile .v { font-size:18px; font-weight:800; color:#f8fafc; }
+    .tile .s { font-size:12px; color:#a5b4fc; margin-top:2px; }
+  </style>
+</head>
+<body>
+  <div class='nav'>
+    {{ main_nav }}
+  </div>
+  <div class='container'>
+    <div class='cal-head'>
+      <div>
+        <h1>Economic Calendar</h1>
+        <p class='muted'>This week's ForexFactory calendar for every currency, times in your local time. Information only: nothing in the trading path reads it.
+          Source: ForexFactory weekly export (refreshed at most hourly). The export has no <strong>Actual</strong> column; released numbers are on
+          <a href='https://www.forexfactory.com/calendar' target='_blank' rel='noopener'>forexfactory.com/calendar</a>.</p>
+      </div>
+      <div><button id='refresh-btn'>Refresh now</button> <span class='muted' id='status-line'></span></div>
+    </div>
+    <div class='tiles' id='tiles'></div>
+    <div class='card'>
+      <div class='filters' id='cur-filters'></div>
+      <div class='filters' id='imp-filters'></div>
+      <div class='table-wrap'><table>
+        <thead><tr><th>Time</th><th>Currency</th><th>Impact</th><th>Event</th><th class='num'>Forecast</th><th class='num'>Previous</th></tr></thead>
+        <tbody id='rows'><tr><td colspan='6' class='muted'>Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+  <script>
+    const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF', 'CNY', 'All'];
+    const IMPACTS = ['High', 'Medium', 'Low', 'Holiday'];
+    const state = { cur: new Set(CURRENCIES), imp: new Set(['High', 'Medium', 'Low', 'Holiday']), data: null };
+    try {
+      const saved = JSON.parse(localStorage.getItem('econ_cal_filters') || 'null');
+      if (saved) { state.cur = new Set(saved.cur); state.imp = new Set(saved.imp); }
+    } catch (e) {}
+    function esc(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function fmt(v) { return v === null || v === undefined || v === '' ? '—' : v; }
+    function when(e) { return new Date(e.time_utc.replace(' ', 'T') + ':00Z'); }
+    function save() { try { localStorage.setItem('econ_cal_filters', JSON.stringify({ cur: [...state.cur], imp: [...state.imp] })); } catch (e) {} }
+    function chips(id, values, set) {
+      const box = document.getElementById(id);
+      box.innerHTML = values.map(v => `<span class='fchip ${set.has(v) ? 'on' : ''}' data-v='${esc(v)}'>${esc(v)}</span>`).join('')
+        + ` <span class='fchip' data-v='__all'>all</span> <span class='fchip' data-v='__none'>none</span>`;
+      box.querySelectorAll('.fchip').forEach(el => el.addEventListener('click', () => {
+        const v = el.dataset.v;
+        if (v === '__all') values.forEach(x => set.add(x)); else if (v === '__none') set.clear();
+        else if (set.has(v)) set.delete(v); else set.add(v);
+        save(); render();
+      }));
+    }
+    function countdown(ms) {
+      const m = Math.round(ms / 60000); if (m < 60) return `in ${m} min`;
+      const h = Math.floor(m / 60); if (h < 48) return `in ${h} h ${m % 60} min`;
+      return `in ${Math.floor(h / 24)} days`;
+    }
+    function render() {
+      chips('cur-filters', CURRENCIES, state.cur); chips('imp-filters', IMPACTS, state.imp);
+      const d = state.data; if (!d) return;
+      const now = new Date();
+      const impOf = e => (e.impact === 'Non-Economic' ? 'Holiday' : e.impact);
+      const events = (d.all_events || []).filter(e => state.cur.has(e.currency) && state.imp.has(impOf(e)));
+      const upcomingHigh = (d.all_events || []).filter(e => e.impact === 'High' && when(e) > now);
+      const next = events.find(e => when(e) > now);
+      const nh = upcomingHigh[0];
+      const win = d.news_window || {};
+      document.getElementById('tiles').innerHTML = [
+        ['Next high impact', nh ? `${nh.currency} ${nh.title}` : 'none this week', nh ? `${when(nh).toLocaleString()} · ${countdown(when(nh) - now)}` : ''],
+        ['Gold news window', (win.XAUUSD || {}).in_window ? 'IN WINDOW' : 'clear', '30 min before/after USD high impact'],
+        ['This week', `${(d.counts || {}).High || 0} high · ${(d.counts || {}).Medium || 0} medium`, `${(d.all_events || []).length} events · ${events.length} shown`],
+        ['Data', d.stale ? 'stale' : 'fresh', `fetched ${d.fetched_at} UTC${d.last_error ? ' · ' + d.last_error : ''}`],
+      ].map(([k, v, s]) => `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${esc(v)}</div><div class='s'>${esc(s)}</div></div>`).join('');
+      let lastDay = '', html = '';
+      for (const e of events) {
+        const t = when(e);
+        const day = t.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+        if (day !== lastDay) { html += `<tr class='day-row'><td colspan='6'>${esc(day)}</td></tr>`; lastDay = day; }
+        const cls = e === next ? 'next' : (t < now ? 'past' : '');
+        html += `<tr class='${cls}'><td class='time'>${esc(t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}${e === next ? ` <span class='muted'>(${esc(countdown(t - now))})</span>` : ''}</td>
+          <td class='cur'>${esc(e.currency)}</td><td><span class='imp ${esc(impOf(e))}'></span>${esc(e.impact)}</td>
+          <td>${esc(e.title)}</td><td class='num'>${esc(fmt(e.forecast))}</td><td class='num'>${esc(fmt(e.previous))}</td></tr>`;
+      }
+      document.getElementById('rows').innerHTML = html || `<tr><td colspan='6' class='muted'>No events match the filters.</td></tr>`;
+    }
+    async function load(refresh) {
+      const line = document.getElementById('status-line');
+      try {
+        const data = await (await fetch('/api/economic-calendar' + (refresh ? '?refresh=1' : ''))).json();
+        if (!data.available) {
+          document.getElementById('rows').innerHTML = `<tr><td colspan='6' class='muted'>${esc(data.reason || 'Calendar not available')}</td></tr>`;
+          line.textContent = 'Calendar not available'; return;
+        }
+        state.data = data; render();
+        line.textContent = `Loaded ${new Date().toLocaleTimeString()}`;
+      } catch (error) { line.textContent = `Could not load: ${error.message || error}`; }
+    }
+    document.getElementById('refresh-btn').addEventListener('click', () => load(true));
+    load(false);
+    setInterval(() => load(false), 5 * 60 * 1000);
+    setInterval(render, 60 * 1000);
+  </script>
+</body>
+</html>
+"""
+
+
+@app.route('/economic-calendar')
+def economic_calendar_page():
+  return render_template_string(ECONOMIC_CALENDAR_TEMPLATE, theme_css=THEME_CSS)
 
 
 @app.route('/daily-report')
@@ -23732,6 +24293,19 @@ def jarvis_command_api():
 
   elif intent == 'approval_approve':
     try:
+      # Approving here executes an order: same rule as /api/auto-trade/execute (this PC or the control secret).
+      from src import execution_guard
+      voice_local = request.remote_addr in {'127.0.0.1', '::1'}
+      voice_secret_ok = execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                                       execution_guard.load_or_create_secret())
+      if not (voice_local or voice_secret_ok):
+        _log_execution_rejection('jarvis_voice', str(symbol or 'XAUUSD').upper(), 403,
+                                 {'status': 'rejected', 'error': 'voice approval from another device without the control secret'})
+        return jsonify({
+          'success': False,
+          'response': 'Trade approvals by voice work only on the trading PC or with the control secret.',
+          'action': 'error'
+        }), 403
       state = load_auto_trader_state()
       session, session_started = _jarvis_ensure_auto_trade_session(state, symbol=symbol)
 
@@ -23753,16 +24327,13 @@ def jarvis_command_api():
       approval['last_decision_at'] = datetime.now(timezone.utc).isoformat()
       save_auto_trader_state(state)
 
-      with app.test_request_context(
-        '/api/auto-trade/execute',
-        method='POST',
-        json={
-          'symbol': req.get('symbol') or symbol,
-          'execution_mode': str(session.get('mode') or 'demo'),
-          'approval_request_id': req.get('request_id'),
-        },
-      ):
-        exec_response = auto_trade_execute_api()
+      voice_payload = {
+        'symbol': req.get('symbol') or symbol,
+        'execution_mode': str(session.get('mode') or 'demo'),
+        'approval_request_id': req.get('request_id'),
+      }
+      with app.test_request_context('/api/auto-trade/execute', method='POST', json=voice_payload):
+        exec_response = _logged_execute(voice_payload, internal_auto_execute=False, source='jarvis_voice')
       exec_obj = exec_response[0] if isinstance(exec_response, tuple) else exec_response
       exec_payload = exec_obj.get_json(silent=True) or {}
 
@@ -24897,7 +25468,8 @@ function runProfessionalTradeBriefing(options) {
 function runLearningUpdate() {
   if (typeof updateStatus === 'function') updateStatus('Updating learning...', 'processing');
   if (typeof speakResponse === 'function') speakResponse('Starting machine learning update. This may take a moment.');
-  fetch('/api/train-daily')
+  // Training is POST-only with the control secret; without one the server answers 403 and nothing is trained.
+  fetch('/api/train-daily', { method: 'POST', headers: { 'X-Control-Secret': (window.SMARTENTRY_CONTROL_SECRET || (window.localStorage && localStorage.getItem('smartentry_control_secret')) || '') } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var summary = (data||[]).map(function(r) { return r.symbol + ' ' + r.status; }).join(', ');

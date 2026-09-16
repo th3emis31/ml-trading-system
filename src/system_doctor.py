@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import os
@@ -43,7 +44,14 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_daily_report.py", "tests/test_performance_analytics.py", "tests/test_strategy_lab_swap.py",
               "tests/test_strategy_book.py", "tests/test_ea_monitor.py", "tests/test_ai_employee.py",
               "tests/test_tradingview_intake.py", "tests/test_tradingview_plan.py", "tests/test_learning_curve.py",
-              "tests/test_economic_calendar.py")
+              "tests/test_economic_calendar.py", "tests/test_daily_agent.py", "tests/test_crt_lab.py",
+              "tests/test_crt_fvg_lab.py", "tests/test_crt_forward.py",
+              "tests/test_crt_htf_lab.py", "tests/test_crt_mss_lab.py", "tests/test_stp_swap_lab.py",
+              "tests/test_signal_parity.py", "tests/test_execution_guard.py", "tests/test_execute_api_security.py",
+              "tests/test_broker_levels.py", "tests/test_approval_match.py", "tests/test_signal_freshness.py",
+              "tests/test_autonomy_confidence.py", "tests/test_walkforward_live_engine.py",
+              "tests/test_signals_live_api.py", "tests/test_approval_bypass.py", "tests/test_model_integrity.py",
+              "tests/test_learning_pollution.py", "tests/test_training_gate.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -53,6 +61,8 @@ TASKS = {
     "SmartEntry AI Employee": {"script": "run_ai_employee.cmd", "schedule": ["/sc", "daily", "/st", "07:15"]},
     "SmartEntry Daily Learning": {"script": "run_daily_learning.cmd", "schedule": ["/sc", "daily", "/st", "05:30"]},
     "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
+    # Opens Claude Code (tabs "bridge" and "desk") at this user's logon; recreated by --fix if missing.
+    "SmartEntry Claude Code": {"script": "start_claude.cmd", "schedule": ["/sc", "onlogon"]},
 }
 # schtasks "Last Result" codes that are not failures: success, running, not run yet.
 TASK_OK_RESULTS = {"0", "267009", "267011"}
@@ -428,6 +438,43 @@ def apply_ram_trend(checks: list, history: list, now: datetime) -> None:
             resources["status"] = "info"
 
 
+from .runtime_paths import LEARNING_WINDOW  # noqa: E402  local time; shared with the training gate
+MODEL_FILE_PATTERNS = ("xauusd_*", "btcusd_*")
+
+
+def check_model_integrity(models_dir: Path = ROOT / "models",
+                          restores_path: Path = ROOT / "data" / "model_restores.json") -> dict:
+    """Fail when a live champion file changed outside the 05:30 learning window and is not a logged restore.
+
+    On 15-16 Sep 2026 test runs trained straight into models/ and replaced the models behind /api/signals; nothing
+    noticed. A file is accepted when its local write time falls in LEARNING_WINDOW, or when its SHA-256 matches a
+    file recorded in data/model_restores.json (restores keep the champion's original write time).
+    """
+    restored: dict[str, set] = {}
+    for entry in _read_json(restores_path) or []:
+        for name, digest in ((entry or {}).get("files") or {}).items():
+            restored.setdefault(name, set()).add(digest)
+    files = sorted({p for pattern in MODEL_FILE_PATTERNS for p in Path(models_dir).glob(pattern) if p.is_file()})
+    if not files:
+        return _result("Model integrity", "learning", "warn", f"No live model files found in {models_dir}.")
+    start, end = LEARNING_WINDOW
+    outside = []
+    for path in files:
+        written = datetime.fromtimestamp(path.stat().st_mtime)
+        if start <= written.strftime("%H:%M") <= end:
+            continue
+        if path.name in restored and hashlib.sha256(path.read_bytes()).hexdigest() in restored[path.name]:
+            continue
+        outside.append(f"{path.name} ({written:%Y-%m-%d %H:%M})")
+    if outside:
+        return _result("Model integrity", "learning", "fail",
+                       f"{len(outside)} live model file(s) changed outside the {start}-{end} learning window and are not a "
+                       f"logged restore: {', '.join(outside[:6])}. Something other than the Daily Learning task wrote "
+                       "models/ (test runs did on 15-16 Sep 2026).", outside=outside)
+    return _result("Model integrity", "learning", "ok",
+                   f"All {len(files)} live model files come from the {start}-{end} learning window or a logged restore.")
+
+
 def check_code_compiles() -> dict:
     import py_compile
 
@@ -472,6 +519,9 @@ def task_trigger_ps(schedule: list) -> str:
         return f"New-ScheduledTaskTrigger -Once -At {_ps_quote(start)} -RepetitionInterval (New-TimeSpan -Minutes {every})"
     if kind == "daily":
         return f"New-ScheduledTaskTrigger -Daily -DaysInterval {every} -At {_ps_quote(start)}"
+    if kind == "onlogon":
+        # Only this user's logon, matching the interactive-token principal; no password is involved.
+        return "New-ScheduledTaskTrigger -AtLogOn -User ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
     raise ValueError(f"unsupported schedule {schedule}")
 
 
@@ -514,7 +564,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
     started = _now_utc()
     runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_autonomy,
                lambda: check_demo_execution(get), check_paper_trader, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
-               lambda: check_data_freshness(get), check_app_errors, check_resources]
+               lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
     checks = []

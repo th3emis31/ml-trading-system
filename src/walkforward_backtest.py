@@ -41,6 +41,7 @@ LABEL_HORIZON_BARS = 3  # build_features -> add_quality_targets(horizon=3)
 STOP_ATR_MULT = 1.2
 TARGET_ATR_MULT = 2.4
 MIN_TRAIN_ROWS = 200
+SIGNAL_MODES = {"live_engine", "rf_proba"}
 
 # Round-trip cost per trade as a fraction of price: spread + commission + slippage.
 BACKTEST_COSTS = {
@@ -89,9 +90,32 @@ def _positive_class_proba(model, X: pd.DataFrame) -> np.ndarray:
     return model.predict_proba(X)[:, classes.index(1)]
 
 
+def _direction_for_probability(probability: float, buy_threshold: float, sell_threshold: float) -> int:
+    """+1 / -1 / 0 from src/signal_engine.py's live rule (the dashboard's rule) with this run's thresholds."""
+    from .signal_engine import BUY, SELL, classify_probability
+
+    side = classify_probability(probability, {"buy_threshold": buy_threshold, "sell_threshold": sell_threshold})
+    return 1 if side == BUY else (-1 if side == SELL else 0)
+
+
+def backtest_signal_series(bars: pd.DataFrame, models: Optional[dict] = None, start: int = 0) -> pd.DataFrame:
+    """Evaluation-path entry: the live engine (src/signal_engine.py, config "live") on every closed bar from ``start``.
+
+    Bar i sees only bars 0..i, exactly what the dashboard sees when bar i is the newest closed bar, so a backtest
+    built on this series trades the same signals as live for the same models.
+    """
+    from .signal_engine import predict_signal_series
+
+    return predict_signal_series(bars, models, "live", start=start)
+
+
 def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.ndarray, *,
-                     buy_threshold: float, sell_threshold: float, hold_bars: int, cost_pct: float) -> list[dict]:
-    """One position at a time, entered at the signal bar close, settled on the path."""
+                     buy_threshold: float, sell_threshold: float, hold_bars: int, cost_pct: float,
+                     directions: Optional[np.ndarray] = None) -> list[dict]:
+    """One position at a time, entered at the signal bar close, settled on the path.
+
+    ``directions`` (+1 / -1 / 0 per row) are the engine's own signals; without them the side comes from ``proba``.
+    """
     closes = features["close"].to_numpy(dtype=float)
     highs = features["high"].to_numpy(dtype=float)
     lows = features["low"].to_numpy(dtype=float)
@@ -103,11 +127,11 @@ def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.
     for i in range(n - 1):
         if i < busy_until or np.isnan(proba[i]):
             continue
-        if proba[i] >= buy_threshold:
-            direction = 1
-        elif proba[i] <= sell_threshold:
-            direction = -1
+        if directions is not None:
+            direction = int(directions[i])
         else:
+            direction = _direction_for_probability(proba[i], buy_threshold, sell_threshold)
+        if direction == 0:
             continue
         entry = closes[i]
         if not np.isfinite(entry) or entry <= 0:
@@ -208,9 +232,16 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
 
 def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshold: float = 0.55,
                              sell_threshold: float = 0.45, n_folds: int = 6, progress: ProgressFn = None,
-                             data: Optional[pd.DataFrame] = None) -> dict:
+                             data: Optional[pd.DataFrame] = None, signal_mode: str = "live_engine") -> dict:
+    """``signal_mode``: "live_engine" (default) predicts every test bar with src.signal_engine.predict_signal in the
+    live config, exactly as the dashboard does; "rf_proba" is the earlier direct RF-probability path, kept by flag."""
+    from . import signal_engine
+
     started = time.monotonic()
     symbol = symbol.upper()
+    if signal_mode not in SIGNAL_MODES:
+        return {"available": False, "symbol": symbol, "range": range_key,
+                "reason": f"unknown signal_mode '{signal_mode}'; choose one of {sorted(SIGNAL_MODES)}"}
     if range_key not in BACKTEST_RANGES:
         return {"available": False, "symbol": symbol, "range": range_key,
                 "reason": f"unknown range '{range_key}'; choose one of {sorted(BACKTEST_RANGES)}"}
@@ -245,6 +276,8 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
 
     test_positions = np.array_split(np.arange(initial_train, n), n_folds)
     proba = np.full(n, np.nan)
+    directions = np.zeros(n, dtype=int) if signal_mode == "live_engine" else None
+    engine_config = {"buy_threshold": buy_threshold, "sell_threshold": sell_threshold}
     fold_of_row = np.full(n, -1)
     by_fold = []
     for k, block in enumerate(test_positions):
@@ -256,6 +289,7 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
         mask = train["quality_move"].astype(bool) if "quality_move" in train.columns else pd.Series(True, index=train.index)
         train_rows = train[mask] if int(mask.sum()) >= 80 else train
         fold_note = None
+        model = None
         if train_rows["target"].nunique() < 2:
             fold_note = "training labels had one class; fold stood aside"
             proba_block = np.full(len(block), 0.5)
@@ -263,6 +297,14 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
             model, _ = _fit_random_forest_with_optional_calibration(
                 train_rows[FEATURE_COLUMNS], train_rows["target"], calibrate=True)
             proba_block = _positive_class_proba(model, features.iloc[test_start_i:test_end_i + 1][FEATURE_COLUMNS])
+        if directions is not None:
+            # The shared live engine on each closed test bar: bar i sees feature rows 0..i only.
+            engine_models = {"rf": model, "lstm": None, "feature_columns": FEATURE_COLUMNS}
+            for i in range(test_start_i, test_end_i + 1):
+                prefix = features.iloc[: i + 1]
+                result = signal_engine.predict_signal(prefix, engine_models, engine_config, features=prefix)
+                proba_block[i - test_start_i] = result["probability"]
+                directions[i] = 1 if result["signal"] == signal_engine.BUY else (-1 if result["signal"] == signal_engine.SELL else 0)
         proba[test_start_i:test_end_i + 1] = proba_block
         fold_of_row[test_start_i:test_end_i + 1] = k + 1
         test_targets = features["target"].iloc[test_start_i:test_end_i + 1].to_numpy()
@@ -281,7 +323,7 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
     _report(progress, "simulate", 85, "Simulating trades with stop/target path and costs")
     trades = _simulate_trades(features, proba, fold_of_row, buy_threshold=buy_threshold,
                               sell_threshold=sell_threshold, hold_bars=spec["hold_bars"],
-                              cost_pct=costs["round_trip_pct"])
+                              cost_pct=costs["round_trip_pct"], directions=directions)
     for fold in by_fold:
         fold_trades = [t for t in trades if t["fold"] == fold["fold"]]
         compounded = 1.0
@@ -316,6 +358,9 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
         "Out-of-sample only: every probability comes from a model trained on earlier bars.",
         "Random forest only; the LSTM half of the live ensemble is not retrained per fold.",
     ]
+    if signal_mode == "live_engine":
+        notes.append("Signals come from src.signal_engine.predict_signal (live config) on every closed test bar, the same "
+                     "function the dashboard uses; with no per-fold LSTM the blend is the RF probability alone.")
     if spec["interval"] != "1h":
         notes.append("Daily-bar ranges retrain the same features on daily bars, so they test the strategy logic rather than the exact hourly live model.")
     if symbol == "XAUUSD":
@@ -358,6 +403,7 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
         **base,
         "available": True,
         "data_source": source,
+        "signal_mode": signal_mode,
         "data_start": _iso(raw["datetime"].iloc[0]) if "datetime" in raw.columns else None,
         "data_end": _iso(raw["datetime"].iloc[-1]) if "datetime" in raw.columns else None,
         "bars": n,

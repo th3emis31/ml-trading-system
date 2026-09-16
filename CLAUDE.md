@@ -4,12 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## This is the live system
 
-The running trading app is **this directory** (`C:\Users\th_em\`): `app.py`
-plus `data/`, `models/`, `logs/`, and the `src/`, `ai/`, `voice/`, `trading/`,
-`memory/` packages.
+Since the folder switch on 16 September 2026 at 16:45, the running trading app is
+**this directory** (`C:\Users\th_em\ml_trading_system\`): `app.py` plus `data/`,
+`models/`, `logs/`, and the `src/`, `ai/`, `voice/`, `trading/`, `memory/`
+packages. The eight SmartEntry scheduled tasks and the Startup shortcut
+(`start_trading.bat`) point here, and `data/`, `models/` and `logs/` were copied
+across by `scripts\switch_live_to_ml_trading_system.ps1`.
 
-`C:\Users\th_em\ml_trading_system\` holds an older snapshot from 30 June. It is
-not what runs. Edit here, not there.
+`C:\Users\th_em\` is now the **fallback copy only**. Nothing there runs unless
+`scripts\rollback_live_to_home.ps1` switches back to it. Edit here, not there.
+Two tasks still point at the fallback and were never part of the switch script's
+list: **SmartEntry CRT Forward** and **SmartEntry Daily Agent**.
 
 `SESSION_STATE.md` in this directory carries the most recent handoff notes —
 current runtime state, what was recently fixed, and what is still outstanding.

@@ -99,3 +99,30 @@ def test_tradingview_spec_uses_its_atr_length():
     spec = lab.EA_SPECS["tradingview"]
     assert spec["params"]["atr_len"] == 12 and spec["exits"]["trail_atr"] == 4.5
     assert lab.spec_id(lab.SWING_TREND_PULLBACK_SPEC) != lab.spec_id(spec)
+
+
+def test_exit_before_triple_swap_closes_before_wednesday_rollover():
+    # 4h bars from Tuesday 21:00 UTC (= New York 17:00, the rollover) to Friday
+    times = pd.date_range("2026-09-08 21:00", periods=18, freq="4h", tz="UTC")
+    n = len(times)
+    o = np.full(n, 100.0)
+    h = np.full(n, 100.5)
+    l = np.full(n, 99.5)
+    c = np.full(n, 100.2)
+    atr = np.full(n, 1.0)
+    side = np.zeros(n, dtype=int)
+    side[0] = 1
+    stop, target = np.full(n, np.nan), np.full(n, np.nan)
+    stop[0] = 90.0
+    roll = lab.rollover_counts(times)
+    holding = {"roll": roll, "mode": "price", "long": 0.5, "short": 0.5}
+    base = {"trail_atr": 0.0, "max_bars": 100}
+    plain = lab.simulate_orders(o, h, l, c, atr, times, side, stop, target, np.arange(n), dict(base, max_bars=12), 0.0, holding)
+    triple = lab.simulate_orders(o, h, l, c, atr, times, side, stop, target, np.arange(n),
+                                 dict(base, max_bars=12, exit_before_triple_swap=True), 0.0, holding)
+    wed_rollover = int(np.argmax(np.diff(roll) >= 3)) + 1        # first bar at or after Wednesday's 17:00 New York
+    assert triple[0]["outcome"] == "SWAP_EXIT" and triple[0]["exit_time"] == lab._iso(times[wed_rollover - 1])
+    assert triple[0]["exit_price"] == 100.2 and triple[0]["nights"] < plain[0]["nights"]
+    any_night = lab.simulate_orders(o, h, l, c, atr, times, side, stop, target, np.arange(n),
+                                    dict(base, exit_before_rollover=True), 0.0, holding)
+    assert any_night[0]["outcome"] == "SWAP_EXIT" and any_night[0]["nights"] == 0
