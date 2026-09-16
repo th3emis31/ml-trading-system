@@ -57,7 +57,8 @@ def results_path() -> Path:
 
 
 def session_pullback_setups(bars: pd.DataFrame, rules: dict = RULES) -> pd.DataFrame:
-    """One row per qualifying signal bar: signal_idx, entry_idx, side (+1 long / -1 short), atr, swing_low, swing_high."""
+    """One row per qualifying signal bar: signal_idx, entry_idx, side (+1 long / -1 short), atr, swing_low, swing_high,
+    and the EMA20 / H4 EMA values behind it (the demo journal records them as the regime)."""
     frame = bars.sort_values("datetime").reset_index(drop=True)
     times = pd.to_datetime(frame["datetime"], utc=True)
     o, h, l, c = (frame[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
@@ -99,8 +100,10 @@ def session_pullback_setups(bars: pd.DataFrame, rules: dict = RULES) -> pd.DataF
             continue
         if pullback and rejection:
             rows.append({"signal_idx": t, "entry_idx": t + 1, "side": trend, "atr": float(atr[t]),
-                         "swing_low": float(l[t - swing + 1: t + 1].min()), "swing_high": float(h[t - swing + 1: t + 1].max())})
-    return pd.DataFrame(rows, columns=["signal_idx", "entry_idx", "side", "atr", "swing_low", "swing_high"])
+                         "swing_low": float(l[t - swing + 1: t + 1].min()), "swing_high": float(h[t - swing + 1: t + 1].max()),
+                         "ema20": float(ema20[t]), "h4_ema_fast": float(fast[k]), "h4_ema_slow": float(slow[k])})
+    return pd.DataFrame(rows, columns=["signal_idx", "entry_idx", "side", "atr", "swing_low", "swing_high",
+                                       "ema20", "h4_ema_fast", "h4_ema_slow"])
 
 
 def session_pullback_exit(o, h, l, c, times, entry_idx: int, side: int, stop: float, rules: dict = RULES) -> dict:

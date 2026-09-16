@@ -725,6 +725,7 @@ MAIN_NAV_GROUPS = [
     ('/control', 'Control'),
     ('/ea-panel', 'EA Bridge'),
     ('/paper-trading', 'Paper Trading'),
+    ('/demo-trading', 'Demo Trading'),
     ('/daily-agent', 'Daily Agent'),
   ]),
   ('AI', [
@@ -21926,6 +21927,219 @@ def demo_model_status_api():
     'attempts': list(reversed(attempts))[:50],
     'events': list(reversed(journal.get('events') or []))[:100],
   })
+
+
+# Gold session pullback on the demo account 11581419 (src/demo_session_pullback.py): the only strategy that trades that
+# account. The hourly task "SmartEntry Demo Pullback" calls the cycle; every order and refusal is logged with its reason.
+# Control calls (cycle, STOP, resume) need a request from this PC and the control secret.
+_demo_pullback_lock = threading.Lock()
+
+
+def _demo_pullback_refused():
+  from src import execution_guard
+  if not _local_request_only():
+    return jsonify({'ok': False, 'reason': 'local calls only'}), 403
+  if not execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                        execution_guard.load_or_create_secret()):
+    return jsonify({'ok': False, 'reason': 'the control secret (X-Control-Secret header) is required'}), 403
+  return None
+
+
+@app.route('/api/demo-trading/cycle', methods=['POST'])
+def demo_trading_cycle_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_session_pullback, economic_calendar
+  if MT5_ENGINE is None:
+    return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
+  try:
+    calendar_events = economic_calendar.load_calendar(datetime.now(timezone.utc)).get('events') or []
+  except Exception:
+    calendar_events = []
+  with _demo_pullback_lock:
+    summary = demo_session_pullback.run_cycle(MT5_ENGINE, get_bars, calendar_events)
+  return jsonify(summary)
+
+
+@app.route('/api/demo-trading/stop', methods=['POST'])
+def demo_trading_stop_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_session_pullback
+  with _demo_pullback_lock:
+    event = demo_session_pullback.owner_stop(MT5_ENGINE)
+  return jsonify(event)
+
+
+@app.route('/api/demo-trading/resume', methods=['POST'])
+def demo_trading_resume_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_session_pullback
+  with _demo_pullback_lock:
+    event = demo_session_pullback.owner_resume()
+  return jsonify(event)
+
+
+@app.route('/api/demo-trading/status')
+def demo_trading_status_api():
+  from src import demo_session_pullback
+  return jsonify(demo_session_pullback.status_payload(MT5_ENGINE))
+
+
+@app.route('/demo-trading')
+def demo_trading_page():
+  from src import execution_guard
+  control_secret = execution_guard.load_or_create_secret() if _local_request_only() else ''
+  return render_template_string(DEMO_TRADING_TEMPLATE, theme_css=THEME_CSS, control_secret=control_secret)
+
+
+DEMO_TRADING_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Demo Trading</title>
+  {{ theme_css | safe }}
+  <style>
+    .dt-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:14px; }
+    .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin:12px 0; }
+    .tile { border-radius:12px; padding:10px 12px; border:1px solid rgba(148,176,222,.3); background:rgba(15,23,42,.8); border-left:3px solid #38bdf8; }
+    .tile .k { font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; }
+    .tile .v { font-size:20px; font-weight:800; color:#f8fafc; margin-top:2px; font-variant-numeric:tabular-nums; }
+    .tile .s { font-size:12px; color:#a5b4fc; margin-top:3px; }
+    .stop-btn { font-size:26px; font-weight:900; letter-spacing:.08em; padding:22px 44px; border-radius:16px; border:3px solid #fecdd3;
+                background:#dc2626; color:#fff; cursor:pointer; min-width:220px; box-shadow:0 0 0 4px rgba(220,38,38,.25); }
+    .stop-btn:hover { background:#b91c1c; }
+    .stop-btn:disabled { opacity:.6; cursor:default; }
+    .resume-btn { margin-top:8px; }
+    .banner { border-radius:12px; padding:10px 14px; margin:10px 0 14px; border:1px solid; }
+    .banner.ok { border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.10); color:#d1fae5; }
+    .banner.warn { border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.12); color:#fde68a; }
+    .banner.bad { border-color:rgba(251,113,133,.7); background:rgba(225,29,72,.16); color:#fecdd3; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td.reason { color:#cbd5e1; min-width:220px; }
+    .pos { color:#a7f3d0; } .neg { color:#fecdd3; }
+    @media (max-width: 640px) { .stop-btn { width:100%; } }
+  </style>
+</head>
+<body>
+  <div class='nav'>
+    {{ main_nav }}
+  </div>
+  <div class='container'>
+    <div class='dt-head'>
+      <div>
+        <h1>Demo Trading</h1>
+        <p class='muted'>Gold session pullback on the Vantage <strong>demo</strong> account 11581419 only (magic 440502): 2 legs of 0.01 lot, TP 1.5R and 3R, break-even after the first, one trade at a time, max 2 a day, flat at 21:00 UTC. Every order and refusal is logged with its reason.</p>
+      </div>
+      <div style='text-align:right'>
+        <button class='stop-btn' id='stop-btn' type='button'>STOP</button>
+        <div class='muted' style='font-size:12px;margin-top:6px'>Halts the strategy and closes its open legs (magic 440502 only).</div>
+        <button class='resume-btn' id='resume-btn' type='button' hidden>Resume trading</button>
+        <div class='muted' id='control-msg' style='font-size:12px;margin-top:6px'></div>
+      </div>
+    </div>
+    <div class='banner warn' id='mode-banner'>Loading…</div>
+    <div class='tiles' id='tiles'></div>
+    <div class='card'><h2>Open position</h2><div id='open-trade'><p class='muted'>Loading…</p></div></div>
+    <div class='card'><h2>Today's trades</h2><div class='table-wrap' id='today'><p class='muted'>Loading…</p></div></div>
+    <div class='card'><h2>Recent closed trades</h2><div class='table-wrap' id='closed'><p class='muted'>Loading…</p></div></div>
+    <div class='card'><h2>Decision log</h2><div class='table-wrap' id='log'><p class='muted'>Loading…</p></div></div>
+  </div>
+<script>
+const CONTROL_SECRET = {{ control_secret|tojson }};
+const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtR = v => (v === null || v === undefined) ? '—' : `<span class='${v >= 0 ? 'pos' : 'neg'}'>${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}R</span>`;
+const pct = v => (v === null || v === undefined) ? '—' : (Number(v) * 100).toFixed(2) + ' %';
+let resumeArmed = false;
+
+function tile(k, v, s) { return `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${v}</div><div class='s'>${s || ''}</div></div>`; }
+
+async function control(path) {
+  const msg = document.getElementById('control-msg');
+  msg.textContent = 'Sending…';
+  try {
+    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Control-Secret': CONTROL_SECRET}, body: '{}'});
+    const body = await r.json();
+    msg.textContent = r.ok ? (body.reason || 'done') : ('Refused: ' + (body.reason || r.status));
+  } catch (e) { msg.textContent = 'Request failed: ' + e; }
+  load();
+}
+
+document.getElementById('stop-btn').addEventListener('click', () => control('/api/demo-trading/stop'));
+document.getElementById('resume-btn').addEventListener('click', () => {
+  const btn = document.getElementById('resume-btn');
+  if (!resumeArmed) { resumeArmed = true; btn.textContent = 'Click again to resume'; setTimeout(() => { resumeArmed = false; btn.textContent = 'Resume trading'; }, 5000); return; }
+  resumeArmed = false; btn.textContent = 'Resume trading';
+  control('/api/demo-trading/resume');
+});
+
+async function load() {
+  let d;
+  try { d = await (await fetch('/api/demo-trading/status')).json(); } catch (e) {
+    document.getElementById('mode-banner').textContent = 'Status unavailable: ' + e; return;
+  }
+  const banner = document.getElementById('mode-banner');
+  const cfg = d.config || {};
+  if (d.halted) {
+    banner.className = 'banner bad';
+    banner.innerHTML = `<strong>HALTED (${esc(d.halted.kind)})</strong> at ${esc(d.halted.at)} UTC: ${esc(d.halted.reason)}`;
+  } else if (!cfg.enabled) {
+    banner.className = 'banner warn'; banner.innerHTML = '<strong>Disabled.</strong> The hourly cycle logs that it is off and does nothing.';
+  } else if (!d.sending_orders) {
+    banner.className = 'banner warn'; banner.innerHTML = '<strong>Dry run.</strong> Every gate runs and would-be orders are logged and settled on broker H1 bars; nothing is sent to MT5.';
+  } else {
+    banner.className = 'banner ok'; banner.innerHTML = '<strong>Sending orders</strong> to demo account 11581419.';
+  }
+  banner.innerHTML += `<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.backtest_verdict)}</div>`;
+  document.getElementById('stop-btn').disabled = !!(d.halted && d.halted.kind === 'owner_stop');
+  document.getElementById('resume-btn').hidden = !d.halted;
+
+  const ex = d.expectancy || {}, live = ex.demo_broker_fills || {}, sim = ex.dry_run_simulated || {};
+  const ks = d.kill_switches || {};
+  document.getElementById('tiles').innerHTML = [
+    tile('Running expectancy (demo fills)', fmtR(live.expectancy_r), `${live.trades || 0} trades, total ${live.total_r ?? 0}R`),
+    tile('Expectancy (dry run, simulated)', fmtR(sim.expectancy_r), `${sim.trades || 0} trades, total ${sim.total_r ?? 0}R`),
+    tile('Entries today', `${esc(d.entries_today)} / ${esc(cfg.max_entries_per_day)}`, d.day_stopped ? esc(d.day_stopped) : 'daily stop not hit'),
+    tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
+    tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
+    tile('Account check', d.account_ok ? 'demo OK' : 'not verified', esc(d.account_reason)),
+    tile('Last cycle', esc((d.last_cycle || {}).at || 'never'), esc((d.last_cycle || {}).reason || '')),
+  ].join('');
+
+  const t = d.open_trade;
+  const positions = d.open_positions || [];
+  document.getElementById('open-trade').innerHTML = !t ? `<p class='muted'>No open trade.${positions.length ? ' Broker shows ' + positions.length + ' leg(s) with magic 440502.' : ''}</p>` :
+    `<p><strong>${esc(t.side)}</strong> ${esc(t.id)} UTC · entry ${esc(t.entry)} · stop ${esc(t.stop)} · R ${esc(t.r_price)} · TP1 ${esc(t.setup.tp1)} · TP2 ${esc(t.setup.tp2)} · ${t.dry_run ? 'dry run' : 'demo'} · ${esc(t.session)} · trend ${esc((t.regime || {}).trend)} · next tier-1 event in ${esc(t.minutes_to_next_tier1_event)} min${t.breakeven_moved ? ' · leg B at break-even' : ''}</p>` +
+    (positions.length ? `<table><tr><th>Ticket</th><th>Side</th><th class='num'>Volume</th><th class='num'>Open</th><th class='num'>SL</th><th class='num'>TP</th><th class='num'>Profit</th><th>Comment</th></tr>` +
+      positions.map(p => `<tr><td>${esc(p.ticket)}</td><td>${esc(p.direction)}</td><td class='num'>${esc(p.volume)}</td><td class='num'>${esc(p.price_open)}</td><td class='num'>${esc(p.sl)}</td><td class='num'>${esc(p.tp)}</td><td class='num'>${esc(p.profit)}</td><td>${esc(p.comment)}</td></tr>`).join('') + '</table>' : '');
+
+  const today = d.today_trades || [];
+  document.getElementById('today').innerHTML = !today.length ? "<p class='muted'>No trades today.</p>" :
+    `<table><tr><th>Signal bar</th><th>Side</th><th>Mode</th><th>Status</th><th class='num'>Entry</th><th class='num'>Stop</th><th class='num'>R</th><th>Session</th></tr>` +
+    today.map(x => `<tr><td>${esc(x.id)}</td><td>${esc(x.side)}</td><td>${x.dry_run ? 'dry run' : 'demo'}</td><td>${esc(x.status)}</td><td class='num'>${esc(x.entry)}</td><td class='num'>${esc(x.stop)}</td><td class='num'>${fmtR(x.r_result)}</td><td>${esc(x.session)}</td></tr>`).join('') + '</table>';
+
+  const closed = d.recent_trades || [];
+  document.getElementById('closed').innerHTML = !closed.length ? "<p class='muted'>No closed trades yet.</p>" :
+    `<table><tr><th>Closed</th><th>Side</th><th>Mode</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
+    closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td>${esc(x.side)}</td><td>${esc(x.mode)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
+
+  const rows = d.log || [];
+  document.getElementById('log').innerHTML = !rows.length ? "<p class='muted'>No decisions logged yet.</p>" :
+    `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
+    rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
+"""
 
 
 @app.route('/api/analytics')

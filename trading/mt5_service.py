@@ -316,6 +316,48 @@ class MT5Service:
         except Exception as exc:
             return {"ok": False, "executed": False, "message": str(exc)}
 
+    def account_snapshot(self) -> dict | None:
+        """Login, server, trade_mode, balance and equity only (account_info() also builds a year of trade summary)."""
+        if not self.status()["connected"] or self._mt5 is None:
+            return None
+        try:
+            account = self._mt5.account_info()
+        except Exception:
+            return None
+        if account is None:
+            return None
+        return {key: getattr(account, key, None)
+                for key in ("login", "server", "trade_mode", "balance", "equity", "currency", "company")}
+
+    def modify_position_sltp(self, ticket: int, stop_loss: float | None = None, take_profit: float | None = None) -> dict:
+        """Change the stop and/or target of one open position; a value left as None keeps the current one."""
+        if not self.status()["connected"] or self._mt5 is None:
+            return {"ok": False, "executed": False, "message": "MT5 is not connected"}
+        try:
+            open_positions = self._mt5.positions_get(ticket=int(ticket))
+            if not open_positions:
+                return {"ok": False, "executed": False, "message": f"position {ticket} is not open"}
+            pos = open_positions[0]
+            request_payload = {
+                "action": self._mt5.TRADE_ACTION_SLTP,
+                "position": int(pos.ticket),
+                "symbol": pos.symbol,
+                "sl": float(stop_loss if stop_loss is not None else pos.sl),
+                "tp": float(take_profit if take_profit is not None else pos.tp),
+                "magic": int(getattr(pos, "magic", 0) or 0),
+            }
+            result = self._mt5.order_send(request_payload)
+            if result is None:
+                return {"ok": False, "executed": False, "message": f"order_send returned None: {self._mt5.last_error()}"}
+            result_dict = result._asdict() if hasattr(result, "_asdict") else {
+                "retcode": getattr(result, "retcode", None), "comment": getattr(result, "comment", "")}
+            executed = int(result_dict.get("retcode") or 0) == int(getattr(self._mt5, "TRADE_RETCODE_DONE", 10009))
+            return {"ok": executed, "executed": executed,
+                    "message": str(result_dict.get("comment") or ("modified" if executed else "modify rejected")),
+                    "request": request_payload, "result": result_dict}
+        except Exception as exc:
+            return {"ok": False, "executed": False, "message": str(exc)}
+
     def deal_history(self, days: int = 3650) -> dict:
         """Closed trades (exit deals) from the account history, times converted to UTC. Read-only."""
         status = self.status()

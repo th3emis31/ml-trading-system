@@ -52,9 +52,10 @@ def _stamp(value) -> str:
     return pd.Timestamp(value).tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S")
 
 
-def load_config(path: Optional[Path] = None) -> dict:
+def load_config(path: Optional[Path] = None, defaults: Optional[dict] = None) -> dict:
+    """JSON config over ``defaults`` (this executor's DEFAULT_CONFIG unless another demo strategy passes its own)."""
     path = Path(path or CONFIG_PATH)
-    config = dict(DEFAULT_CONFIG)
+    config = dict(DEFAULT_CONFIG if defaults is None else defaults)
     if path.exists():
         config.update(json.loads(path.read_text(encoding="utf-8")))
     return config
@@ -128,7 +129,10 @@ def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None) 
     bar = str(signal.get("bar_time") or "")
     base = {"signal_bar": bar, "side": signal.get("side"), "symbol": signal.get("symbol")}
     if not config.get("enabled"):
-        return _event(journal, now, "skipped", reason="demo execution is disabled", **base)
+        # Off by default (DEFAULT_CONFIG); since 2026-09-16 the owner keeps it off so only the gold session pullback
+        # strategy (src/demo_session_pullback.py) trades the demo account. Every skipped signal says so in the journal.
+        why = config.get("disabled_reason") or "enabled is false in data/paper_trading/demo_execution.json"
+        return _event(journal, now, "skipped", reason=f"demo execution is disabled: {why}", **base)
     ok, reason = check_signal(signal, config, now)
     if not ok:
         return _event(journal, now, "refused", reason=reason, **base)

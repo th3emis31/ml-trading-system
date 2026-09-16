@@ -52,7 +52,8 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_autonomy_confidence.py", "tests/test_walkforward_live_engine.py",
               "tests/test_signals_live_api.py", "tests/test_approval_bypass.py", "tests/test_model_integrity.py",
               "tests/test_learning_pollution.py", "tests/test_training_gate.py", "tests/test_retrain_routes_locked.py",
-              "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py")
+              "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py",
+              "tests/test_demo_session_pullback.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -61,6 +62,7 @@ TASKS = {
     "SmartEntry Daily Report": {"script": "run_daily_report.cmd", "schedule": ["/sc", "daily", "/st", "06:45"]},
     "SmartEntry AI Employee": {"script": "run_ai_employee.cmd", "schedule": ["/sc", "daily", "/st", "07:15"]},
     "SmartEntry Daily Learning": {"script": "run_daily_learning.cmd", "schedule": ["/sc", "daily", "/st", "05:30"]},
+    "SmartEntry Demo Pullback": {"script": "run_demo_pullback.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:01"]},
     "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
     # Opens Claude Code (tabs "bridge" and "desk") at this user's logon; recreated by --fix if missing.
     "SmartEntry Claude Code": {"script": "start_claude.cmd", "schedule": ["/sc", "onlogon"]},
@@ -220,6 +222,31 @@ def check_demo_execution(get: GetJson = get_json, config_path: Path = ROOT / "da
     return _result("Demo execution", "trading", "ok",
                    f"Demo execution {mode}; {len(recent)} events in 24 h, none failed; "
                    f"{0 if not positions else len(positions)} model position(s) open.", **detail)
+
+
+def check_demo_pullback(state_path: Path = ROOT / "data" / "paper_trading" / "demo_session_pullback_state.json",
+                        config_path: Path = ROOT / "data" / "paper_trading" / "demo_session_pullback.json",
+                        now: Optional[datetime] = None) -> dict:
+    """Gold session pullback on demo account 11581419: warn when halted or when the hourly cycle stopped running."""
+    now = now or _now_utc()
+    config = _read_json(config_path)
+    if not isinstance(config, dict) or not config.get("enabled"):
+        return _result("Demo pullback", "trading", "info", "Gold session pullback demo trading is off.")
+    mode = "dry run (orders logged, not sent)" if config.get("dry_run", True) else "SENDING orders to demo account 11581419"
+    state = _read_json(state_path) or {}
+    last = _parse_utc((state.get("last_cycle") or {}).get("at"))
+    age_h = (now - last).total_seconds() / 3600 if last else None
+    detail = {"mode": mode, "halted": state.get("halted"), "day_stopped": state.get("day_stopped"),
+              "last_cycle": state.get("last_cycle"), "age_hours": round(age_h, 2) if age_h is not None else None}
+    if state.get("halted"):
+        halted = state["halted"]
+        return _result("Demo pullback", "trading", "warn", f"Demo pullback HALTED ({halted.get('kind')}) at {halted.get('at')}: "
+                       f"{halted.get('reason')} Resume on /demo-trading after checking.", **detail)
+    if age_h is None or age_h > 2.5:
+        return _result("Demo pullback", "trading", "warn", f"Demo pullback {mode}: no cycle in the last 2.5 h "
+                       "(task SmartEntry Demo Pullback).", **detail)
+    return _result("Demo pullback", "trading", "ok", f"Demo pullback {mode}; last cycle {state['last_cycle'].get('at')} UTC: "
+                   f"{state['last_cycle'].get('reason')}", **detail)
 
 
 def check_paper_trader(state_path: Path = ROOT / "data" / "paper_trading" / "xauusd_4h_mtf_xgb_tight_q90.json",
@@ -564,7 +591,7 @@ def overall_status(checks: list[dict]) -> str:
 def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, save: bool = True) -> dict:
     started = _now_utc()
     runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_autonomy,
-               lambda: check_demo_execution(get), check_paper_trader, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               lambda: check_demo_execution(get), check_demo_pullback, check_paper_trader, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]

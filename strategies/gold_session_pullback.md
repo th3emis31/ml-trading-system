@@ -93,3 +93,11 @@ needs three additions to it: an H4 trend on H1 bars, a rejection-candle rule and
     window from the historical file). Split: the Strategy Lab's locked XAUUSD 1h boundaries (holdout from
     2025-01-08 01:00). Three variants (no filter, tier-1, tier-1 + breaker) count as three trials for the deflated
     Sharpe. Results go to `.claude/memory/BASELINE.md`. No paper or live use.
+    **Backtest 2026-09-16 (commit 7d6d3c6): FAIL** on every variant - holdout +0.028R / +0.032R (tier-1) /
+    +0.039R (tier-1 + breaker) over 79 / 75 / 73 trades, deflated Sharpe 0.60-0.65 (bar 0.95), development 2018-2024
+    negative (-0.03R); 80 % of trades end at the 21:00 time stop. Not promotable.
+    **Demo (owner request 2026-09-16):** `src/demo_session_pullback.py` trades it on the Vantage demo account 11581419
+    only (hard-coded refusal of any other account), magic 440502, two 0.01-lot legs (A: TP 1.5R, B: TP 3R, B to
+    break-even after A), one trade at a time, 2 a day, flat 21:00 UTC; kill switches on this strategy's own P&L
+    (-3 % day stop, 15 % drawdown halt) and any MT5 error halts. Built in dry run; sending orders is the owner's switch
+    (`dry_run` false) after seeing the backtest. Demo trades are forward evidence only; the evidence bar is unchanged.

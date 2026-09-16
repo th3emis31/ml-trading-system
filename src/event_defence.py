@@ -64,6 +64,11 @@ def _as_utc(value) -> datetime:
     return stamp.to_pydatetime()
 
 
+def utc_timestamp(value=None) -> pd.Timestamp:
+    """``value`` (or now) as a tz-aware UTC pandas Timestamp; naive values are taken as UTC."""
+    return pd.Timestamp(_as_utc(value if value is not None else datetime.now(timezone.utc)))
+
+
 def load_historical_events(path: Optional[Path] = None) -> list[dict]:
     """Tier-1 events with a clock time from data/historical_events.csv, oldest first.
 
