@@ -22142,7 +22142,9 @@ function barCell(value, label, extraClass) {
 
 function nextTable(study) {
   if (!study || !study.available) return `<p class='muted'>What happened next: ${esc(study && study.reason || 'no price history')}</p>`;
-  const rows = Object.entries(study.buckets || {}).map(([name, b]) =>
+  const order = ['crowded short (index <= 20)', 'middle (20-80)', 'crowded long (index >= 80)'];
+  const entries = Object.entries(study.buckets || {}).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+  const rows = entries.map(([name, b]) =>
     `<tr><td>${esc(name)}</td><td class='num'>${esc(b.weeks)}</td>
      <td class='num ${b.avg_move_pct > 0 ? 'long' : b.avg_move_pct < 0 ? 'short' : 'flat'}'>${b.avg_move_pct === null ? '-' : (b.avg_move_pct > 0 ? '+' : '') + b.avg_move_pct + ' %'}</td>
      <td class='num'>${esc(b.up_share_pct)} %</td>
@@ -22166,6 +22168,8 @@ function focusCard(symbol, m) {
       <dt>Percentile of history</dt><dd>${barCell(m.percentile_net_pct, 'of 100')}</dd>
       <dt>Change 1w / 4w</dt><dd>${signed(m.week_change_net)} / ${signed(m.change_4w)}</dd>
       <dt>Commercials (other side)</dt><dd class='${m.commercial_net < 0 ? 'short' : 'long'}'>${signed(m.commercial_net)}</dd>
+      <dt>Small traders</dt><dd class='${m.small_trader_net < 0 ? 'short' : 'long'}'>${signed(m.small_trader_net)}</dd>
+      <dt>Open interest</dt><dd>${num(m.open_interest)} <span class='subtle'>(${signed(m.open_interest_change)} on the week)</span></dd>
     </dl>
     ${nextTable(m.what_happened_next)}</div>`;
 }
