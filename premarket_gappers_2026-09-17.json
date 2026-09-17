@@ -1,0 +1,105 @@
+{
+  "scanned_at": "2026-09-17T22:00:11Z",
+  "gappers": [
+    {
+      "rank": 1,
+      "symbol": "SDGR",
+      "price": 30.24,
+      "gap_pct": 26.37,
+      "premarket_volume": 8950000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 2,
+      "symbol": "GNRC",
+      "price": 207.23,
+      "gap_pct": 18.34,
+      "premarket_volume": 8007000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 3,
+      "symbol": "VICR",
+      "price": 216.39,
+      "gap_pct": 17.66,
+      "premarket_volume": 1676000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 4,
+      "symbol": "BHVN",
+      "price": 13.89,
+      "gap_pct": 15.56,
+      "premarket_volume": 5823000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 5,
+      "symbol": "TEM",
+      "price": 80.36,
+      "gap_pct": 14.85,
+      "premarket_volume": 16826000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 6,
+      "symbol": "PURR",
+      "price": 12.83,
+      "gap_pct": 12.15,
+      "premarket_volume": 27374000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 7,
+      "symbol": "XE",
+      "price": 16.33,
+      "gap_pct": 12.08,
+      "premarket_volume": 8545000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 8,
+      "symbol": "INIO",
+      "price": 20.96,
+      "gap_pct": 12.03,
+      "premarket_volume": 13124000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 9,
+      "symbol": "OKLO",
+      "price": 39.65,
+      "gap_pct": 11.31,
+      "premarket_volume": 17111000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    },
+    {
+      "rank": 10,
+      "symbol": "PBLS",
+      "price": 40.88,
+      "gap_pct": 10.85,
+      "premarket_volume": 1093000,
+      "catalyst": null,
+      "headlines": [],
+      "catalyst_source": null
+    }
+  ]
+}

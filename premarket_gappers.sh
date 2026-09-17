@@ -3,7 +3,7 @@
 #
 # 1. WebFetch https://finance.yahoo.com/markets/stocks/gainers/ -> ticker, price, % change, volume per row.
 # 2. Filters: gap_pct > 5, price > 3, premarket_volume > 50000; top 10 by gap_pct.
-# 3. For each of the 10, WebFetch https://www.benzinga.com/quote/{TICKER} for the catalyst (in parallel).
+# 3. For each of the 10, WebFetch stockanalysis.com for the catalyst (Benzinga is 403 to bots), in parallel.
 #    (Not Yahoo's /quote/{TICKER}/news/ endpoint: it returns HTTP 503.)
 # 4. Writes ./premarket_gappers_YYYY-MM-DD.json and prints a one-line summary.
 #
@@ -75,10 +75,9 @@ mapfile -t SYMBOLS < <("$PY" -c "import json,sys; [print(r['symbol']) for r in j
 
 # ------------------------------------------------------------------ 2. catalysts, in parallel
 for T in "${SYMBOLS[@]}"; do
-  fetch_with_claude "Call the WebFetch tool on https://www.benzinga.com/quote/${T} with exactly this prompt: \
-\"What recent news or catalyst is driving ${T} stock today? Return a one-sentence summary, then up to 2 recent headlines verbatim. Just the data — no commentary.\" \
-Then output ONLY a JSON object, no prose, no code fences: {\"catalyst\": \"one sentence\", \"headlines\": [\"headline 1\", \"headline 2\"]}. \
-If the fetch fails or the page has no usable news, output {\"catalyst\": null, \"headlines\": []}." "$WORK/news_${T}.txt" &
+  # Benzinga answers 403 to every automated request (checked 2026-09-17), so stockanalysis.com is tried first and
+  # Benzinga second; the JSON records which source answered, so every catalyst can be traced back.
+  fetch_with_claude "Call the WebFetch tool on https://stockanalysis.com/stocks/${T}/ with exactly this prompt: \"What recent news or catalyst is driving ${T} stock today? Return a one-sentence summary, then up to 2 recent headlines verbatim. Just the data - no commentary.\" If that fetch fails or has no usable news, call WebFetch once more on https://www.benzinga.com/quote/${T} with the same prompt. Then output ONLY a JSON object, no prose, no code fences: {\"catalyst\": \"one sentence\", \"headlines\": [\"headline 1\", \"headline 2\"], \"source\": \"stockanalysis|benzinga\"}. If both fetches fail or neither page has usable news, output {\"catalyst\": null, \"headlines\": [], \"source\": null}." "$WORK/news_${T}.txt" &
 done
 wait
 
@@ -90,7 +89,7 @@ work, out_file = sys.argv[1], sys.argv[2]
 top = json.load(open(os.path.join(work, "top10.json")))["top"]
 gappers = []
 for rank, row in enumerate(top, 1):
-    catalyst, headlines = None, []
+    catalyst, headlines, source = None, [], None
     path = os.path.join(work, f"news_{row['symbol']}.txt")
     try:
         raw = open(path, encoding="utf-8", errors="replace").read()
@@ -100,11 +99,13 @@ for rank, row in enumerate(top, 1):
             catalyst = data["catalyst"].strip()
         if isinstance(data.get("headlines"), list):
             headlines = [str(h).strip() for h in data["headlines"] if str(h).strip()][:2]
+        if isinstance(data.get("source"), str) and data["source"].strip():
+            source = data["source"].strip()
     except (OSError, ValueError, AttributeError):
-        catalyst, headlines = None, []
+        catalyst, headlines, source = None, [], None
     if catalyst is None:
-        headlines = []
-    gappers.append({"rank": rank, **row, "catalyst": catalyst, "headlines": headlines})
+        headlines, source = [], None
+    gappers.append({"rank": rank, **row, "catalyst": catalyst, "headlines": headlines, "catalyst_source": source})
 result = {"scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "gappers": gappers}
 with open(out_file, "w", encoding="utf-8") as fh:
     json.dump(result, fh, indent=2, ensure_ascii=False)

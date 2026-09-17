@@ -719,6 +719,7 @@ MAIN_NAV_GROUPS = [
     ('/analytics', 'Analytics'),
     ('/performance', 'Performance'),
     ('/positioning', 'Positioning'),
+    ('/i40-pilot', 'i40 Pilot'),
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
@@ -22128,6 +22129,187 @@ def demo_breakout_resume_api():
   with _demo_breakout_lock:
     event = demo_volatility_breakout.resume_breakout()
   return jsonify(event)
+
+
+@app.route('/api/i40-pilot')
+def i40_pilot_api():
+  """The i40 Pilot brief: identity, signature rules, memory, live context, schedule, skills, tools and the loop.
+
+  Read-only. The cached brief on disk is the hourly one; ``?live=1`` rebuilds it now, which costs a few seconds
+  because it reads the scheduled tasks and the running strategies."""
+  from src import i40_pilot
+  from src.runtime_paths import read_latest_json
+
+  if request.args.get('live') == '1':
+    return jsonify(i40_pilot.build_brief(url_map=app.url_map))
+  brief = read_latest_json(i40_pilot.pilot_dir() / 'latest.json',
+                           'the brief has not been written yet (task SmartEntry i40 Pilot)')
+  if brief.get('available') and not (brief.get('tools') or {}).get('api_endpoints'):
+    brief.setdefault('tools', {})['api_endpoints'] = sorted({str(rule) for rule in app.url_map.iter_rules()
+                                                             if str(rule).startswith('/api/')})
+    brief['tools']['api_endpoint_count'] = len(brief['tools']['api_endpoints'])
+  return jsonify(brief)
+
+
+@app.route('/i40-pilot')
+def i40_pilot_page():
+  return render_template_string(I40_PILOT_TEMPLATE, theme_css=THEME_CSS)
+
+
+I40_PILOT_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>i40 Pilot</title>
+  {{ theme_css | safe }}
+  <style>
+    .pi-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
+    .ident { font-size:13px; color:#9fb3d1; font-variant-numeric:tabular-nums; }
+    .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
+    .grid2 .card { margin:0; }
+    .rule { padding:10px 0; border-bottom:1px solid rgba(148,176,222,.18); }
+    .rule:last-child { border-bottom:0; }
+    .rule b { color:#f8fafc; }
+    .rule span { display:block; color:#9fb3d1; font-size:13px; margin-top:3px; }
+    .since { font-size:11px; color:#7f96b5; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; border:1px solid; }
+    .pill.ok { color:#a7f3d0; border-color:rgba(52,211,153,.6); background:rgba(16,185,129,.12); }
+    .pill.warn { color:#fde68a; border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.12); }
+    .pill.bad { color:#fecdd3; border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.14); }
+    ul.tight { margin:6px 0 0; padding-left:18px; } ul.tight li { margin:3px 0; }
+    code.mono { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:#bfdbfe; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .muted-small { font-size:12px; color:#8fa6c4; }
+  </style>
+</head>
+<body>
+  <div class='nav'>{{ main_nav }}</div>
+  <div class='container'>
+    <div class='pi-head'>
+      <div>
+        <h1>i40 Pilot</h1>
+        <p class='muted' id='role'>Loading…</p>
+        <p class='ident' id='ident'></p>
+      </div>
+      <div><button id='refresh-btn'>Rebuild now</button> <span class='muted' id='status-line'></span></div>
+    </div>
+    <div class='card'><h2>Signature rules</h2>
+      <p class='muted' style='margin-top:0'>The owner's standing decisions. They are not defaults, and nothing here is relaxed without the owner saying so.</p>
+      <div id='rules'><p class='muted'>Loading…</p></div></div>
+    <div class='grid2'>
+      <div class='card'><h2>Context</h2><div id='context'><p class='muted'>Loading…</p></div></div>
+      <div class='card'><h2>Memory</h2><div id='memory'><p class='muted'>Loading…</p></div></div>
+    </div>
+    <div class='card'><h2>Schedule</h2><div class='table-wrap' id='schedule'><p class='muted'>Loading…</p></div></div>
+    <div class='grid2'>
+      <div class='card'><h2>Skills</h2><div id='skills'><p class='muted'>Loading…</p></div></div>
+      <div class='card'><h2>Instructions</h2><div id='instructions'><p class='muted'>Loading…</p></div></div>
+    </div>
+    <div class='card'><h2>Tools</h2><div id='tools'><p class='muted'>Loading…</p></div></div>
+  </div>
+<script>
+const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gap = s => `<p class='muted'>${esc((s || {}).reason || 'not available')}</p>`;
+
+function renderRules(rules) {
+  document.getElementById('rules').innerHTML = (rules.signature_rules || []).map(r =>
+    `<div class='rule'><b>${esc(r.rule)}</b><span>${esc(r.why)}</span><span class='since'>standing since ${esc(r.since)}</span></div>`).join('');
+}
+
+function renderContext(c) {
+  const box = document.getElementById('context');
+  if (!c) { box.innerHTML = gap(c); return; }
+  const strat = Object.entries(c.strategies || {}).map(([name, s]) => {
+    if (!s.available) return `<li>${esc(name)}: <span class='pill warn'>unreadable</span> <span class='muted-small'>${esc(s.reason)}</span></li>`;
+    const mode = s.halted ? "<span class='pill bad'>halted</span>" : s.sending_orders ? "<span class='pill ok'>sending orders</span>" : "<span class='pill warn'>dry run</span>";
+    const cycle = s.cycle_health && s.cycle_health.available
+      ? `${s.cycle_health.late ? "<span class='pill bad'>cycle late</span>" : ''} <span class='muted-small'>last cycle ${esc(s.cycle_health.last_cycle_utc)} (${esc(s.cycle_health.age_minutes)} min)</span>` : '';
+    return `<li>${esc(name)} <span class='muted-small'>magic ${esc(s.magic)} · ${esc(s.symbol)}</span> ${mode} ${cycle}</li>`;
+  }).join('');
+  const learn = c.learning && c.learning.available
+    ? `<ul class='tight'>${Object.entries(c.learning.per_symbol || {}).map(([sym, d]) =>
+        `<li>${esc(sym)}: ${esc(d.status)}, RF ${d.rf_promoted ? 'promoted' : 'kept'}, LSTM ${d.lstm_promoted ? 'promoted' : 'kept'} <span class='muted-small'>accuracy ${esc(d.accuracy)}</span></li>`).join('')}</ul>`
+    : gap(c.learning);
+  const models = c.models && c.models.available
+    ? `<p>${esc(c.models.count)} model file(s), newest written ${esc(c.models.newest_written)} UTC <span class='muted-small'>${esc(c.models.folder)}</span></p>`
+    : gap(c.models);
+  const pos = c.positioning && c.positioning.available
+    ? `<p>CFTC positioning as of ${esc(c.positioning.as_of)}</p>` : gap(c.positioning);
+  box.innerHTML = `<h3>Strategies</h3><ul class='tight'>${strat || '<li class="muted">none</li>'}</ul>
+    <h3>Learning</h3>${learn}<h3>Models</h3>${models}<h3>Positioning</h3>${pos}`;
+}
+
+function renderMemory(m) {
+  const box = document.getElementById('memory');
+  if (!m || !m.available) { box.innerHTML = gap(m); return; }
+  box.innerHTML = `<p><strong>${esc(m.baseline_rows)}</strong> recorded results, <strong>${esc(m.lesson_count)}</strong> lesson(s), <strong>${esc(m.open_backlog_count)}</strong> open backlog item(s).</p>
+    <p class='muted-small'>${esc(m.note)}</p>
+    <h3>Latest recorded results</h3><div class='table-wrap'><table>${(m.latest_results || []).map(row =>
+      '<tr>' + row.split('|').filter(c => c.trim()).slice(0, 4).map(c => {
+        const text = c.trim();
+        return `<td title='${esc(text)}'>${esc(text.length > 90 ? text.slice(0, 90) + '…' : text)}</td>`;
+      }).join('') + '</tr>').join('')}</table>
+      <p class='muted-small'>First columns only; the full rows are in .claude/memory/BASELINE.md.</p></div>
+    <h3>Recent notes</h3><ul class='tight'>${(m.recent_notes || []).map(n => `<li class='muted-small'>${esc(n)}</li>`).join('')}</ul>`;
+}
+
+function renderSchedule(s) {
+  const box = document.getElementById('schedule');
+  if (!s || !s.available) { box.innerHTML = gap(s); return; }
+  box.innerHTML = `<p class='muted' style='margin-top:0'>${esc(s.note)}${(s.missing || []).length ? " <span class='pill bad'>missing: " + esc((s.missing || []).join(', ')) + '</span>' : ''}</p>
+    <table><tr><th>Task</th><th>Runs</th><th>Last run</th><th>Next run</th><th>Last result</th></tr>` +
+    (s.tasks || []).map(t => `<tr><td>${esc(t.task)}<div class='muted-small'>${esc(t.script)}</div></td>
+      <td class='muted-small'>${esc(t.schedule)}</td><td>${esc(t.last_run)}</td><td>${esc(t.next_run)}</td>
+      <td>${t.registered ? esc(t.last_result) : "<span class='pill bad'>not registered</span>"}</td></tr>`).join('') + '</table>';
+}
+
+function renderSkills(s) {
+  const box = document.getElementById('skills');
+  if (!s || !s.available) { box.innerHTML = gap(s); return; }
+  box.innerHTML = `<ul class='tight'>${(s.skills || []).map(k =>
+    `<li><code class='mono'>/${esc(k.name)}</code> <span class='muted-small'>${esc(k.description)}</span></li>`).join('')}</ul>`;
+}
+
+function renderTools(t) {
+  document.getElementById('tools').innerHTML = `<p class='muted' style='margin-top:0'>${esc((t || {}).note || '')}</p>
+    <div class='grid2'>
+      <div><h3>Commands</h3><ul class='tight'>${((t || {}).commands || []).map(c =>
+        `<li><code class='mono'>${esc(c.command)}</code><div class='muted-small'>${esc(c.does)}</div></li>`).join('')}</ul></div>
+      <div><h3>HTTP endpoints (${esc((t || {}).api_endpoint_count)})</h3>
+        <details><summary class='muted'>show all</summary><ul class='tight'>${((t || {}).api_endpoints || []).map(e =>
+          `<li><code class='mono'>${esc(e)}</code></li>`).join('')}</ul></details></div>
+    </div>`;
+}
+
+async function load(live) {
+  const line = document.getElementById('status-line');
+  line.textContent = live ? 'rebuilding…' : 'loading…';
+  let d;
+  try { d = await (await fetch('/api/i40-pilot' + (live ? '?live=1' : ''))).json(); }
+  catch (e) { line.textContent = 'unavailable: ' + e; return; }
+  if (!d.available && d.reason) { line.textContent = d.reason; }
+  const id = d.identity || {};
+  document.getElementById('role').textContent = id.role || '';
+  document.getElementById('ident').textContent = `${id.folder || ''} · ${id.branch || ''} @ ${id.commit || ''} · reads only, places no orders`;
+  renderRules(d.rules || {});
+  renderContext(d.context);
+  renderMemory(d.memory);
+  renderSchedule(d.schedule);
+  renderSkills(d.skills);
+  renderTools(d.tools);
+  document.getElementById('instructions').innerHTML = `<ul class='tight'>${(d.instructions || []).map(i => `<li>${esc(i)}</li>`).join('')}</ul>`;
+  const loop = d.loop || {};
+  line.textContent = `brief ${esc(d.generated_at)} UTC` + (loop.available ? ` · ${loop.age_minutes} min old${loop.stale ? ' · stale' : ''}` : '');
+}
+document.getElementById('refresh-btn').addEventListener('click', () => load(true));
+load(false);
+setInterval(() => load(false), 300000);
+</script>
+</body>
+</html>
+"""
 
 
 @app.route('/api/positioning')
