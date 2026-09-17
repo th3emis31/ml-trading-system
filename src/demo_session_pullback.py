@@ -113,9 +113,12 @@ def read_jsonl(path: Path, limit: Optional[int] = None) -> list[dict]:
     return rows[-limit:] if limit else rows
 
 
-def log(kind: str, now, reason: str, **details) -> dict:
-    record = {"at": demo_executor._stamp(now), "event": kind, "magic": MAGIC, "reason": reason, **details}
-    _append_jsonl(demo_paths()["log"], record)
+def log(kind: str, now, reason: str, *, sink: Optional[dict] = None, **details) -> dict:
+    """Append one decision to a strategy's log. ``sink`` = {"log": path, "magic": n} for another demo strategy
+    (src/demo_volatility_breakout.py); without it this strategy's own log and magic are used."""
+    record = {"at": demo_executor._stamp(now), "event": kind, "magic": (sink or {}).get("magic", MAGIC), "reason": reason,
+              **details}
+    _append_jsonl(Path((sink or {}).get("log") or demo_paths()["log"]), record)
     return record
 
 
@@ -135,8 +138,9 @@ class AccountRefused(RuntimeError):
 class DemoOnlyEngine:
     """Every trading call re-reads the account first and refuses anything but the demo account."""
 
-    def __init__(self, engine):
+    def __init__(self, engine, magic: int = MAGIC, volume: float = VOLUME_PER_LEG):
         self._engine = engine
+        self._magic, self._volume = int(magic), float(volume)
 
     def __getattr__(self, name):
         return getattr(self._engine, name)
@@ -148,8 +152,8 @@ class DemoOnlyEngine:
 
     def place_market_order(self, **request):
         self._guard()
-        if int(request.get("magic") or 0) != MAGIC or float(request.get("volume") or 0) != VOLUME_PER_LEG:
-            raise AccountRefused(f"refused order outside this strategy's magic {MAGIC} / {VOLUME_PER_LEG} lot per leg")
+        if int(request.get("magic") or 0) != self._magic or float(request.get("volume") or 0) != self._volume:
+            raise AccountRefused(f"refused order outside this strategy's magic {self._magic} / {self._volume} lot per leg")
         return self._engine.place_market_order(**request)
 
     def close_position(self, ticket, comment="GSP close"):
@@ -184,13 +188,14 @@ def all_tier1_events(calendar_events: list[dict]) -> list[dict]:
     return merged
 
 
-def _halt(state: dict, now, kind: str, reason: str, **details) -> dict:
+def _halt(state: dict, now, kind: str, reason: str, *, sink: Optional[dict] = None, **details) -> dict:
     state["halted"] = {"kind": kind, "reason": reason, "at": demo_executor._stamp(now)}
-    return log("halted", now, reason, halt_kind=kind, **details)
+    return log("halted", now, reason, sink=sink, halt_kind=kind, **details)
 
 
-def _mt5_error(state: dict, now, what: str, **details) -> dict:
-    return _halt(state, now, "mt5_error", f"MT5 error: {what}. Trading halted until the owner resumes on /demo-trading.", **details)
+def _mt5_error(state: dict, now, what: str, *, sink: Optional[dict] = None, **details) -> dict:
+    return _halt(state, now, "mt5_error", f"MT5 error: {what}. Trading halted until the owner resumes on /demo-trading.",
+                 sink=sink, **details)
 
 
 # ----------------------------------------------------------------------------------------------- trade settlement
@@ -303,7 +308,8 @@ def manage_live_trade(engine: DemoOnlyEngine, state: dict, trade: dict, config: 
 
 
 # ----------------------------------------------------------------------------------------------- kill switches
-def update_kill_switches(state: dict, config: dict, account: dict, floating_money: float, now) -> list[dict]:
+def update_kill_switches(state: dict, config: dict, account: dict, floating_money: float, now, *,
+                         sink: Optional[dict] = None) -> list[dict]:
     events = []
     if state.get("start_balance") in (None, 0) and account.get("balance"):
         state["start_balance"] = float(account["balance"])
@@ -319,10 +325,10 @@ def update_kill_switches(state: dict, config: dict, account: dict, floating_mone
     state["drawdown"], state["day_change"] = round(drawdown, 6), round(day_change, 6)
     if drawdown >= float(config["halt_drawdown"]) and not state.get("halted"):
         events.append(_halt(state, now, "drawdown", f"strategy drawdown {drawdown:.1%} reached the "
-                                                    f"{config['halt_drawdown']:.0%} halt"))
+                                                    f"{config['halt_drawdown']:.0%} halt", sink=sink))
     if day_change <= -float(config["daily_loss_limit"]) and not state.get("day_stopped"):
         state["day_stopped"] = f"day loss {day_change:.2%} reached -{config['daily_loss_limit']:.0%}"
-        events.append(log("day_stopped", now, state["day_stopped"] + ": no new entries until the next UTC day"))
+        events.append(log("day_stopped", now, state["day_stopped"] + ": no new entries until the next UTC day", sink=sink))
     return events
 
 

@@ -91,7 +91,10 @@ DRY_RUN = {**SENDING, "dry_run": True}
 
 @pytest.fixture(autouse=True)
 def fresh_files():
-    for path in dsp.demo_paths().values():
+    """Both demo strategies' config, state, log and trade memory start empty (test_demo_volatility_breakout imports this)."""
+    from src import demo_volatility_breakout
+
+    for path in list(dsp.demo_paths().values()) + list(demo_volatility_breakout.breakout_paths().values()):
         if path.exists():
             path.unlink()
     yield

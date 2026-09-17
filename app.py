@@ -21990,6 +21990,56 @@ def demo_trading_status_api():
   return jsonify(demo_session_pullback.status_payload(MT5_ENGINE))
 
 
+# Volatility Trend Breakout (4H) on the same demo account, beside the pullback (src/demo_volatility_breakout.py, magic
+# 440603). Same guards: local request plus control secret for cycle / STOP / resume; the hourly task calls the cycle.
+_demo_breakout_lock = threading.Lock()
+
+
+@app.route('/api/demo-breakout/cycle', methods=['POST'])
+def demo_breakout_cycle_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_volatility_breakout, economic_calendar
+  if MT5_ENGINE is None:
+    return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
+  try:
+    calendar_events = economic_calendar.load_calendar(datetime.now(timezone.utc)).get('events') or []
+  except Exception:
+    calendar_events = []
+  with _demo_breakout_lock:
+    summary = demo_volatility_breakout.breakout_cycle(MT5_ENGINE, get_bars, calendar_events)
+  return jsonify(summary)
+
+
+@app.route('/api/demo-breakout/stop', methods=['POST'])
+def demo_breakout_stop_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_volatility_breakout
+  with _demo_breakout_lock:
+    event = demo_volatility_breakout.stop_breakout(MT5_ENGINE)
+  return jsonify(event)
+
+
+@app.route('/api/demo-breakout/resume', methods=['POST'])
+def demo_breakout_resume_api():
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_volatility_breakout
+  with _demo_breakout_lock:
+    event = demo_volatility_breakout.resume_breakout()
+  return jsonify(event)
+
+
+@app.route('/api/demo-breakout/status')
+def demo_breakout_status_api():
+  from src import demo_volatility_breakout
+  return jsonify(demo_volatility_breakout.breakout_status(MT5_ENGINE))
+
+
 @app.route('/demo-trading')
 def demo_trading_page():
   from src import execution_guard
@@ -22050,6 +22100,24 @@ DEMO_TRADING_TEMPLATE = r"""
     <div class='card'><h2>Today's trades</h2><div class='table-wrap' id='today'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Recent closed trades</h2><div class='table-wrap' id='closed'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Decision log</h2><div class='table-wrap' id='log'><p class='muted'>Loading…</p></div></div>
+
+    <div class='dt-head' style='margin-top:28px'>
+      <div>
+        <h1>Volatility Trend Breakout (4H)</h1>
+        <p class='muted'>The owner's Pine strategy on the same demo account (magic 440603): long breakouts above the 20-bar high, 2 legs of 0.01 lot, TP1 1.3R and TP2 2.8R, stop to break-even + trail after TP1, 65-candle time exit, one position at a time. Its own kill switches.</p>
+      </div>
+      <div style='text-align:right'>
+        <button class='stop-btn' id='b-stop-btn' type='button'>STOP</button>
+        <div class='muted' style='font-size:12px;margin-top:6px'>Halts the breakout and closes its open legs (magic 440603 only).</div>
+        <button class='resume-btn' id='b-resume-btn' type='button' hidden>Resume breakout</button>
+        <div class='muted' id='b-control-msg' style='font-size:12px;margin-top:6px'></div>
+      </div>
+    </div>
+    <div class='banner warn' id='b-mode-banner'>Loading…</div>
+    <div class='tiles' id='b-tiles'></div>
+    <div class='card'><h2>Breakout open position</h2><div id='b-open-trade'><p class='muted'>Loading…</p></div></div>
+    <div class='card'><h2>Breakout closed trades</h2><div class='table-wrap' id='b-closed'><p class='muted'>Loading…</p></div></div>
+    <div class='card'><h2>Breakout decision log</h2><div class='table-wrap' id='b-log'><p class='muted'>Loading…</p></div></div>
   </div>
 <script>
 const CONTROL_SECRET = {{ control_secret|tojson }};
@@ -22134,8 +22202,72 @@ async function load() {
     `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
     rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
 }
+
+let breakoutResumeArmed = false;
+async function controlBreakout(path) {
+  const msg = document.getElementById('b-control-msg');
+  msg.textContent = 'Sending…';
+  try {
+    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Control-Secret': CONTROL_SECRET}, body: '{}'});
+    const body = await r.json();
+    msg.textContent = r.ok ? (body.reason || 'done') : ('Refused: ' + (body.reason || r.status));
+  } catch (e) { msg.textContent = 'Request failed: ' + e; }
+  loadBreakout();
+}
+document.getElementById('b-stop-btn').addEventListener('click', () => controlBreakout('/api/demo-breakout/stop'));
+document.getElementById('b-resume-btn').addEventListener('click', () => {
+  const btn = document.getElementById('b-resume-btn');
+  if (!breakoutResumeArmed) { breakoutResumeArmed = true; btn.textContent = 'Click again to resume'; setTimeout(() => { breakoutResumeArmed = false; btn.textContent = 'Resume breakout'; }, 5000); return; }
+  breakoutResumeArmed = false; btn.textContent = 'Resume breakout';
+  controlBreakout('/api/demo-breakout/resume');
+});
+
+async function loadBreakout() {
+  let d;
+  try { d = await (await fetch('/api/demo-breakout/status')).json(); } catch (e) {
+    document.getElementById('b-mode-banner').textContent = 'Status unavailable: ' + e; return;
+  }
+  const banner = document.getElementById('b-mode-banner');
+  const cfg = d.config || {};
+  if (d.halted) {
+    banner.className = 'banner bad';
+    banner.innerHTML = `<strong>HALTED (${esc(d.halted.kind)})</strong> at ${esc(d.halted.at)} UTC: ${esc(d.halted.reason)}`;
+  } else if (!cfg.enabled) {
+    banner.className = 'banner warn'; banner.innerHTML = '<strong>Disabled.</strong>';
+  } else if (!d.sending_orders) {
+    banner.className = 'banner warn'; banner.innerHTML = '<strong>Dry run.</strong> Orders are logged, not sent.';
+  } else {
+    banner.className = 'banner ok'; banner.innerHTML = '<strong>Sending orders</strong> to demo account 11581419.';
+  }
+  banner.innerHTML += `<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.backtest_verdict)}</div>`;
+  document.getElementById('b-stop-btn').disabled = !!(d.halted && d.halted.kind === 'owner_stop');
+  document.getElementById('b-resume-btn').hidden = !d.halted;
+  const ex = d.expectancy || {}, ks = d.kill_switches || {};
+  document.getElementById('b-tiles').innerHTML = [
+    tile('Running expectancy (demo fills)', fmtR(ex.expectancy_r), `${ex.trades || 0} trades, ${ex.wins || 0} wins, total ${ex.total_r ?? 0}R`),
+    tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
+    tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
+    tile('Last cycle', esc((d.last_cycle || {}).at || 'never'), esc((d.last_cycle || {}).reason || '')),
+  ].join('');
+  const t = d.open_trade, positions = d.open_positions || [];
+  document.getElementById('b-open-trade').innerHTML = !t ? `<p class='muted'>No open trade.${positions.length ? ' Broker shows ' + positions.length + ' leg(s) with magic 440603.' : ''}</p>` :
+    `<p><strong>BUY</strong> signal ${esc(t.id)} UTC · entry ${esc(t.entry)} · stop ${esc(t.stop)} · R ${esc(t.r_price)} · TP1 ${esc(t.setup.tp1)} · TP2 ${esc(t.setup.tp2)}${t.leg_b_stop ? ' · leg B stop ' + esc(t.leg_b_stop) : ''}</p>` +
+    (positions.length ? `<table><tr><th>Ticket</th><th class='num'>Volume</th><th class='num'>Open</th><th class='num'>SL</th><th class='num'>TP</th><th class='num'>Profit</th><th>Comment</th></tr>` +
+      positions.map(p => `<tr><td>${esc(p.ticket)}</td><td class='num'>${esc(p.volume)}</td><td class='num'>${esc(p.price_open)}</td><td class='num'>${esc(p.sl)}</td><td class='num'>${esc(p.tp)}</td><td class='num'>${esc(p.profit)}</td><td>${esc(p.comment)}</td></tr>`).join('') + '</table>' : '');
+  const closed = d.recent_trades || [];
+  document.getElementById('b-closed').innerHTML = !closed.length ? "<p class='muted'>No closed trades yet.</p>" :
+    `<table><tr><th>Closed</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
+    closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
+  const rows = d.log || [];
+  document.getElementById('b-log').innerHTML = !rows.length ? "<p class='muted'>No decisions logged yet.</p>" :
+    `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
+    rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
+}
+
 load();
+loadBreakout();
 setInterval(load, 30000);
+setInterval(loadBreakout, 30000);
 </script>
 </body>
 </html>
