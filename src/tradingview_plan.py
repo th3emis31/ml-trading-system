@@ -138,8 +138,9 @@ def build_daily_plan(h4: pd.DataFrame, daily: pd.DataFrame, symbol: str = "XAUUS
     for level in candidates:
         level["distance_atr"] = round((level["price"] - close) / day_atr, 2) if day_atr > 0 else None
         level["distance_pct"] = round((level["price"] / close - 1) * 100, 2)
-    above = sorted((lv for lv in candidates if lv["price"] > close), key=lambda lv: lv["price"])
-    below = sorted((lv for lv in candidates if lv["price"] < close), key=lambda lv: lv["price"], reverse=True)
+    reference = round(close, 2)   # level prices are rounded; a level at the close itself is neither support nor resistance
+    above = sorted((lv for lv in candidates if lv["price"] > reference), key=lambda lv: lv["price"])
+    below = sorted((lv for lv in candidates if lv["price"] < reference), key=lambda lv: lv["price"], reverse=True)
     levels["nearest_resistance"] = above[0] if above else None
     levels["nearest_support"] = below[0] if below else None
     momentum = analyse_momentum(days)

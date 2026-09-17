@@ -35,6 +35,17 @@ def test_levels_have_support_below_and_resistance_above():
     assert "Previous day high" in names and "55-day low" in names
 
 
+def test_previous_day_levels_use_the_last_closed_day():
+    # The callers pass closed days only; the last row is yesterday (17 Sep 2026: the FOMC day, high 4367.47).
+    daily = _daily(n=100)
+    daily.loc[99, ["high", "low", "close"]] = [daily["high"].max() * 1.05, daily["low"].min() * 0.95, daily.loc[98, "close"]]
+    by_name = {lv["name"]: lv["price"] for lv in dr.analyse_levels(daily)["levels"]}
+    assert by_name["Previous day high"] == round(daily.loc[99, "high"], 2)
+    assert by_name["Previous day low"] == round(daily.loc[99, "low"], 2)
+    assert by_name["5-day high"] == round(daily.loc[99, "high"], 2), "yesterday belongs in the 5-day window"
+    assert by_name["20-day low"] == round(daily.loc[99, "low"], 2)
+
+
 def test_swing_points_find_a_clear_peak_and_trough():
     daily = _daily(n=120)
     daily.loc[100, "high"] = daily["high"].max() * 1.2

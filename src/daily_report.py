@@ -84,21 +84,28 @@ def swing_points(daily: pd.DataFrame, lookback: int = 90, wing: int = 2, keep: i
 
 
 def analyse_levels(daily: pd.DataFrame) -> dict:
+    """Support and resistance from CLOSED daily candles (both callers drop the forming day first).
+
+    The last row is the most recent completed day, so it is the "previous day" and belongs in the 5/20/55-day
+    windows. Until 2026-09-17 this took the second-to-last row, so every level was one day stale: on 17 Sep the
+    TradingView plan showed 15 Sep's high 4317.38 instead of 16 Sep's FOMC-day high 4367.47.
+    """
     d = daily.reset_index(drop=True)
     close = float(d["close"].iloc[-1])
     atr = float(compute_atr(d.astype({"high": float, "low": float, "close": float})).iloc[-1])
-    prev = d.iloc[-2] if len(d) >= 2 else d.iloc[-1]
+    prev = d.iloc[-1]
     levels = [_level("Previous day high", prev["high"], close, atr), _level("Previous day low", prev["low"], close, atr),
               _level("Previous day close", prev["close"], close, atr)]
     for days in (5, 20, 55):
-        window = d.iloc[-days - 1:-1] if len(d) > days else d
+        window = d.iloc[-days:] if len(d) > days else d
         levels += [_level(f"{days}-day high", window["high"].max(), close, atr), _level(f"{days}-day low", window["low"].min(), close, atr)]
     swing_highs, swing_lows = swing_points(d)
     swings = [_level(f"Swing high {day}", price, close, atr) for day, price in swing_highs] + \
              [_level(f"Swing low {day}", price, close, atr) for day, price in swing_lows]
     candidates = levels + swings
-    above = sorted((lv for lv in candidates if lv["price"] > close), key=lambda lv: lv["price"])
-    below = sorted((lv for lv in candidates if lv["price"] < close), key=lambda lv: lv["price"], reverse=True)
+    reference = round(close, 2)   # level prices are rounded; a level at the close itself is neither support nor resistance
+    above = sorted((lv for lv in candidates if lv["price"] > reference), key=lambda lv: lv["price"])
+    below = sorted((lv for lv in candidates if lv["price"] < reference), key=lambda lv: lv["price"], reverse=True)
     return {"close": round(close, 2), "atr": round(atr, 2), "levels": levels, "swings": swings,
             "nearest_resistance": above[0] if above else None, "nearest_support": below[0] if below else None}
 
