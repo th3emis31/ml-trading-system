@@ -1,0 +1,312 @@
+//@version=5
+// SmartEntry Market Map - gold and bitcoin on one chart (owner request 2026-09-17: "market analysis for both assets,
+// entry / SL / TP, previous days' highs and lows, deeper analysis, on the TradingView chart").
+// Everything is computed from CLOSED candles: while a candle is forming, the plan uses the last closed candle, so the
+// levels do not move tick by tick (the old SmartEntry Daily Plan read the forming candle).
+// Plans shown:
+//   * Volatility Trend Breakout (the owner's Pine strategy, default inputs): the 4H close that triggers a BUY, stop,
+//     TP1 / TP2, trail, and the open trade if one is running - the strategy the demo account trades (magic 440603).
+//   * Swing Trend Pullback (the SwingTrendPullback EA rules): pullback buy zone, stop, target.
+// Levels: previous day / week high-low-close, 5 and 20-day high-low, daily floor pivots, swing support / resistance.
+// Table: XAUUSD and BTCUSD side by side (daily and 4H trend, RSI, ATR, breakout trigger and distance, plan status).
+// Research tool, not advice. Backtests: breakout PF 2.02 on 2023-2026 broker 4H but PF 0.97 on 2007-2022.
+indicator("SmartEntry Market Map", shorttitle="SE Map", overlay=true, max_lines_count=300, max_labels_count=300)
+
+// ---------------------------------------------------------------- inputs
+grpA = "Assets in the table"
+goldSym = input.symbol("OANDA:XAUUSD", "Gold symbol", group=grpA)
+btcSym = input.symbol("BITSTAMP:BTCUSD", "Bitcoin symbol", group=grpA)
+
+grpB = "Volatility Trend Breakout (script defaults)"
+bEmaLen = input.int(50, "Trend EMA", group=grpB)
+bDonLen = input.int(20, "Donchian length", group=grpB)
+bAtrLen = input.int(14, "ATR length", group=grpB)
+bAtrMult = input.float(1.4, "Breakout ATR multiplier (buffer = x 0.25 ATR)", step=0.1, group=grpB)
+bRsiMin = input.float(52, "Min RSI", group=grpB)
+bUseVol = input.bool(true, "Volume filter", group=grpB)
+bSlAtr = input.float(1.5, "Stop (x ATR)", step=0.1, group=grpB)
+bTp1R = input.float(1.3, "TP1 (R)", step=0.1, group=grpB)
+bTp2R = input.float(2.8, "TP2 (R)", step=0.1, group=grpB)
+bTrailAtr = input.float(2.2, "Trail after TP1 (x ATR)", step=0.1, group=grpB)
+bMaxBars = input.int(65, "Max bars in trade", group=grpB)
+
+grpP = "Swing Trend Pullback (EA rules)"
+pFast = input.int(21, "Fast EMA", group=grpP)
+pSlow = input.int(51, "Slow EMA", group=grpP)
+pPushLb = input.int(15, "Push lookback", group=grpP)
+pPushAtr = input.float(0.5, "Min push beyond slow EMA (x ATR)", step=0.05, group=grpP)
+pTolAtr = input.float(0.55, "Pullback tolerance (x ATR)", step=0.05, group=grpP)
+pAtrLen = input.int(12, "ATR length", group=grpP)
+pSlAtr = input.float(1.5, "Stop (x ATR)", step=0.1, group=grpP)
+pSwingLb = input.int(5, "Swing low lookback", group=grpP)
+pRR = input.float(2.0, "Reward : risk", step=0.1, group=grpP)
+
+grpL = "Levels"
+showBreakout = input.bool(true, "Breakout plan lines", group=grpL)
+showPullback = input.bool(true, "Pullback plan lines", group=grpL)
+showDay = input.bool(true, "Previous day high / low / close", group=grpL)
+showWeek = input.bool(true, "Previous week high / low", group=grpL)
+showRanges = input.bool(true, "5 and 20-day high / low", group=grpL)
+showPivots = input.bool(true, "Daily pivots (P, R1, R2, S1, S2)", group=grpL)
+showSwings = input.bool(true, "Swing support / resistance", group=grpL)
+pivotLen = input.int(10, "Swing strength (bars each side)", minval=2, group=grpL)
+pivotKeep = input.int(3, "Swing levels kept per side", minval=1, maxval=8, group=grpL)
+tablePosIn = input.string("Top right", "Table position", options=["Top right", "Top left", "Bottom right", "Bottom left"], group=grpL)
+
+// ---------------------------------------------------------------- closed-candle offset
+// 1 while the last candle is still forming (use the previous, closed one), 0 once it has closed.
+cOff = barstate.isrealtime and not barstate.isconfirmed ? 1 : 0
+
+// ---------------------------------------------------------------- chart-timeframe indicators (called every bar)
+bEma = ta.ema(close, bEmaLen)
+bAtr = ta.atr(bAtrLen)
+bRsi = ta.rsi(close, 14)
+bVolMa = ta.sma(volume, 20)
+bUpper = ta.highest(high, bDonLen)
+
+pEmaF = ta.ema(close, pFast)
+pEmaS = ta.ema(close, pSlow)
+pAtr = ta.atr(pAtrLen)
+pRsi = ta.rsi(close, 14)
+pLowest = ta.lowest(low, pSwingLb)
+pPush = ta.highest(high - pEmaS, pPushLb)
+
+// ---------------------------------------------------------------- breakout: signals and trade on closed bars
+bSignal = barstate.isconfirmed and close > bUpper[1] + bAtrMult * bAtr * 0.25 and close > bEma and bRsi > bRsiMin and (not bUseVol or volume > bVolMa)
+
+var float btEntry = na
+var float btStop = na
+var float btTp1 = na
+var float btTp2 = na
+var float btHigh = na
+var float btAtr = na
+var int btBar = na
+var bool btTp1Hit = false
+var string btState = "flat"
+
+if btState == "open" and barstate.isconfirmed and bar_index > btBar
+    btHigh := math.max(btHigh, high)
+    if not btTp1Hit and high >= btTp1
+        btTp1Hit := true
+        btStop := math.max(btStop, btEntry + bAtr * 0.15)
+    if btTp1Hit
+        btStop := math.max(btStop, btHigh - bTrailAtr * bAtr)
+    if low <= btStop
+        btState := "flat"
+    else if high >= btTp2
+        btState := "flat"
+    else if bar_index - btBar >= bMaxBars
+        btState := "flat"
+
+if bSignal and btState != "open"
+    btEntry := close
+    btAtr := bAtr
+    btStop := close - bSlAtr * bAtr
+    btTp1 := close + bSlAtr * bAtr * bTp1R
+    btTp2 := close + bSlAtr * bAtr * bTp2R
+    btHigh := high
+    btBar := bar_index
+    btTp1Hit := false
+    btState := "open"
+
+// ---------------------------------------------------------------- pullback: signal on closed bars
+pTrendUp = pEmaF > pEmaS and pEmaF > pEmaF[1]
+pPushUp = pPush > pPushAtr * pAtr
+pTouch = low <= pEmaF + pTolAtr * pAtr and close >= pEmaF - pTolAtr * pAtr and close > pEmaS
+pStopNow = math.min(pLowest, pEmaF) - pSlAtr * pAtr
+pSignal = barstate.isconfirmed and pTrendUp and pPushUp and pTouch and close > open and pRsi > 40 and close > pStopNow
+
+plot(bEma, "Breakout trend EMA", color=color.new(color.blue, 0), linewidth=2)
+plot(pEmaF, "Pullback fast EMA", color=color.new(color.orange, 10), linewidth=1)
+plot(pEmaS, "Pullback slow EMA", color=color.new(color.purple, 20), linewidth=1)
+plotshape(bSignal, "Breakout BUY", shape.triangleup, location.belowbar, color.new(color.lime, 0), text="BRK", textcolor=color.lime, size=size.small)
+plotshape(pSignal, "Pullback BUY", shape.triangleup, location.belowbar, color.new(color.aqua, 0), text="PB", textcolor=color.aqua, size=size.tiny)
+alertcondition(bSignal, "SE Map: breakout BUY", "SE Map: Volatility Trend Breakout BUY on {{ticker}} {{interval}} at {{close}}")
+alertcondition(pSignal, "SE Map: pullback BUY", "SE Map: Swing Trend Pullback BUY on {{ticker}} {{interval}} at {{close}}")
+
+// ---------------------------------------------------------------- daily / weekly levels (completed periods only)
+[dH, dL, dC, dAtr, dEma50, dEma200, dRsi] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1], ta.atr(14)[1], ta.ema(close, 50)[1], ta.ema(close, 200)[1], ta.rsi(close, 14)[1]], lookahead=barmerge.lookahead_on)
+[h5, l5, h20, l20] = request.security(syminfo.tickerid, "D", [ta.highest(high, 5)[1], ta.lowest(low, 5)[1], ta.highest(high, 20)[1], ta.lowest(low, 20)[1]], lookahead=barmerge.lookahead_on)
+[wH, wL, wC] = request.security(syminfo.tickerid, "W", [high[1], low[1], close[1]], lookahead=barmerge.lookahead_on)
+pvP = (dH + dL + dC) / 3
+pvR1 = 2 * pvP - dL
+pvS1 = 2 * pvP - dH
+pvR2 = pvP + (dH - dL)
+pvS2 = pvP - (dH - dL)
+
+// ---------------------------------------------------------------- swing pivots on the chart timeframe
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+var float[] swingHi = array.new_float()
+var float[] swingLo = array.new_float()
+if not na(ph)
+    array.push(swingHi, ph)
+    if array.size(swingHi) > pivotKeep
+        array.shift(swingHi)
+if not na(pl)
+    array.push(swingLo, pl)
+    if array.size(swingLo) > pivotKeep
+        array.shift(swingLo)
+
+// ---------------------------------------------------------------- both assets: closed 4H and daily data
+f_h4() =>
+    atr14 = ta.atr(14)
+    upper = ta.highest(high, 20)
+    [close[1], ta.ema(close, 50)[1], ta.rsi(close, 14)[1], atr14[1], upper[1], volume[1] > ta.sma(volume, 20)[1], close[1] > upper[2] + 0.35 * atr14[1]]
+f_d1() =>
+    [close[1], ta.ema(close, 50)[1], ta.ema(close, 200)[1], ta.rsi(close, 14)[1], ta.atr(14)[1], high[1], low[1]]
+
+[gH4c, gH4ema, gH4rsi, gH4atr, gH4up, gH4vol, gH4brk] = request.security(goldSym, "240", f_h4(), lookahead=barmerge.lookahead_on)
+[gDc, gDe50, gDe200, gDrsi, gDatr, gDh, gDl] = request.security(goldSym, "D", f_d1(), lookahead=barmerge.lookahead_on)
+[xH4c, xH4ema, xH4rsi, xH4atr, xH4up, xH4vol, xH4brk] = request.security(btcSym, "240", f_h4(), lookahead=barmerge.lookahead_on)
+[xDc, xDe50, xDe200, xDrsi, xDatr, xDh, xDl] = request.security(btcSym, "D", f_d1(), lookahead=barmerge.lookahead_on)
+
+// ---------------------------------------------------------------- helpers
+fmt(float v) =>
+    na(v) ? "-" : str.tostring(v, format.mintick)
+fmtN(float v, string f) =>
+    na(v) ? "-" : str.tostring(v, f)
+biasText(float c, float e50, float e200) =>
+    na(c) or na(e50) or na(e200) ? "-" : c > e50 and e50 > e200 ? "Bullish" : c < e50 and e50 < e200 ? "Bearish" : "Mixed"
+biasColor(string b) =>
+    b == "Bullish" ? color.lime : b == "Bearish" ? color.red : color.yellow
+breakoutStatus(float c, float ema, float rsi, float up, float atr, bool brk, bool volOk) =>
+    trig = up + 0.35 * atr
+    na(c) ? "-" : brk and c > ema and rsi > 52 and volOk ? "SIGNAL on last 4H close" : c > ema and rsi > 52 ? "ARMED: buy if 4H closes > " + str.tostring(trig, "#.##") : "WAIT: " + (c <= ema ? "below EMA50" : "RSI <= 52")
+
+var line[] drawn = array.new_line()
+var label[] tags = array.new_label()
+addLevel(float price, color col, string caption, string style, int width) =>
+    if not na(price)
+        array.push(drawn, line.new(bar_index - 40, price, bar_index + 15, price, color=col, style=style, width=width))
+        array.push(tags, label.new(bar_index + 15, price, caption + "  " + str.tostring(price, format.mintick), style=label.style_label_left, color=color.new(col, 20), textcolor=color.white, size=size.small))
+
+tPos = tablePosIn == "Top left" ? position.top_left : tablePosIn == "Bottom right" ? position.bottom_right : tablePosIn == "Bottom left" ? position.bottom_left : position.top_right
+var table mm = table.new(tPos, 3, 24, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+row(int r, string k, string a, color ca, string b, color cb) =>
+    table.cell(mm, 0, r, k, text_color=color.new(#94a3b8, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(mm, 1, r, a, text_color=ca, text_size=size.small, text_halign=text.align_left)
+    table.cell(mm, 2, r, b, text_color=cb, text_size=size.small, text_halign=text.align_left)
+header(int r, string title) =>
+    table.cell(mm, 0, r, title, text_color=color.white, text_size=size.small, bgcolor=color.new(#0369a1, 25), text_halign=text.align_left)
+    table.cell(mm, 1, r, "", bgcolor=color.new(#0369a1, 25))
+    table.cell(mm, 2, r, "", bgcolor=color.new(#0369a1, 25))
+
+// ---------------------------------------------------------------- the map on the last bar
+if barstate.islast
+    while array.size(drawn) > 0
+        line.delete(array.pop(drawn))
+    while array.size(tags) > 0
+        label.delete(array.pop(tags))
+
+    cClose = close[cOff]
+    cAtrB = bAtr[cOff]
+    trig = bUpper[cOff] + bAtrMult * 0.25 * cAtrB
+    rB = bSlAtr * cAtrB
+    bOpen = btState == "open"
+    bEntry = bOpen ? btEntry : trig
+    bStopP = bOpen ? btStop : trig - rB
+    bTp1P = bOpen ? btTp1 : trig + bTp1R * rB
+    bTp2P = bOpen ? btTp2 : trig + bTp2R * rB
+    bReady = cClose > bEma[cOff] and bRsi[cOff] > bRsiMin
+
+    pForming = pTrendUp[cOff] and pPushUp[cOff]
+    pEntry = pEmaF[cOff]
+    pStopP = math.min(pLowest[cOff], pEntry) - pSlAtr * pAtr[cOff]
+    pTarget = pEntry + pRR * (pEntry - pStopP)
+
+    if showBreakout
+        addLevel(bEntry, color.new(color.yellow, 0), bOpen ? "BREAKOUT ENTRY" : "BREAKOUT: buy on 4H close above", line.style_solid, 2)
+        addLevel(bStopP, color.new(color.red, 0), bOpen ? (btTp1Hit ? "BREAKOUT TRAIL STOP" : "BREAKOUT STOP") : "breakout stop", line.style_solid, 2)
+        addLevel(bTp1P, color.new(color.lime, 20), "breakout TP1 " + str.tostring(bTp1R) + "R", line.style_dashed, 1)
+        addLevel(bTp2P, color.new(color.lime, 0), "breakout TP2 " + str.tostring(bTp2R) + "R", line.style_solid, 2)
+    if showPullback and pForming
+        addLevel(pEntry, color.new(color.aqua, 0), "PULLBACK buy zone (fast EMA)", line.style_solid, 2)
+        addLevel(pStopP, color.new(color.maroon, 0), "pullback stop", line.style_dashed, 1)
+        addLevel(pTarget, color.new(color.teal, 0), "pullback target " + str.tostring(pRR) + "R", line.style_dashed, 1)
+    if showDay
+        addLevel(dH, color.new(color.red, 40), "Prev day high", line.style_dashed, 1)
+        addLevel(dL, color.new(color.green, 40), "Prev day low", line.style_dashed, 1)
+        addLevel(dC, color.new(color.gray, 40), "Prev day close", line.style_dotted, 1)
+    if showWeek
+        addLevel(wH, color.new(color.red, 20), "Prev week high", line.style_dashed, 2)
+        addLevel(wL, color.new(color.green, 20), "Prev week low", line.style_dashed, 2)
+    if showRanges
+        addLevel(h5, color.new(color.red, 60), "5-day high", line.style_dotted, 1)
+        addLevel(l5, color.new(color.green, 60), "5-day low", line.style_dotted, 1)
+        addLevel(h20, color.new(color.red, 50), "20-day high", line.style_dotted, 1)
+        addLevel(l20, color.new(color.green, 50), "20-day low", line.style_dotted, 1)
+    if showPivots
+        addLevel(pvP, color.new(color.silver, 30), "Pivot P", line.style_dotted, 1)
+        addLevel(pvR1, color.new(color.orange, 40), "R1", line.style_dotted, 1)
+        addLevel(pvR2, color.new(color.orange, 20), "R2", line.style_dotted, 1)
+        addLevel(pvS1, color.new(color.teal, 40), "S1", line.style_dotted, 1)
+        addLevel(pvS2, color.new(color.teal, 20), "S2", line.style_dotted, 1)
+    if showSwings and array.size(swingHi) > 0
+        for i = 0 to array.size(swingHi) - 1
+            addLevel(array.get(swingHi, i), color.new(color.maroon, 0), "Resistance (swing high)", line.style_solid, 1)
+    if showSwings and array.size(swingLo) > 0
+        for i = 0 to array.size(swingLo) - 1
+            addLevel(array.get(swingLo, i), color.new(color.teal, 0), "Support (swing low)", line.style_solid, 1)
+
+    // nearest support / resistance to the last closed price
+    float[] vals = array.from(dH, dL, dC, wH, wL, h5, l5, h20, l20, pvP, pvR1, pvR2, pvS1, pvS2)
+    string[] names = array.from("Prev day high", "Prev day low", "Prev day close", "Prev week high", "Prev week low", "5-day high", "5-day low", "20-day high", "20-day low", "Pivot P", "R1", "R2", "S1", "S2")
+    if array.size(swingHi) > 0
+        for i = 0 to array.size(swingHi) - 1
+            array.push(vals, array.get(swingHi, i))
+            array.push(names, "Swing high")
+    if array.size(swingLo) > 0
+        for i = 0 to array.size(swingLo) - 1
+            array.push(vals, array.get(swingLo, i))
+            array.push(names, "Swing low")
+    float nRes = na
+    string nResName = ""
+    float nSup = na
+    string nSupName = ""
+    for i = 0 to array.size(vals) - 1
+        v = array.get(vals, i)
+        if not na(v)
+            if v > cClose and (na(nRes) or v < nRes)
+                nRes := v
+                nResName := array.get(names, i)
+            if v < cClose and (na(nSup) or v > nSup)
+                nSup := v
+                nSupName := array.get(names, i)
+
+    // ------------------------------------------------ table: both assets, then this chart's plan
+    gBiasD = biasText(gDc, gDe50, gDe200)
+    xBiasD = biasText(xDc, xDe50, xDe200)
+    gBias4 = na(gH4c) ? "-" : gH4c > gH4ema ? "Above EMA50" : "Below EMA50"
+    xBias4 = na(xH4c) ? "-" : xH4c > xH4ema ? "Above EMA50" : "Below EMA50"
+    gTrig = gH4up + 0.35 * gH4atr
+    xTrig = xH4up + 0.35 * xH4atr
+    gStat = breakoutStatus(gH4c, gH4ema, gH4rsi, gH4up, gH4atr, gH4brk, gH4vol)
+    xStat = breakoutStatus(xH4c, xH4ema, xH4rsi, xH4up, xH4atr, xH4brk, xH4vol)
+
+    table.cell(mm, 0, 0, "SmartEntry Market Map", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10), text_halign=text.align_left)
+    table.cell(mm, 1, 0, "XAUUSD", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10))
+    table.cell(mm, 2, 0, "BTCUSD", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10))
+    row(1, "Updated (UTC)", str.format_time(timenow, "MM-dd HH:mm", "UTC"), color.white, "closed candles only", color.new(#94a3b8, 0))
+    row(2, "Daily trend (EMA50/200)", gBiasD, biasColor(gBiasD), xBiasD, biasColor(xBiasD))
+    row(3, "4H vs EMA50", gBias4, gBias4 == "Above EMA50" ? color.lime : color.red, xBias4, xBias4 == "Above EMA50" ? color.lime : color.red)
+    row(4, "RSI daily / 4H", fmtN(gDrsi, "#.0") + " / " + fmtN(gH4rsi, "#.0"), color.white, fmtN(xDrsi, "#.0") + " / " + fmtN(xH4rsi, "#.0"), color.white)
+    row(5, "Daily ATR (% of price)", fmtN(gDatr, "#.##") + " (" + fmtN(gDatr / gDc * 100, "#.##") + "%)", color.white, fmtN(xDatr, "#") + " (" + fmtN(xDatr / xDc * 100, "#.##") + "%)", color.white)
+    row(6, "Prev day high / low", fmtN(gDh, "#.##") + " / " + fmtN(gDl, "#.##"), color.white, fmtN(xDh, "#") + " / " + fmtN(xDl, "#"), color.white)
+    row(7, "4H breakout trigger", fmtN(gTrig, "#.##") + " (" + fmtN((gTrig - gH4c) / gH4atr, "#.0") + " ATR away)", color.yellow, fmtN(xTrig, "#") + " (" + fmtN((xTrig - xH4c) / xH4atr, "#.0") + " ATR away)", color.yellow)
+    row(8, "Breakout status", gStat, str.startswith(gStat, "WAIT") ? color.new(#94a3b8, 0) : color.lime, xStat, str.startswith(xStat, "WAIT") ? color.new(#94a3b8, 0) : color.lime)
+    row(9, "Volume > 20-bar avg (4H)", gH4vol ? "yes" : "no", gH4vol ? color.lime : color.new(#94a3b8, 0), xH4vol ? "yes" : "no", xH4vol ? color.lime : color.new(#94a3b8, 0))
+
+    header(10, "This chart: " + syminfo.ticker + " " + timeframe.period + (timeframe.period == "240" ? "" : "  (plans are built for 4H)"))
+    row(11, "Breakout plan", bOpen ? "TRADE OPEN since " + str.format_time(time[bar_index - btBar], "MM-dd HH:mm", "UTC") : bReady ? "ARMED: wait for a 4H close above the trigger" : "WAIT: trend / RSI not ready", bOpen or bReady ? color.lime : color.new(#94a3b8, 0), bOpen and btTp1Hit ? "TP1 hit, trailing" : "", color.lime)
+    row(12, bOpen ? "Entry" : "Trigger (4H close above)", fmt(bEntry), color.yellow, "", color.white)
+    row(13, bOpen ? "Stop (live)" : "Stop", fmt(bStopP), color.red, "R = " + fmt(bOpen ? btEntry - (btEntry - bSlAtr * btAtr) : rB), color.white)
+    row(14, "TP1 / TP2", fmt(bTp1P) + " / " + fmt(bTp2P), color.lime, "trail " + str.tostring(bTrailAtr) + " ATR after TP1, " + str.tostring(bMaxBars) + "-bar exit", color.new(#94a3b8, 0))
+    row(15, "Pullback plan", pSignal[cOff] ? "BUY SETUP on last close" : pForming ? "WAIT: pullback into the fast EMA" : "NO TRADE: uptrend not in place", pSignal[cOff] ? color.lime : pForming ? color.yellow : color.new(#94a3b8, 0), "", color.white)
+    row(16, "Pullback entry / stop / target", pForming ? fmt(pEntry) + " / " + fmt(pStopP) + " / " + fmt(pTarget) : "-", color.aqua, "", color.white)
+    row(17, "Nearest resistance", na(nRes) ? "-" : nResName + " " + fmt(nRes), color.new(#fda4af, 0), na(nRes) ? "" : "+" + fmtN((nRes - cClose) / cAtrB, "#.0") + " ATR", color.new(#fda4af, 0))
+    row(18, "Nearest support", na(nSup) ? "-" : nSupName + " " + fmt(nSup), color.new(#86efac, 0), na(nSup) ? "" : "-" + fmtN((cClose - nSup) / cAtrB, "#.0") + " ATR", color.new(#86efac, 0))
+    row(19, "Prev week high / low", fmt(wH) + " / " + fmt(wL), color.white, "", color.white)
+    row(20, "Pivots S2 S1 P R1 R2", fmt(pvS2) + "  " + fmt(pvS1) + "  " + fmt(pvP), color.white, fmt(pvR1) + "  " + fmt(pvR2), color.white)
+    row(21, "Daily trend (this chart)", biasText(dC, dEma50, dEma200) + " · RSI " + fmtN(dRsi, "#.0"), biasColor(biasText(dC, dEma50, dEma200)), "", color.white)
+    row(22, "Note", "Research map, not advice. Demo first.", color.new(#94a3b8, 0), "", color.white)
