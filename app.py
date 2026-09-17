@@ -22062,12 +22062,26 @@ POSITIONING_TEMPLATE = r"""
     .banner { border-radius:12px; padding:10px 14px; margin:10px 0 14px; border:1px solid rgba(251,191,36,.6); background:rgba(251,191,36,.12); color:#fde68a; }
     td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
     .long { color:#a7f3d0; } .short { color:#fecdd3; } .flat { color:#cbd5e1; }
-    .bar { position:relative; height:12px; border-radius:999px; background:rgba(148,176,222,.18); min-width:130px; }
+    .bar { position:relative; height:12px; border-radius:999px; background:rgba(148,176,222,.18); min-width:120px; }
     .bar > i { position:absolute; top:-2px; bottom:-2px; width:3px; background:#f8fafc; border-radius:2px; }
     .bar > b { position:absolute; top:0; bottom:0; left:0; border-radius:999px; background:linear-gradient(90deg,#38bdf8,#a78bfa); opacity:.6; }
+    .bar.idx > b { background:linear-gradient(90deg,#34d399,#fbbf24,#f43f5e); }
     .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
     .tag.hot { color:#fecdd3; background:rgba(225,29,72,.18); border:1px solid rgba(251,113,133,.6); }
+    .tag.flip { color:#bfdbfe; background:rgba(59,130,246,.16); border:1px solid rgba(96,165,250,.6); }
+    .tag.thin { color:#fde68a; background:rgba(251,191,36,.14); border:1px solid rgba(251,191,36,.5); }
     .mine td:first-child { box-shadow: inset 3px 0 0 #38bdf8; }
+    .focus { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
+    .focus .card { margin:0; }
+    .big { font-size:30px; font-weight:800; letter-spacing:-.5px; line-height:1.1; }
+    .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font-size:13px; margin:10px 0 0; }
+    .kv dt { color:#9fb3d1; } .kv dd { margin:0; font-variant-numeric:tabular-nums; }
+    .spark { display:block; width:100%; height:44px; }
+    .spark.sm { width:120px; height:22px; }
+    .glossary { columns:2; column-gap:26px; font-size:13px; }
+    .glossary p { margin:0 0 8px; break-inside:avoid; }
+    @media (max-width:760px) { .glossary { columns:1; } }
+    .subtle { font-size:12px; color:#8fa6c4; }
   </style>
 </head>
 <body>
@@ -22076,20 +22090,85 @@ POSITIONING_TEMPLATE = r"""
     <div class='po-head'>
       <div>
         <h1>Positioning</h1>
-        <p class='muted'>What large speculators hold, from the CFTC Commitments of Traders report (Legacy, futures only). Net = long minus short. The percentile compares today's net share of open interest with the last six years, so a crowded position is visible at a glance.</p>
+        <p class='muted'>Who is holding what, from the CFTC Commitments of Traders report (Legacy, futures only). Large speculators are trend followers with no commercial exposure; commercials are producers and hedgers on the other side. Net = long minus short. Positions are reported for a Tuesday and published the Friday after, so this page is always days old and is context, never a trigger.</p>
       </div>
       <div><button id='refresh-btn'>Refresh</button> <span class='muted' id='status-line'></span></div>
     </div>
     <div class='banner' id='asof'>Loading...</div>
-    <div class='card'><div class='table-wrap' id='table'><p class='muted'>Loading...</p></div></div>
+    <h2>Gold and bitcoin, the two markets this system trades</h2>
+    <div class='focus' id='focus'><div class='card'><p class='muted'>Loading...</p></div></div>
+    <div class='card'><h2>Every market in the report</h2>
+      <div class='table-wrap' id='table'><p class='muted'>Loading...</p></div></div>
     <div class='card'><h2>Dollar proxy</h2><div id='usd'><p class='muted'>Loading...</p></div></div>
-    <div class='card'><h2>Gold and bitcoin, the markets this system trades</h2><div id='mine'><p class='muted'>Loading...</p></div></div>
+    <div class='card'><h2>How to read this page</h2>
+      <div class='glossary'>
+        <p><strong>Net</strong> - large speculators' long contracts minus their short contracts. Positive means the crowd of speculators is leaning long.</p>
+        <p><strong>% of open interest</strong> - the net as a share of all open contracts, so markets of different sizes can be compared.</p>
+        <p><strong>COT index</strong> - where this net sits inside its own three-year range: 0 = the most short it has been, 100 = the most long. A crowded reading says the fuel for more of the same is used up, not that a turn is due.</p>
+        <p><strong>Percentile</strong> - the same idea over the full history on this page, ranking today's % of open interest against every past week.</p>
+        <p><strong>1w / 4w / 13w</strong> - how many net contracts were added or cut over the last week, month and quarter. The direction of the change is often more informative than the level.</p>
+        <p><strong>Commercials</strong> - producers, miners and dealers. They are usually on the opposite side of the speculators; an unusually large commercial short is the mirror of a crowded speculative long.</p>
+        <p><strong>Small traders</strong> - the non-reportable accounts, too small to file. Useful only as a crowd read.</p>
+        <p><strong>What happened next</strong> - this market's own history: for every past week the index is recomputed from the data available then, and the move over the following four weeks is measured on broker candles. Descriptive, after the fact, and never a prediction.</p>
+        <p class='subtle'>The report itself is weekly and late; it explains the background a move happens against, so nothing on this page opens, closes or sizes a trade.</p>
+      </div>
+    </div>
   </div>
 <script>
 const esc = v => String(v === null || v === undefined ? '-' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString('en-GB');
 const signed = v => (v === null || v === undefined) ? '-' : (v > 0 ? '+' : '') + Number(v).toLocaleString('en-GB');
 const cls = stance => stance === 'net long' ? 'long' : stance === 'net short' ? 'short' : 'flat';
+const pct = v => (v === null || v === undefined) ? 0 : Math.max(0, Math.min(100, Number(v)));
+
+function spark(values, small) {
+  if (!values || values.length < 4) return "<span class='muted'>-</span>";
+  const w = small ? 120 : 320, h = small ? 22 : 44, lo = Math.min(...values, 0), hi = Math.max(...values, 0);
+  const span = (hi - lo) || 1;
+  const x = i => (i / (values.length - 1)) * (w - 2) + 1;
+  const y = v => h - 1 - ((v - lo) / span) * (h - 2);
+  const line = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const zero = (lo < 0 && hi > 0) ? `<line x1='0' x2='${w}' y1='${y(0).toFixed(1)}' y2='${y(0).toFixed(1)}' stroke='rgba(148,176,222,.45)' stroke-dasharray='3 3'/>` : '';
+  const last = values[values.length - 1];
+  return `<svg class='spark${small ? ' sm' : ''}' viewBox='0 0 ${w} ${h}' preserveAspectRatio='none' role='img'>${zero}
+    <path d='${line}' fill='none' stroke='${last >= 0 ? '#34d399' : '#fb7185'}' stroke-width='1.6'/>
+    <circle cx='${x(values.length - 1).toFixed(1)}' cy='${y(last).toFixed(1)}' r='2' fill='#f8fafc'/></svg>`;
+}
+
+function barCell(value, label, extraClass) {
+  return `<div class='bar ${extraClass || ''}'><b style='width:${pct(value)}%'></b><i style='left:${Math.min(99, pct(value))}%'></i></div>
+          <span class='muted'>${esc(value)} ${esc(label)}</span>`;
+}
+
+function nextTable(study) {
+  if (!study || !study.available) return `<p class='muted'>What happened next: ${esc(study && study.reason || 'no price history')}</p>`;
+  const rows = Object.entries(study.buckets || {}).map(([name, b]) =>
+    `<tr><td>${esc(name)}</td><td class='num'>${esc(b.weeks)}</td>
+     <td class='num ${b.avg_move_pct > 0 ? 'long' : b.avg_move_pct < 0 ? 'short' : 'flat'}'>${b.avg_move_pct === null ? '-' : (b.avg_move_pct > 0 ? '+' : '') + b.avg_move_pct + ' %'}</td>
+     <td class='num'>${esc(b.up_share_pct)} %</td>
+     <td>${b.evidence === 'sufficient' ? "<span class='muted'>enough weeks</span>" : "<span class='tag thin'>thin</span>"}</td></tr>`).join('');
+  return `<h3 style='margin:14px 0 6px'>What happened next, ${esc(study.weeks_ahead)} weeks on</h3>
+    <div class='table-wrap'><table><tr><th>Reading at the time</th><th class='num'>Weeks</th><th class='num'>Average move</th><th class='num'>Share up</th><th>Evidence</th></tr>${rows}</table></div>
+    <p class='subtle'>${esc(study.note)}</p>`;
+}
+
+function focusCard(symbol, m) {
+  const tags = [m.extreme ? `<span class='tag hot'>${esc(m.extreme)}</span>` : '',
+                m.flipped ? `<span class='tag flip'>${esc(m.flipped)}</span>` : ''].join(' ');
+  return `<div class='card'>
+    <div style='display:flex;justify-content:space-between;align-items:baseline;gap:8px'>
+      <h2 style='margin:0'>${esc(symbol)}</h2><span class='muted'>as of ${esc(m.as_of)}</span></div>
+    <p class='big ${cls(m.stance)}' style='margin:8px 0 0'>${signed(m.net)}<span class='muted' style='font-size:14px;font-weight:500'> contracts, ${esc(m.stance)}</span></p>
+    <p class='muted' style='margin:2px 0 0'>${esc(m.net_pct_of_open_interest)} % of open interest ${tags}</p>
+    <div style='margin:10px 0 0'>${spark(m.sparkline)}<span class='subtle'>net contracts, last ${esc(m.sparkline_weeks)} weeks</span></div>
+    <dl class='kv'>
+      <dt>COT index (3 years)</dt><dd>${barCell(m.cot_index, 'of 100', 'idx')}</dd>
+      <dt>Percentile of history</dt><dd>${barCell(m.percentile_net_pct, 'of 100')}</dd>
+      <dt>Change 1w / 4w</dt><dd>${signed(m.week_change_net)} / ${signed(m.change_4w)}</dd>
+      <dt>Commercials (other side)</dt><dd class='${m.commercial_net < 0 ? 'short' : 'long'}'>${signed(m.commercial_net)}</dd>
+    </dl>
+    ${nextTable(m.what_happened_next)}</div>`;
+}
 
 async function load() {
   let d;
@@ -22098,21 +22177,25 @@ async function load() {
   const r = d.report || {};
   document.getElementById('asof').innerHTML = `<strong>Not live.</strong> Positions as of <strong>${esc(r.as_of_tuesday)}</strong> (Tuesday), published ${esc(r.released)} - <strong>${esc(r.age_days)} days old</strong>. Next release about ${esc(r.next_release_estimate)}. Source: ${esc(d.source)}.<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.note)}</div>`;
   const rows = (d.markets || []).filter(m => m.available);
-  document.getElementById('table').innerHTML = `<table><tr><th>Market</th><th>Stance</th><th class='num'>Long</th><th class='num'>Short</th><th class='num'>Net</th><th class='num'>% of open interest</th><th class='num'>Week change</th><th>6-year percentile</th></tr>` +
+  document.getElementById('table').innerHTML = `<table><tr><th>Market</th><th>Stance</th><th class='num'>Net</th><th class='num'>% of OI</th>
+      <th class='num'>1w</th><th class='num'>4w</th><th class='num'>13w</th><th class='num'>Commercials</th><th>COT index</th><th>Percentile</th><th>Net, 2 years</th></tr>` +
     rows.map(m => `<tr class='${m.symbol ? 'mine' : ''}'>
       <td>${esc(m.market)}${m.symbol ? " <span class='muted'>" + esc(m.symbol) + "</span>" : ''}</td>
-      <td class='${cls(m.stance)}'>${esc(m.stance)}${m.extreme ? " <span class='tag hot'>" + esc(m.extreme.split('(')[0].trim()) + "</span>" : ''}</td>
-      <td class='num'>${num(m.long)}</td><td class='num'>${num(m.short)}</td>
+      <td class='${cls(m.stance)}'>${esc(m.stance)}${m.extreme ? " <span class='tag hot'>" + esc(m.extreme.split('(')[0].trim()) + "</span>" : ''}${m.flipped ? " <span class='tag flip'>" + esc(m.flipped) + "</span>" : ''}</td>
       <td class='num ${cls(m.stance)}'>${signed(m.net)}</td>
       <td class='num'>${esc(m.net_pct_of_open_interest)} %</td>
-      <td class='num'>${signed(m.week_change_net)}</td>
-      <td><div class='bar'><b style='width:${Math.max(0, Math.min(100, m.percentile_net_pct || 0))}%'></b><i style='left:${Math.max(0, Math.min(99, m.percentile_net_pct || 0))}%'></i></div><span class='muted'>${esc(m.percentile_net_pct)} of 100 · ${esc(m.weeks_of_history)} weeks</span></td></tr>`).join('') + '</table>';
+      <td class='num'>${signed(m.week_change_net)}</td><td class='num'>${signed(m.change_4w)}</td><td class='num'>${signed(m.change_13w)}</td>
+      <td class='num ${m.commercial_net < 0 ? 'short' : 'long'}'>${signed(m.commercial_net)}</td>
+      <td>${barCell(m.cot_index, 'of 100', 'idx')}</td>
+      <td>${barCell(m.percentile_net_pct, '· ' + esc(m.weeks_of_history) + ' weeks')}</td>
+      <td>${spark(m.sparkline, true)}</td></tr>`).join('') + '</table>';
   const u = d.usd_proxy || {};
   document.getElementById('usd').innerHTML = u.available ? `<p><strong class='${u.net_of_currencies < 0 ? 'long' : 'short'}'>${esc(u.stance)}</strong> · summed currency net ${signed(u.net_of_currencies)} contracts (${esc((u.components || []).join(', '))})</p><p class='muted'>${esc(u.note)}</p>` : `<p class='muted'>${esc(u.reason)}</p>`;
   const mine = d.system_markets || {};
-  document.getElementById('mine').innerHTML = Object.keys(mine).length ? Object.entries(mine).map(([sym, m]) =>
-    `<p><strong>${esc(sym)}</strong>: ${esc(m.stance)} ${signed(m.net)} contracts (${esc(m.net_pct_of_open_interest)} % of open interest), week ${signed(m.week_change_net)}, percentile ${esc(m.percentile_net_pct)}${m.extreme ? " · <span class='tag hot'>" + esc(m.extreme) + "</span>" : ''}</p>`).join('')
-    : "<p class='muted'>None.</p>";
+  const bySymbol = {}; rows.forEach(m => { if (m.symbol) bySymbol[m.symbol] = m; });
+  document.getElementById('focus').innerHTML = Object.keys(mine).length
+    ? Object.entries(mine).map(([sym, m]) => focusCard(sym, Object.assign({}, bySymbol[sym] || {}, m))).join('')
+    : "<div class='card'><p class='muted'>Neither traded market is in this report yet.</p></div>";
   document.getElementById('status-line').textContent = 'updated ' + esc(d.generated_at) + ' UTC';
 }
 document.getElementById('refresh-btn').addEventListener('click', load);

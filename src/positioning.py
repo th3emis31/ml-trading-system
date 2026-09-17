@@ -24,6 +24,7 @@ import io
 import json
 import urllib.request
 import zipfile
+from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -46,7 +47,10 @@ MARKETS = {
     "CHF": "SWISS FRANC - CHICAGO MERCANTILE EXCHANGE",
 }
 SYSTEM_SYMBOLS = {"GOLD": "XAUUSD", "BITCOIN": "BTCUSD"}   # the two markets this system trades
-COLUMNS = ("market", "as_of", "open_interest", "long", "short", "spreading")
+COLUMNS = ("market", "as_of", "open_interest", "long", "short", "spreading", "comm_long", "comm_short",
+           "small_long", "small_short")
+CACHE_SCHEMA = 2            # 1 = speculators only; 2 adds commercials and small traders, so version-1 files are refetched
+COT_INDEX_WEEKS = 156       # three years, the usual window for the COT index
 
 
 def positioning_dir() -> Path:
@@ -61,7 +65,10 @@ def fetch_year(year: int, force: bool = False, opener=urllib.request.urlopen) ->
     """Cache one year of the Legacy futures-only report, filtered to the markets above. Returns (rows, note)."""
     path = year_cache(year)
     if path.exists() and not force:
-        return sum(1 for _ in path.open(encoding="utf-8")) - 1, "cached"
+        with path.open(encoding="utf-8") as fh:
+            header = fh.readline().strip().split(",")
+            if header == list(COLUMNS):
+                return sum(1 for _ in fh), "cached"
     request = urllib.request.Request(HISTORY_URL.format(year=year), headers={"User-Agent": "SmartEntry research"})
     with opener(request, timeout=300) as response:
         blob = response.read()
@@ -70,8 +77,8 @@ def fetch_year(year: int, force: bool = False, opener=urllib.request.urlopen) ->
     wanted = {name: key for key, name in MARKETS.items()}
     rows = []
     for row in csv.reader(io.StringIO(text)):
-        if len(row) > 10 and row[0].strip() in wanted:
-            rows.append([wanted[row[0].strip()], row[2].strip(), row[7].strip(), row[8].strip(), row[9].strip(), row[10].strip()])
+        if len(row) > 16 and row[0].strip() in wanted:
+            rows.append([wanted[row[0].strip()], row[2].strip()] + [row[i].strip() for i in (7, 8, 9, 10, 11, 12, 15, 16)])
     rows.sort(key=lambda r: (r[1], r[0]))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
@@ -95,9 +102,12 @@ def load_history(years: int = DEFAULT_YEARS, now=None) -> dict[str, list[dict]]:
                     continue
                 try:
                     long_, short_ = int(row["long"]), int(row["short"])
+                    comm_long, comm_short = int(row.get("comm_long") or 0), int(row.get("comm_short") or 0)
+                    small_long, small_short = int(row.get("small_long") or 0), int(row.get("small_short") or 0)
                     history[row["market"]].append({"as_of": row["as_of"], "open_interest": int(row["open_interest"]),
                                                    "long": long_, "short": short_, "spreading": int(row["spreading"]),
-                                                   "net": long_ - short_})
+                                                   "net": long_ - short_, "comm_net": comm_long - comm_short,
+                                                   "small_net": small_long - small_short})
                 except (TypeError, ValueError):
                     continue
     for rows in history.values():
@@ -109,6 +119,61 @@ def _percentile(values: list[float], value: float) -> Optional[float]:
     if len(values) < 20:
         return None
     return round(100.0 * sum(1 for v in values if v <= value) / len(values), 1)
+
+
+def cot_index(nets: list[float], weeks: int = COT_INDEX_WEEKS) -> Optional[float]:
+    """Williams COT index: where the latest net sits between the lowest and highest net of the last ``weeks``."""
+    window = nets[-weeks:]
+    if len(window) < 26:
+        return None
+    low, high = min(window), max(window)
+    return None if high == low else round(100.0 * (window[-1] - low) / (high - low), 1)
+
+
+def _change(rows: list[dict], back: int) -> Optional[int]:
+    return rows[-1]["net"] - rows[-1 - back]["net"] if len(rows) > back else None
+
+
+def forward_study(rows: list[dict], closes: list[tuple[str, float]], weeks_ahead: int = 4) -> dict:
+    """What the price did after each weekly reading, grouped by COT index band.
+
+    ``closes`` is (date, close) oldest first from the broker's daily candles. For every past week the COT index is
+    recomputed from the data available then, the price on that Tuesday is matched, and the move ``weeks_ahead`` later
+    is measured. Descriptive history from one market's own past - not a rule, and not a prediction.
+    """
+    if len(rows) < 60 or len(closes) < 60:
+        return {"available": False, "reason": "not enough weekly rows or prices"}
+    dates = [d for d, _ in closes]
+    values = [c for _, c in closes]
+
+    def close_on(day: str) -> Optional[float]:
+        i = bisect_right(dates, day) - 1
+        return values[i] if i >= 0 else None
+
+    buckets = {"crowded short (index <= 20)": [], "middle (20-80)": [], "crowded long (index >= 80)": []}
+    nets = [r["net"] for r in rows]
+    for i in range(26, len(rows)):
+        index_then = cot_index(nets[: i + 1])
+        if index_then is None:
+            continue
+        start = close_on(rows[i]["as_of"])
+        ahead = datetime.strptime(rows[i]["as_of"], "%Y-%m-%d") + timedelta(weeks=weeks_ahead)
+        end = close_on(ahead.strftime("%Y-%m-%d"))
+        if not start or not end or ahead > datetime.strptime(dates[-1], "%Y-%m-%d"):
+            continue
+        move = 100.0 * (end / start - 1)
+        key = ("crowded short (index <= 20)" if index_then <= 20 else
+               "crowded long (index >= 80)" if index_then >= 80 else "middle (20-80)")
+        buckets[key].append(move)
+    out = {}
+    for name, moves in buckets.items():
+        out[name] = {"weeks": len(moves),
+                     "avg_move_pct": round(sum(moves) / len(moves), 2) if moves else None,
+                     "up_share_pct": round(100.0 * sum(1 for m in moves if m > 0) / len(moves), 1) if moves else None,
+                     "evidence": "sufficient" if len(moves) >= 30 else "insufficient (under 30 weeks)"}
+    return {"available": True, "weeks_ahead": weeks_ahead, "buckets": out,
+            "note": "History of this market only, measured on broker candles; the bands were not chosen from the result. "
+                    "It describes what happened, it does not say what will happen."}
 
 
 def market_row(key: str, rows: list[dict]) -> dict:
@@ -127,6 +192,14 @@ def market_row(key: str, rows: list[dict]) -> dict:
         "week_change_net": last["net"] - prev["net"] if prev else None,
         "week_change_direction": None if not prev else ("more long" if last["net"] > prev["net"] else
                                                         "more short" if last["net"] < prev["net"] else "unchanged"),
+        "commercial_net": last.get("comm_net"), "small_trader_net": last.get("small_net"),
+        "open_interest_change": oi - prev["open_interest"] if prev else None,
+        "change_4w": _change(rows, 4), "change_13w": _change(rows, 13),
+        "cot_index": cot_index([r["net"] for r in rows]),
+        "flipped": None if not prev else ("to net long" if prev["net"] <= 0 < last["net"]
+                                          else "to net short" if prev["net"] >= 0 > last["net"] else None),
+        "sparkline": [r["net"] for r in rows[-104:]],
+        "sparkline_weeks": min(len(rows), 104),
         "percentile_net_pct": _percentile(pct_series, pct_series[-1]) if pct_series else None,
         "extreme": None if not pct_series or _percentile(pct_series, pct_series[-1]) is None else
         ("crowded long (top 10 % of the last " + str(len(pct_series)) + " weeks)" if _percentile(pct_series, pct_series[-1]) >= 90
@@ -159,7 +232,20 @@ def next_release(as_of: str, now=None) -> dict:
             "live": False, "schedule": "Tuesday positions, published Friday 15:30 ET"}
 
 
-def build_report(years: int = DEFAULT_YEARS, now=None) -> dict:
+def _broker_weekly_closes(symbol: str) -> list[tuple[str, float]]:
+    """(date, close) from the app's broker daily candles; empty when the app or MT5 is not available."""
+    try:
+        from .mtf_data import fetch_app_bars
+
+        frame = fetch_app_bars(symbol, "1d", 6000)
+        if frame is None or frame.empty:
+            return []
+        return [(str(t)[:10], float(c)) for t, c in zip(frame["datetime"], frame["close"])]
+    except Exception:
+        return []
+
+
+def build_report(years: int = DEFAULT_YEARS, now=None, price_loader=_broker_weekly_closes) -> dict:
     now = now or datetime.now(timezone.utc)
     history = load_history(years, now)
     rows = [market_row(key, history.get(key, [])) for key in MARKETS]
@@ -173,8 +259,11 @@ def build_report(years: int = DEFAULT_YEARS, now=None) -> dict:
         "traders": "non-commercial (large speculators)",
         "markets": rows,
         "usd_proxy": dollar_proxy(rows),
-        "system_markets": {r["symbol"]: {k: r[k] for k in ("as_of", "net", "net_pct_of_open_interest", "stance",
-                                                           "week_change_net", "percentile_net_pct", "extreme")}
+        "system_markets": {r["symbol"]: {**{k: r[k] for k in ("as_of", "net", "net_pct_of_open_interest", "stance",
+                                                              "week_change_net", "change_4w", "cot_index",
+                                                              "percentile_net_pct", "commercial_net", "extreme", "flipped")},
+                                         "what_happened_next": forward_study(history.get(r["market"], []),
+                                                                             price_loader(r["symbol"]))}
                            for r in available if r.get("symbol")},
         "note": "Positioning is context, not a signal. It is a weekly snapshot, already days old when published, and it "
                 "changes no plan, position size or order in this system.",
