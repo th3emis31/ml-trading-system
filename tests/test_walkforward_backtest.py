@@ -40,6 +40,39 @@ def test_reports_the_agreed_metric_set(run):
     assert result["test_start"] and result["test_end"]
 
 
+def test_expectancy_in_r_losing_streak_and_inverse_baseline_are_reported(run):
+    result, _ = run
+    for key in ("expectancy_r", "longest_losing_streak"):
+        assert key in result["metrics"] and key in result["inverse_baseline"]["metrics"]
+    assert result["inverse_baseline"]["evidence"] in ("sufficient", "insufficient")
+    for trade in result["recent_trades"]:
+        assert trade["net_r"] < trade["r_multiple"], "costs lower the R of every trade"
+
+
+def test_invert_flips_the_side_and_mirrors_stop_and_target():
+    n = 30
+    closes = [100.0] * n
+    features = pd.DataFrame({"datetime": pd.date_range("2024-01-01", periods=n, freq="D", tz="UTC"),
+                             "close": closes, "high": [100.5] * n, "low": [99.5] * n, "volatility_5d": [0.01] * n})
+    features.loc[1, "low"] = 97.0                                   # 1.2 x ATR(1.0) below 100 = 98.8: a long is stopped
+    import numpy as np
+    proba = np.full(n, np.nan)
+    proba[0] = 0.9
+    directions = np.zeros(n, dtype=int)
+    directions[0] = 1
+    folds = np.ones(n, dtype=int)
+    kwargs = dict(buy_threshold=0.55, sell_threshold=0.45, hold_bars=5, cost_pct=0.0004, directions=directions)
+    long_trade = wf._simulate_trades(features, proba, folds, **kwargs)[0]
+    short_trade = wf._simulate_trades(features, proba, folds, invert=True, **kwargs)[0]
+    assert long_trade["side"] == "BUY" and long_trade["outcome"] == "SL" and long_trade["r_multiple"] == -1.0
+    assert short_trade["side"] == "SELL" and short_trade["outcome"] != "SL"
+    assert long_trade["net_r"] == pytest.approx(-1.0 - 0.0004 * 100 / 1.2, abs=1e-4)
+    streak = wf.summarize_trades([{"net_pct": x, "side": "BUY", "r_multiple": 0.0, "net_r": 0.0, "bars_held": 1}
+                                  for x in (0.1, -0.1, -0.2, 0.0, 0.3, -0.1)],
+                                 test_start="2024-01-01", test_end="2025-01-01", test_bars=100, bars_in_market=6)
+    assert streak["longest_losing_streak"] == 3
+
+
 def test_folds_are_time_ordered_with_purge_gap(run):
     result, _ = run
     assert result["purge_bars"] == wf.LABEL_HORIZON_BARS

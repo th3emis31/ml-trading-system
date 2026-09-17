@@ -111,10 +111,12 @@ def backtest_signal_series(bars: pd.DataFrame, models: Optional[dict] = None, st
 
 def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.ndarray, *,
                      buy_threshold: float, sell_threshold: float, hold_bars: int, cost_pct: float,
-                     directions: Optional[np.ndarray] = None) -> list[dict]:
+                     directions: Optional[np.ndarray] = None, invert: bool = False) -> list[dict]:
     """One position at a time, entered at the signal bar close, settled on the path.
 
     ``directions`` (+1 / -1 / 0 per row) are the engine's own signals; without them the side comes from ``proba``.
+    ``invert`` trades every signal in the opposite direction with the same stop/target distances and costs: the
+    inverse-direction baseline, which shows whether a result comes from the rules or from the market's direction.
     """
     closes = features["close"].to_numpy(dtype=float)
     highs = features["high"].to_numpy(dtype=float)
@@ -133,6 +135,8 @@ def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.
             direction = _direction_for_probability(proba[i], buy_threshold, sell_threshold)
         if direction == 0:
             continue
+        if invert:
+            direction = -direction
         entry = closes[i]
         if not np.isfinite(entry) or entry <= 0:
             continue
@@ -174,6 +178,8 @@ def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.
             "gross_pct": round(gross * 100, 4),
             "net_pct": round((gross - cost_pct) * 100, 4),
             "r_multiple": round(direction * (exit_price - entry) / (atr * STOP_ATR_MULT), 3),
+            # R after the round-trip cost, the unit the expectancy is reported in
+            "net_r": round((direction * (exit_price - entry) - cost_pct * entry) / (atr * STOP_ATR_MULT), 4),
         })
         busy_until = j
     return trades
@@ -197,6 +203,11 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
     wins = net[net > 0]
     losses = net[net <= 0]
     trades_per_year = (count / years) if years > 0 else None
+    longest_losing_streak = streak = 0
+    for r in net:
+        streak = streak + 1 if r <= 0 else 0
+        longest_losing_streak = max(longest_losing_streak, streak)
+    net_r = [t["net_r"] for t in trades if t.get("net_r") is not None]
     sharpe = sortino = None
     if count >= 2 and trades_per_year:
         std = float(np.std(net, ddof=1))
@@ -218,6 +229,8 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
         "profit_factor": round(float(wins.sum()) / abs(float(losses.sum())), 3) if count and losses.sum() < 0 else None,
         "expectancy_pct": round(float(np.mean(net)) * 100, 4) if count else None,
         "avg_r": round(float(np.mean([t["r_multiple"] for t in trades])), 3) if count else None,
+        "expectancy_r": round(float(np.mean(net_r)), 4) if net_r else None,
+        "longest_losing_streak": int(longest_losing_streak),
         "total_return_pct": round((equity - 1.0) * 100, 3),
         "cagr_pct": round(cagr, 3) if cagr is not None else None,
         "max_drawdown_pct": round(max_dd * 100, 3),
@@ -324,6 +337,9 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
     trades = _simulate_trades(features, proba, fold_of_row, buy_threshold=buy_threshold,
                               sell_threshold=sell_threshold, hold_bars=spec["hold_bars"],
                               cost_pct=costs["round_trip_pct"], directions=directions)
+    inverse_trades = _simulate_trades(features, proba, fold_of_row, buy_threshold=buy_threshold,
+                                      sell_threshold=sell_threshold, hold_bars=spec["hold_bars"],
+                                      cost_pct=costs["round_trip_pct"], directions=directions, invert=True)
     for fold in by_fold:
         fold_trades = [t for t in trades if t["fold"] == fold["fold"]]
         compounded = 1.0
@@ -339,6 +355,8 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
     bars_in_market = int(sum(t["bars_held"] for t in trades))
     metrics = summarize_trades(trades, test_start=test_start, test_end=test_end,
                                test_bars=test_bars, bars_in_market=bars_in_market)
+    inverse_metrics = summarize_trades(inverse_trades, test_start=test_start, test_end=test_end, test_bars=test_bars,
+                                       bars_in_market=int(sum(t["bars_held"] for t in inverse_trades)))
     test_targets = features["target"].iloc[initial_train:].to_numpy()
     metrics["oos_direction_accuracy"] = round(float(np.mean((proba[initial_train:] >= 0.5).astype(int) == test_targets)), 4)
 
@@ -424,6 +442,11 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
         "evidence_note": (f"{trade_count} trades in the test period"
                           + ("" if trade_count >= MIN_TRADES_FOR_EVIDENCE else f"; under {MIN_TRADES_FOR_EVIDENCE} is insufficient evidence, not a result")),
         "by_fold": by_fold,
+        "inverse_baseline": {
+            "metrics": inverse_metrics,
+            "evidence": "sufficient" if inverse_metrics["trades"] >= MIN_TRADES_FOR_EVIDENCE else "insufficient",
+            "note": "The same out-of-sample signals traded in the opposite direction, same stop/target distances and costs.",
+        },
         "threshold_sensitivity": threshold_sensitivity,
         "by_year": yearly,
         "equity_curve": equity_curve,
