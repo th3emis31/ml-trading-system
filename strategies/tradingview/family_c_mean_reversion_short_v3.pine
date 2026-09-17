@@ -6,8 +6,8 @@
 //      different data. v3 requests expr[1] with lookahead_on: the latest closed HTF bar on history and in realtime.
 //   2. Costs: v2 charged 0.005 % commission and 3 ticks slippage (3 ticks = $0.003 on OANDA gold, effectively zero)
 //      and no spread. With a 1.5 x ATR(5M) stop (about $6) a real round trip of about $2 is ~0.3R per trade.
-//      v3 charges an editable cash cost per side per ounce plus slippage in ticks, defaulting to about $2.15 per
-//      round trip (0.05 % of price at 4,300).
+//      v3 charges one editable cash cost per side per ounce (spread + commission + slippage together), defaulting to
+//      about $2.15 per round trip (0.05 % of price at 4,300).
 //   3. Optional filters (H1 EMA50<EMA200 trend, 07-20 UTC session) are OFF by default: tested on 17 months of
 //      Vantage 5M bars they did not fix the losing Apr 2025-Feb 2026 period, so they are for inspection only.
 // Status: NOT a validated edge. Replica test on Vantage MT5 5M XAUUSD 2025-04-24 -> 2026-09-15, broker costs:
