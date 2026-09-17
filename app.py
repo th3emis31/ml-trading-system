@@ -718,6 +718,7 @@ MAIN_NAV_GROUPS = [
     ('/history', 'History'),
     ('/analytics', 'Analytics'),
     ('/performance', 'Performance'),
+    ('/positioning', 'Positioning'),
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
@@ -22032,6 +22033,95 @@ def demo_breakout_resume_api():
   with _demo_breakout_lock:
     event = demo_volatility_breakout.resume_breakout()
   return jsonify(event)
+
+
+@app.route('/api/positioning')
+def positioning_api():
+  """Speculative positioning from the CFTC Commitments of Traders report (weekly, days old, context only)."""
+  from src import positioning
+  from src.runtime_paths import read_latest_json
+  return jsonify(read_latest_json(positioning.positioning_dir() / 'latest.json',
+                                  'positioning has not been downloaded yet (task SmartEntry Positioning)'))
+
+
+@app.route('/positioning')
+def positioning_page():
+  return render_template_string(POSITIONING_TEMPLATE, theme_css=THEME_CSS)
+
+
+POSITIONING_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Positioning</title>
+  {{ theme_css | safe }}
+  <style>
+    .po-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
+    .banner { border-radius:12px; padding:10px 14px; margin:10px 0 14px; border:1px solid rgba(251,191,36,.6); background:rgba(251,191,36,.12); color:#fde68a; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .long { color:#a7f3d0; } .short { color:#fecdd3; } .flat { color:#cbd5e1; }
+    .bar { position:relative; height:12px; border-radius:999px; background:rgba(148,176,222,.18); min-width:130px; }
+    .bar > i { position:absolute; top:-2px; bottom:-2px; width:3px; background:#f8fafc; border-radius:2px; }
+    .bar > b { position:absolute; top:0; bottom:0; left:0; border-radius:999px; background:linear-gradient(90deg,#38bdf8,#a78bfa); opacity:.6; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+    .tag.hot { color:#fecdd3; background:rgba(225,29,72,.18); border:1px solid rgba(251,113,133,.6); }
+    .mine td:first-child { box-shadow: inset 3px 0 0 #38bdf8; }
+  </style>
+</head>
+<body>
+  <div class='nav'>{{ main_nav }}</div>
+  <div class='container'>
+    <div class='po-head'>
+      <div>
+        <h1>Positioning</h1>
+        <p class='muted'>What large speculators hold, from the CFTC Commitments of Traders report (Legacy, futures only). Net = long minus short. The percentile compares today's net share of open interest with the last six years, so a crowded position is visible at a glance.</p>
+      </div>
+      <div><button id='refresh-btn'>Refresh</button> <span class='muted' id='status-line'></span></div>
+    </div>
+    <div class='banner' id='asof'>Loading...</div>
+    <div class='card'><div class='table-wrap' id='table'><p class='muted'>Loading...</p></div></div>
+    <div class='card'><h2>Dollar proxy</h2><div id='usd'><p class='muted'>Loading...</p></div></div>
+    <div class='card'><h2>Gold and bitcoin, the markets this system trades</h2><div id='mine'><p class='muted'>Loading...</p></div></div>
+  </div>
+<script>
+const esc = v => String(v === null || v === undefined ? '-' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString('en-GB');
+const signed = v => (v === null || v === undefined) ? '-' : (v > 0 ? '+' : '') + Number(v).toLocaleString('en-GB');
+const cls = stance => stance === 'net long' ? 'long' : stance === 'net short' ? 'short' : 'flat';
+
+async function load() {
+  let d;
+  try { d = await (await fetch('/api/positioning')).json(); } catch (e) { document.getElementById('asof').textContent = 'Unavailable: ' + e; return; }
+  if (!d.available) { document.getElementById('asof').textContent = d.reason || 'No positioning data yet.'; return; }
+  const r = d.report || {};
+  document.getElementById('asof').innerHTML = `<strong>Not live.</strong> Positions as of <strong>${esc(r.as_of_tuesday)}</strong> (Tuesday), published ${esc(r.released)} - <strong>${esc(r.age_days)} days old</strong>. Next release about ${esc(r.next_release_estimate)}. Source: ${esc(d.source)}.<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.note)}</div>`;
+  const rows = (d.markets || []).filter(m => m.available);
+  document.getElementById('table').innerHTML = `<table><tr><th>Market</th><th>Stance</th><th class='num'>Long</th><th class='num'>Short</th><th class='num'>Net</th><th class='num'>% of open interest</th><th class='num'>Week change</th><th>6-year percentile</th></tr>` +
+    rows.map(m => `<tr class='${m.symbol ? 'mine' : ''}'>
+      <td>${esc(m.market)}${m.symbol ? " <span class='muted'>" + esc(m.symbol) + "</span>" : ''}</td>
+      <td class='${cls(m.stance)}'>${esc(m.stance)}${m.extreme ? " <span class='tag hot'>" + esc(m.extreme.split('(')[0].trim()) + "</span>" : ''}</td>
+      <td class='num'>${num(m.long)}</td><td class='num'>${num(m.short)}</td>
+      <td class='num ${cls(m.stance)}'>${signed(m.net)}</td>
+      <td class='num'>${esc(m.net_pct_of_open_interest)} %</td>
+      <td class='num'>${signed(m.week_change_net)}</td>
+      <td><div class='bar'><b style='width:${Math.max(0, Math.min(100, m.percentile_net_pct || 0))}%'></b><i style='left:${Math.max(0, Math.min(99, m.percentile_net_pct || 0))}%'></i></div><span class='muted'>${esc(m.percentile_net_pct)} of 100 · ${esc(m.weeks_of_history)} weeks</span></td></tr>`).join('') + '</table>';
+  const u = d.usd_proxy || {};
+  document.getElementById('usd').innerHTML = u.available ? `<p><strong class='${u.net_of_currencies < 0 ? 'long' : 'short'}'>${esc(u.stance)}</strong> · summed currency net ${signed(u.net_of_currencies)} contracts (${esc((u.components || []).join(', '))})</p><p class='muted'>${esc(u.note)}</p>` : `<p class='muted'>${esc(u.reason)}</p>`;
+  const mine = d.system_markets || {};
+  document.getElementById('mine').innerHTML = Object.keys(mine).length ? Object.entries(mine).map(([sym, m]) =>
+    `<p><strong>${esc(sym)}</strong>: ${esc(m.stance)} ${signed(m.net)} contracts (${esc(m.net_pct_of_open_interest)} % of open interest), week ${signed(m.week_change_net)}, percentile ${esc(m.percentile_net_pct)}${m.extreme ? " · <span class='tag hot'>" + esc(m.extreme) + "</span>" : ''}</p>`).join('')
+    : "<p class='muted'>None.</p>";
+  document.getElementById('status-line').textContent = 'updated ' + esc(d.generated_at) + ' UTC';
+}
+document.getElementById('refresh-btn').addEventListener('click', load);
+load();
+setInterval(load, 300000);
+</script>
+</body>
+</html>
+"""
 
 
 @app.route('/api/atomic-analyst')

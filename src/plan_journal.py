@@ -27,7 +27,7 @@ import pandas as pd
 
 from . import demo_executor, volatility_trend_breakout as vtb
 from .event_defence import utc_timestamp
-from .runtime_paths import smartentry_data_dir
+from .runtime_paths import read_latest_json, smartentry_data_dir
 
 SYMBOLS = ("XAUUSD", "BTCUSD")
 MIN_EVIDENCE = 30
@@ -240,10 +240,8 @@ def run_journal(load_bars: Callable[[str, str, int], pd.DataFrame], now=None) ->
 
 
 def read_latest() -> dict:
-    path = journal_dir() / "latest.json"
-    if not path.exists():
-        return {"available": False, "reason": "the plan journal has not run yet (task SmartEntry Plan Journal)"}
-    return {"available": True, **json.loads(path.read_text(encoding="utf-8"))}
+    return read_latest_json(journal_dir() / "latest.json",
+                            "the plan journal has not run yet (task SmartEntry Plan Journal)")
 
 
 if __name__ == "__main__":

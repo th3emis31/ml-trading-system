@@ -84,6 +84,18 @@ def inside_learning_window(moment: datetime | None = None, local_tz: tzinfo | No
     return start <= _to_utc(moment, local_tz) <= end
 
 
+def read_latest_json(path, missing_reason: str) -> dict:
+    """A module's cached "latest" file as a dict, or {"available": False, "reason": ...} when it has not been written
+    yet or cannot be read. Shared by src/plan_journal.py and src/positioning.py."""
+    path = Path(path)
+    if not path.exists():
+        return {"available": False, "reason": missing_reason}
+    try:
+        return {"available": True, **json.loads(path.read_text(encoding="utf-8"))}
+    except (OSError, ValueError) as exc:
+        return {"available": False, "reason": f"{path} is unreadable: {exc}"}
+
+
 def daily_learning_marker_path() -> Path:
     return smartentry_data_dir() / "learning" / "daily_learning_task_marker.json"
 

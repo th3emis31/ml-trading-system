@@ -55,7 +55,8 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py",
               "tests/test_demo_session_pullback.py",
               "tests/test_demo_volatility_breakout.py",
-              "tests/test_plan_journal.py", "tests/test_atomic_analyst.py")
+              "tests/test_plan_journal.py", "tests/test_atomic_analyst.py",
+              "tests/test_positioning.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -67,6 +68,7 @@ TASKS = {
     "SmartEntry Demo Pullback": {"script": "run_demo_pullback.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:01"]},
     "SmartEntry Demo Breakout": {"script": "run_demo_breakout.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:03"]},
     "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
+    "SmartEntry Positioning": {"script": "run_positioning.cmd", "schedule": ["/sc", "daily", "/st", "21:10"]},
     "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
     # Opens Claude Code (tabs "bridge" and "desk") at this user's logon; recreated by --fix if missing.
     "SmartEntry Claude Code": {"script": "start_claude.cmd", "schedule": ["/sc", "onlogon"]},
@@ -252,6 +254,26 @@ def check_demo_pullback(state_path: Path = ROOT / "data" / "paper_trading" / "de
         return _result(label, "trading", "warn", f"{label} {mode}: no cycle in the last 2.5 h (task {task}).", **detail)
     return _result(label, "trading", "ok", f"{label} {mode}; last cycle {state['last_cycle'].get('at')} UTC: "
                    f"{state['last_cycle'].get('reason')}", **detail)
+
+
+def check_positioning(now: Optional[datetime] = None) -> dict:
+    """CFTC positioning: warn when the cached report is older than two weeks (the task or the download stopped)."""
+    from .positioning import positioning_dir
+    from .runtime_paths import read_latest_json
+
+    now = now or _now_utc()
+    data = read_latest_json(positioning_dir() / "latest.json", "not downloaded yet (task SmartEntry Positioning)")
+    if not data.get("available"):
+        return _result("Positioning", "data", "info", "CFTC positioning has not been downloaded yet.", reason=data.get("reason"))
+    report = data.get("report") or {}
+    as_of = _parse_utc((report.get("as_of_tuesday") or "") + " 00:00:00")
+    age_days = (now - as_of).days if as_of else None
+    detail = {"as_of": report.get("as_of_tuesday"), "age_days": age_days, "markets": len(data.get("markets") or [])}
+    if age_days is None or age_days > 14:
+        return _result("Positioning", "data", "warn", f"CFTC positioning is {age_days} days old (a weekly report should "
+                       "be under 14). Check the SmartEntry Positioning task.", **detail)
+    return _result("Positioning", "data", "ok", f"CFTC positioning as of {report.get('as_of_tuesday')} ({age_days} days old).",
+                   **detail)
 
 
 def check_atomic_analyst(now: Optional[datetime] = None) -> dict:
@@ -620,7 +642,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_atomic_analyst, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               check_paper_trader, check_atomic_analyst, check_positioning, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
