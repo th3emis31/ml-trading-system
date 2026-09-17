@@ -576,6 +576,8 @@ def status_payload(engine=None, now=None) -> dict:
         "volume_per_leg": VOLUME_PER_LEG, "legs": [{"leg": leg, "target_r": r} for leg, r in LEGS],
         "config": config, "sending_orders": bool(config.get("enabled")) and not config.get("dry_run", True),
         "account_ok": account_ok, "account_reason": account_reason,
+        "account": demo_executor.account_view(account, positions),
+        "cycle_health": demo_executor.cycle_health(state.get("last_cycle"), 60, now),
         "halted": state.get("halted"), "day_stopped": state.get("day_stopped"), "entries_today": state.get("entries_today", 0)
         if state.get("day") == today else 0,
         "kill_switches": {"daily_loss_limit": config["daily_loss_limit"], "halt_drawdown": config["halt_drawdown"],

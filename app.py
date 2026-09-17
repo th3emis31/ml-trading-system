@@ -22286,6 +22286,7 @@ DEMO_TRADING_TEMPLATE = r"""
         <div class='muted' id='control-msg' style='font-size:12px;margin-top:6px'></div>
       </div>
     </div>
+    <div class='card' id='account-card'><h2>Demo account</h2><div id='account-strip'><p class='muted'>Loading…</p></div></div>
     <div class='banner warn' id='mode-banner'>Loading…</div>
     <div class='tiles' id='tiles'></div>
     <div class='card'><h2>Open position</h2><div id='open-trade'><p class='muted'>Loading…</p></div></div>
@@ -22317,8 +22318,51 @@ const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>
 const fmtR = v => (v === null || v === undefined) ? '—' : `<span class='${v >= 0 ? 'pos' : 'neg'}'>${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}R</span>`;
 const pct = v => (v === null || v === undefined) ? '—' : (Number(v) * 100).toFixed(2) + ' %';
 let resumeArmed = false;
+let lastPullbackStatus = null, lastBreakoutStatus = null;
 
 function tile(k, v, s) { return `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${v}</div><div class='s'>${s || ''}</div></div>`; }
+
+const money = (v, ccy) => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + (ccy || '');
+
+function accountStrip(account, strategies) {
+  const box = document.getElementById('account-strip');
+  if (!account || !account.available) {
+    box.innerHTML = `<p class='muted'>${esc((account || {}).reason || 'the account is not readable')}. Balance, equity and open profit are read from MT5 only; nothing is shown from memory.</p>`;
+    return;
+  }
+  const open = strategies.reduce((sum, s) => sum + Number(((s || {}).account || {}).open_profit || 0), 0);
+  const legs = strategies.reduce((sum, s) => sum + Number(((s || {}).account || {}).open_legs || 0), 0);
+  box.innerHTML = `<div class='tiles' style='margin:0'>` + [
+    tile('Balance', money(account.balance, account.currency), `account ${esc(account.login)} · ${esc(account.server)}`),
+    tile('Equity', money(account.equity, account.currency), account.is_demo ? 'demo account, verified with MT5' : 'NOT a demo account'),
+    tile('Open profit, both strategies', `<span class='${open >= 0 ? 'pos' : 'neg'}'>${money(open, account.currency)}</span>`, `${legs} open leg(s) carrying these magic numbers`),
+  ].join('') + '</div>';
+}
+
+function cycleTile(health) {
+  const h = health || {};
+  if (!h.available) return tile('Cycle', 'not run yet', esc(h.reason || ''));
+  return tile('Last cycle', esc(h.last_cycle_utc), (h.late ? "<span class='neg'>late: </span>" : '') + esc(h.note));
+}
+
+function decisionLog(target, rows) {
+  const box = document.getElementById(target);
+  if (!rows || !rows.length) { box.innerHTML = "<p class='muted'>No decisions logged yet.</p>"; return; }
+  const groups = [];
+  rows.forEach(x => {
+    const last = groups[groups.length - 1];
+    if (last && last.event === x.event) { last.count += 1; last.from = x.at; }
+    else groups.push({event: x.event, reason: x.reason, count: 1, at: x.at, from: x.at});
+  });
+  const body = groups.map(g => `<tr><td>${esc(g.at)}${g.count > 1 ? " <span class='muted'>back to " + esc(g.from) + '</span>' : ''}</td>
+      <td>${esc(g.event)}${g.count > 1 ? " <span class='muted'>× " + g.count + ' cycles</span>' : ''}</td>
+      <td class='reason'>${esc(g.reason)}${g.count > 1 ? " <span class='muted'>(newest of " + g.count + '; each names its own bar)</span>' : ''}</td></tr>`).join('');
+  const full = rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('');
+  box.innerHTML = `<p class='muted' style='margin-top:0'>${groups.length} run(s) of the same decision across the last ${rows.length} cycles. Consecutive repeats are collapsed; every cycle is still below.</p>
+    <table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>${body}</table>
+    <details style='margin-top:8px'><summary class='muted'>Show every cycle (${rows.length})</summary>
+      <table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>${full}</table></details>`;
+}
 
 async function control(path) {
   const msg = document.getElementById('control-msg');
@@ -22369,8 +22413,10 @@ async function load() {
     tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
     tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
     tile('Account check', d.account_ok ? 'demo OK' : 'not verified', esc(d.account_reason)),
-    tile('Last cycle', esc((d.last_cycle || {}).at || 'never'), esc((d.last_cycle || {}).reason || '')),
+    cycleTile(d.cycle_health),
   ].join('');
+  lastPullbackStatus = d;
+  accountStrip(d.account, [d, lastBreakoutStatus]);
 
   const t = d.open_trade;
   const positions = d.open_positions || [];
@@ -22389,10 +22435,7 @@ async function load() {
     `<table><tr><th>Closed</th><th>Side</th><th>Mode</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
     closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td>${esc(x.side)}</td><td>${esc(x.mode)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
 
-  const rows = d.log || [];
-  document.getElementById('log').innerHTML = !rows.length ? "<p class='muted'>No decisions logged yet.</p>" :
-    `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
-    rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
+  decisionLog('log', d.log || []);
 }
 
 let breakoutResumeArmed = false;
@@ -22439,8 +22482,10 @@ async function loadBreakout() {
     tile('Running expectancy (demo fills)', fmtR(ex.expectancy_r), `${ex.trades || 0} trades, ${ex.wins || 0} wins, total ${ex.total_r ?? 0}R`),
     tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
     tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
-    tile('Last cycle', esc((d.last_cycle || {}).at || 'never'), esc((d.last_cycle || {}).reason || '')),
+    cycleTile(d.cycle_health),
   ].join('');
+  lastBreakoutStatus = d;
+  accountStrip(d.account, [lastPullbackStatus, d]);
   const t = d.open_trade, positions = d.open_positions || [];
   document.getElementById('b-open-trade').innerHTML = !t ? `<p class='muted'>No open trade.${positions.length ? ' Broker shows ' + positions.length + ' leg(s) with magic 440603.' : ''}</p>` :
     `<p><strong>BUY</strong> signal ${esc(t.id)} UTC · entry ${esc(t.entry)} · stop ${esc(t.stop)} · R ${esc(t.r_price)} · TP1 ${esc(t.setup.tp1)} · TP2 ${esc(t.setup.tp2)}${t.leg_b_stop ? ' · leg B stop ' + esc(t.leg_b_stop) : ''}</p>` +
@@ -22450,10 +22495,7 @@ async function loadBreakout() {
   document.getElementById('b-closed').innerHTML = !closed.length ? "<p class='muted'>No closed trades yet.</p>" :
     `<table><tr><th>Closed</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
     closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
-  const rows = d.log || [];
-  document.getElementById('b-log').innerHTML = !rows.length ? "<p class='muted'>No decisions logged yet.</p>" :
-    `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
-    rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
+  decisionLog('b-log', d.log || []);
 }
 
 load();

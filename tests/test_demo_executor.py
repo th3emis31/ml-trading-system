@@ -154,3 +154,25 @@ def test_failed_order_is_journaled_and_not_retried():
     assert event["event"] == "failed" and journal["attempts"]["2026-09-13 21:00"]["status"] == "failed"
     again = de.execute_signal(engine, _signal(), _config(), journal, NOW)
     assert again["event"] == "refused" and len(engine.orders) == 1
+
+
+def test_account_view_reports_the_balance_or_says_why_it_cannot():
+    """The page's account strip: real MT5 numbers, the open profit of the passed legs, or an honest gap."""
+    view = de.account_view({**DEMO_ACCOUNT, "balance": 9987.654, "equity": 10001.2, "currency": "USD"},
+                           [{"profit": 12.5}, {"profit": -4.0}])
+    assert view["available"] and view["balance"] == 9987.65 and view["equity"] == 10001.2
+    assert view["open_profit"] == 8.5 and view["open_legs"] == 2 and view["is_demo"] is True
+    assert de.account_view({**DEMO_ACCOUNT, "balance": 1.0, "equity": 1.0}, [])["open_profit"] == 0.0
+    missing = de.account_view(None)
+    assert missing["available"] is False and "not connected" in missing["reason"], "never a stale or invented balance"
+    assert de.account_view({**DEMO_ACCOUNT, "trade_mode": 2, "balance": 1.0, "equity": 1.0})["is_demo"] is False
+
+
+def test_cycle_health_calls_a_stopped_task_late():
+    """A strategy whose task stopped looks exactly like one finding no setup, so the cycle age is reported."""
+    fresh = de.cycle_health({"at": "2026-09-14 00:40:00"}, 60, NOW)
+    assert fresh["available"] and fresh["age_minutes"] == 25.0 and fresh["late"] is False and "on schedule" in fresh["note"]
+    late = de.cycle_health({"at": "2026-09-13 20:00:00"}, 60, NOW)
+    assert late["late"] is True and late["age_minutes"] == 305.0 and "looks" in late["note"]
+    assert de.cycle_health(None, 60, NOW)["available"] is False
+    assert de.cycle_health({"at": "not a time"}, 60, NOW)["available"] is False

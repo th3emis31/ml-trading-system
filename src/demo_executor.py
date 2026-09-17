@@ -94,6 +94,46 @@ def is_demo_account(account: Optional[dict], expected_login=None) -> tuple[bool,
     return True, f"demo account {account.get('login')} on {server}"
 
 
+def account_view(account: Optional[dict], positions: Optional[list] = None) -> dict:
+    """The demo account as the pages show it: balance, equity and the money in open legs, or an honest gap.
+
+    ``positions`` is this strategy's open positions from the bridge; their floating profit is summed as it comes from
+    MT5. Nothing is derived or estimated - when MT5 is not connected the block says so instead of showing a stale number.
+    """
+    if not account:
+        return {"available": False, "reason": "MT5 is not connected, so balance and equity cannot be read"}
+    balance, equity = account.get("balance"), account.get("equity")
+    floating = [p.get("profit") for p in (positions or []) if p.get("profit") is not None]
+    return {"available": True, "login": account.get("login"), "server": account.get("server"),
+            "currency": account.get("currency"), "company": account.get("company"),
+            "balance": round(float(balance), 2) if balance is not None else None,
+            "equity": round(float(equity), 2) if equity is not None else None,
+            "open_profit": round(sum(float(f) for f in floating), 2) if floating else 0.0,
+            "open_legs": len(positions or []),
+            "is_demo": account.get("trade_mode") == MT5_TRADE_MODE_DEMO}
+
+
+def cycle_health(last_cycle: Optional[dict], every_minutes: int, now) -> dict:
+    """Whether the scheduled task is still running this strategy, from the last cycle's own timestamp.
+
+    A strategy that stops being called looks identical to one that finds no setup, so the age of the last cycle is
+    reported explicitly and called late once it passes twice its interval.
+    """
+    stamp = (last_cycle or {}).get("at")
+    if not stamp:
+        return {"available": False, "reason": "no cycle has run yet", "every_minutes": every_minutes}
+    try:
+        ran = datetime.strptime(str(stamp)[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return {"available": False, "reason": f"the last cycle time {stamp!r} is unreadable", "every_minutes": every_minutes}
+    age = (now.astimezone(timezone.utc) - ran).total_seconds() / 60
+    late = age > every_minutes * 2
+    return {"available": True, "last_cycle_utc": str(stamp)[:19], "age_minutes": round(age, 1),
+            "every_minutes": every_minutes, "late": late,
+            "note": (f"the last cycle was {age:.0f} min ago; the task runs every {every_minutes} min, so it looks "
+                     "stopped or blocked") if late else f"running on schedule, every {every_minutes} min"}
+
+
 def check_signal(signal: dict, config: dict, now) -> tuple[bool, str]:
     side = str(signal.get("side") or "").upper()
     if side not in {"BUY", "SELL"}:

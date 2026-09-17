@@ -392,9 +392,10 @@ def breakout_status(engine=None, now=None) -> dict:
     state = load_breakout_state()
     memory = shared.read_jsonl(breakout_paths()["trade_memory"])
     r = [float(m["r_result"]) for m in memory if m.get("r_result") is not None]
-    positions = None
+    positions = account = None
     if engine is not None and (engine.status() or {}).get("connected"):
         positions = engine.positions(symbol=SYMBOL, magic=MAGIC)
+        account = engine.account_snapshot()
     today = now.strftime("%Y-%m-%d")
     trades = state.get("trades") or {}
     return {
@@ -405,6 +406,8 @@ def breakout_status(engine=None, now=None) -> dict:
         "kill_switches": {"daily_loss_limit": config["daily_loss_limit"], "halt_drawdown": config["halt_drawdown"],
                           "day_change": state.get("day_change"), "drawdown": state.get("drawdown"),
                           "measured_on": f"this strategy's P&L only (magic {MAGIC})"},
+        "account": demo_executor.account_view(account, positions),
+        "cycle_health": demo_executor.cycle_health(state.get("last_cycle"), 60, now),
         "open_trade": next((t for t in trades.values() if t["status"] == "open"), None),
         "open_positions": positions,
         "today_trades": [t for t in trades.values() if str(t.get("opened_at", "")).startswith(today)],
