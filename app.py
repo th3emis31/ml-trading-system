@@ -5915,6 +5915,29 @@ def build_chart_insights(symbol: str):
     }
 
 
+def _model_evidence(internal: dict | None) -> dict:
+    """The numbers behind a live signal, straight from the enriched record: the blended probability, each model's
+    own probability, the thresholds it was compared with, how far it sits from the nearer one, and the age of the bar
+    it was computed on. Nothing is rounded into a verdict here - the page shows the same values the engine used."""
+    from src.signal_engine import get_config
+
+    config = get_config("live")
+    buy, sell = config["buy_threshold"], config["sell_threshold"]
+    if not internal:
+        return {"available": False, "reason": "no live signal record for this symbol",
+                "buy_threshold": buy, "sell_threshold": sell}
+    probability = internal.get("ensemble_probability")
+    distance = None
+    if probability is not None:
+        distance = round(min(abs(float(probability) - buy), abs(float(probability) - sell)), 4)
+    return {"available": True, "ensemble_probability": probability, "rf_probability": internal.get("rf_probability"),
+            "lstm_probability": internal.get("lstm_probability"), "buy_threshold": buy, "sell_threshold": sell,
+            "distance_to_nearer_threshold": distance,
+            "signal_bar_time": internal.get("signal_bar_time"),
+            "signal_bar_age_minutes": internal.get("signal_bar_age_minutes"),
+            "model_accuracy": internal.get("model_accuracy"), "lstm_accuracy": internal.get("lstm_accuracy")}
+
+
 def build_live_plan(symbol: str):
     symbol = symbol.upper()
     signals = build_signal_payload()
@@ -5947,6 +5970,7 @@ def build_live_plan(symbol: str):
         'chart_range_max': round(float(entry + atr * 3), 4),
         'model_bias': internal['bias'] if internal else 'Neutral',
         'reason': internal['reason'] if internal else 'Model probability sits in the neutral band; standing aside.',
+        'evidence': _model_evidence(internal),
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
       }
     direction = 1 if signal == 'BUY' else -1
@@ -5982,6 +6006,7 @@ def build_live_plan(symbol: str):
         'chart_range_min': round(chart_range_min, 4),
         'chart_range_max': round(chart_range_max, 4),
         'model_bias': internal['bias'] if internal else None,
+        'evidence': _model_evidence(internal),
         'reason': internal['reason'] if internal else 'Live model entry plan generated from current signal.',
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
     }
@@ -16929,6 +16954,18 @@ SIGNAL_CENTER_TEMPLATE = r"""
       .stats { min-width:0; width:100%; }
     }
   </style>
+  <style>
+    .pscale { margin:10px 0 2px; }
+    .pscale .track { position:relative; height:16px; border-radius:999px; overflow:hidden;
+                     background:linear-gradient(90deg, rgba(244,63,94,.55) 0%, rgba(244,63,94,.55) 25%, rgba(148,163,184,.25) 25%, rgba(148,163,184,.25) 75%, rgba(52,211,153,.55) 75%, rgba(52,211,153,.55) 100%); }
+    .pscale .now { position:absolute; top:-3px; bottom:-3px; width:3px; background:#f8fafc; border-radius:2px; box-shadow:0 0 6px rgba(248,250,252,.8); }
+    .pscale .ends { display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-top:3px; }
+    .pscale .mid { text-align:center; font-size:12px; color:#cbd5e1; margin-top:4px; font-variant-numeric:tabular-nums; }
+    .agechip { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid rgba(148,176,222,.45); color:#cbd5e1; }
+    .agechip.stale { color:#fecdd3; border-color:rgba(251,113,133,.65); background:rgba(225,29,72,.14); }
+    .pos-o { color:#a7f3d0; font-weight:700; } .neg-o { color:#fecdd3; font-weight:700; } .open-o { color:#cbd5e1; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  </style>
 </head>
 <body>
   <div class='nav'>
@@ -16967,6 +17004,12 @@ SIGNAL_CENTER_TEMPLATE = r"""
     <div class='sc-grid' id='sc-grid'>
       <div class='card sym-card active' data-symbol='XAUUSD' id='card-XAUUSD'><p class='muted'>Loading XAUUSD…</p></div>
       <div class='card sym-card' data-symbol='BTCUSD' id='card-BTCUSD'><p class='muted'>Loading BTCUSD…</p></div>
+    </div>
+    <div class='card'>
+      <h2>Recent signals and how they settled</h2>
+      <p class='muted' style='margin-top:0'>Every signal this page has recorded, settled by walking the broker's bars forward to whichever of the stop or the target was touched first. HOLD rows carry no levels, so they never settle - they are listed to show what the model was doing, not as results.</p>
+      <div id='history-summary'></div>
+      <div class='table-wrap' id='history'><p class='muted'>Loading…</p></div>
     </div>
   </div>
 
@@ -17046,6 +17089,27 @@ SIGNAL_CENTER_TEMPLATE = r"""
     }
 
     // ---------- cards ----------
+    function probabilityScale(evidence) {
+      const e = evidence || {};
+      if (!e.available || e.ensemble_probability === null || e.ensemble_probability === undefined) {
+        return `<p class='muted' style='margin:8px 0 0'>Model probability unavailable${e.reason ? ': ' + esc(e.reason) : ''}.</p>`;
+      }
+      const lo = 0.40, hi = 0.60, p = Number(e.ensemble_probability);
+      const at = Math.max(0, Math.min(100, ((p - lo) / (hi - lo)) * 100));
+      const side = p >= e.buy_threshold ? 'past the BUY line' : p <= e.sell_threshold ? 'past the SELL line' : 'inside the neutral band';
+      return `<div class='pscale'>
+        <div class='track'><i class='now' style='left:${at.toFixed(1)}%'></i></div>
+        <div class='ends'><span>SELL ≤ ${e.sell_threshold}</span><span>neutral</span><span>BUY ≥ ${e.buy_threshold}</span></div>
+        <div class='mid'>blend ${p.toFixed(4)} · ${esc(side)} · ${e.distance_to_nearer_threshold} from the nearer line
+          <span class='muted'>(RF ${e.rf_probability ?? '—'}, LSTM ${e.lstm_probability ?? '—'}, 50/50)</span></div>
+      </div>`;
+    }
+    function barAgeChip(evidence) {
+      const e = evidence || {};
+      if (!e.available || e.signal_bar_age_minutes === null || e.signal_bar_age_minutes === undefined) return '';
+      const age = Number(e.signal_bar_age_minutes), stale = age > 120;
+      return `<span class='agechip ${stale ? 'stale' : ''}' title='The closed bar the model was run on'>bar ${esc(e.signal_bar_time)} · ${age.toFixed(0)} min old${stale ? ' · stale' : ''}</span>`;
+    }
     function levelCard(cls, label, price, plan) {
       if (price === null || price === undefined) return '';
       const entry = plan.entry, risk = plan.stop_loss && entry ? Math.abs(entry - plan.stop_loss) : null;
@@ -17074,6 +17138,7 @@ SIGNAL_CENTER_TEMPLATE = r"""
               <span class='sig ${esc(signal)}'>${directional ? esc(signal) : 'HOLD · no trade'}</span>
               <span class='chip src'>Bias ${esc(plan.model_bias || 'n/a')}</span>
               <a class='chip off' href='${TV_LINKS[symbol]}' target='_blank' rel='noopener'>Open in TradingView ↗</a>
+              ${barAgeChip(plan.evidence)}
             </div>
           </div>
           <div class='stats'>
@@ -17082,6 +17147,7 @@ SIGNAL_CENTER_TEMPLATE = r"""
             <div class='stat'><span>Reward : risk</span><strong>${plan.risk_reward ? esc(plan.risk_reward) + ' : 1' : '—'}</strong></div>
           </div>
         </div>
+        ${probabilityScale(plan.evidence)}
         <div class='price-line'><strong id='price-${symbol}'>—</strong><span id='bar-${symbol}' class='muted'></span><span class='toolbar' style='margin:0;'>${tfButtons}</span></div>
         <div class='chart-box' id='chart-${symbol}'><div class='chart-msg'>Loading broker candles…</div></div>
         ${levels}
@@ -17135,6 +17201,33 @@ SIGNAL_CENTER_TEMPLATE = r"""
       const last = data.bars[data.bars.length - 1];
       document.getElementById('price-' + symbol).textContent = fmt(last.close);
       document.getElementById('bar-' + symbol).innerHTML = `last ${esc(state.timeframe)} bar ${esc(String(last.datetime).slice(0, 16).replace('T', ' '))} UTC · <span class='chip src'>${esc(data.source || 'source?')}</span>`;
+    }
+
+    function outcomeClass(outcome) {
+      const o = String(outcome || '').toUpperCase();
+      return o === 'WIN' ? 'pos-o' : o === 'LOSS' ? 'neg-o' : 'open-o';
+    }
+    async function loadHistory() {
+      let rows;
+      try { rows = await (await fetch('/api/signals')).json(); }
+      catch (error) { document.getElementById('history').innerHTML = `<p class='muted'>Signal history unavailable: ${esc(error)}</p>`; return; }
+      if (!Array.isArray(rows) || !rows.length) { document.getElementById('history').innerHTML = "<p class='muted'>No signals recorded yet.</p>"; return; }
+      const directional = rows.filter(r => r.signal === 'BUY' || r.signal === 'SELL');
+      const settled = directional.filter(r => ['WIN', 'LOSS'].includes(String(r.outcome || '').toUpperCase()));
+      const wins = settled.filter(r => String(r.outcome).toUpperCase() === 'WIN').length;
+      document.getElementById('history-summary').innerHTML = settled.length
+        ? `<p><strong>${wins} win / ${settled.length - wins} loss</strong> of ${settled.length} settled signal(s); ${directional.length - settled.length} still open, ${rows.length - directional.length} HOLD. <span class='muted'>Under 100 settled signals this is a record, not evidence of an edge - the walk-forward numbers above are the test.</span></p>`
+        : `<p class='muted'>No signal has settled yet: ${directional.length} directional signal(s) still open, ${rows.length - directional.length} HOLD.</p>`;
+      const sorted = rows.slice().sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
+      document.getElementById('history').innerHTML = `<table>
+        <tr><th>Recorded (UTC)</th><th>Symbol</th><th>Signal</th><th class='num'>Blend</th><th class='num'>RF</th><th class='num'>LSTM</th><th>Outcome</th><th class='num'>Move</th><th>Settled</th></tr>` +
+        sorted.map(r => `<tr>
+          <td>${esc(r.recorded_at)}</td><td>${esc(r.symbol)}</td>
+          <td class='${outcomeClass(r.signal === 'HOLD' ? 'OPEN' : r.outcome)}'>${esc(r.signal)}</td>
+          <td class='num'>${esc(r.ensemble_probability)}</td><td class='num'>${esc(r.rf_probability)}</td><td class='num'>${esc(r.lstm_probability)}</td>
+          <td class='${outcomeClass(r.outcome)}'>${r.signal === 'HOLD' ? '<span class="muted">no levels</span>' : esc(r.outcome)}</td>
+          <td class='num'>${r.outcome_profit_pct === null || r.outcome_profit_pct === undefined ? '—' : esc(r.outcome_profit_pct) + ' %'}</td>
+          <td class='muted'>${esc(r.outcome_time || '')}</td></tr>`).join('') + '</table>';
     }
 
     async function loadPlans(initial) {
@@ -17197,8 +17290,10 @@ SIGNAL_CENTER_TEMPLATE = r"""
 
     loadPlans(true);
     loadEvidence();
+    loadHistory();
     setInterval(() => loadPlans(false), 60000);
     setInterval(loadEvidence, 300000);
+    setInterval(loadHistory, 120000);
   </script>
 </body>
 </html>

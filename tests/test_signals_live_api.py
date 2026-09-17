@@ -31,3 +31,21 @@ def test_stale_or_missing_bar_time_is_not_fresh(monkeypatch):
     body = app_module.app.test_client().get("/api/signals/live").get_json()
     assert [s["fresh"] for s in body["signals"]] == [False, False]
     assert body["all_fresh"] is False
+
+
+def test_model_evidence_carries_the_engine_numbers_not_a_verdict():
+    """The Signal Center shows the probability against the engine's own thresholds, or says it has none."""
+    from src.signal_engine import SIGNAL_CONFIGS
+
+    live = SIGNAL_CONFIGS["live"]
+    evidence = app_module._model_evidence({"ensemble_probability": 0.5239, "rf_probability": 0.4978,
+                                           "lstm_probability": 0.55, "signal_bar_time": "2026-09-17 19:00:00",
+                                           "signal_bar_age_minutes": 68.7})
+    assert evidence["available"] and evidence["ensemble_probability"] == 0.5239
+    assert evidence["buy_threshold"] == live["buy_threshold"] and evidence["sell_threshold"] == live["sell_threshold"]
+    assert evidence["distance_to_nearer_threshold"] == 0.0261, "distance to the nearer of the two lines"
+    assert evidence["signal_bar_age_minutes"] == 68.7
+
+    missing = app_module._model_evidence(None)
+    assert missing["available"] is False and "no live signal record" in missing["reason"]
+    assert missing["buy_threshold"] == live["buy_threshold"], "the thresholds are still stated when the row is missing"
