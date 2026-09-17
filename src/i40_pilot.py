@@ -231,6 +231,108 @@ def learning_state(path: Optional[Path] = None) -> dict:
                            for symbol, row in sorted(latest.items())}}
 
 
+def _as_iso(value) -> Optional[str]:
+    """A timestamp as 'YYYY-MM-DD HH:MM:SS' so entries from different sources sort together.
+
+    Task Scheduler prints local formats (``17/09/2026 22:40:00`` here) and uses 30/11/1999 to mean "never ran", which
+    is dropped rather than shown as an event.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            moment = datetime.strptime(text[:19], pattern)
+        except ValueError:
+            continue
+        return moment.strftime("%Y-%m-%d %H:%M:%S") if moment.year >= 2000 else None
+    return None
+
+
+ATTENTION_ORDER = {"bad": 0, "warn": 1, "info": 2}
+
+
+def attention(brief: dict) -> dict:
+    """What is wrong, in the order it deserves attention - the point of the page.
+
+    Counting problems is useless; naming them is not. Every entry says what it is, why it matters and where to look,
+    and an empty list is itself the answer: nothing is stuck.
+    """
+    items = []
+
+    def add(severity: str, what: str, why: str, where: str) -> None:
+        items.append({"severity": severity, "what": what, "why": why, "where": where})
+
+    for name, strategy in ((brief.get("context") or {}).get("strategies") or {}).items():
+        if not strategy.get("available"):
+            add("bad", f"{name} cannot be read", strategy.get("reason") or "the endpoint did not answer",
+                "/demo-trading")
+            continue
+        halted = strategy.get("halted")
+        if halted:
+            add("bad", f"{name} is halted ({halted.get('kind')})", halted.get("reason") or "", "/demo-trading")
+        cycle = strategy.get("cycle_health") or {}
+        if cycle.get("late"):
+            add("warn", f"{name} has not run for {cycle.get('age_minutes')} min",
+                cycle.get("note") or "its scheduled task may have stopped", "/demo-trading")
+        account = strategy.get("account") or {}
+        if account.get("available") and account.get("is_demo") is False:
+            add("bad", f"{name} is pointed at a non-demo account", "automated orders are demo-only by rule",
+                "/demo-trading")
+
+    schedule_section = brief.get("schedule") or {}
+    for missing in schedule_section.get("missing") or []:
+        add("bad", f"the task {missing} is not registered", "that job is simply not happening", "/system-doctor")
+    for task in schedule_section.get("tasks") or []:
+        if task.get("registered") and str(task.get("last_result") or "0") not in ("0", "267009", "267011", ""):
+            add("warn", f"{task['task']} last finished with result {task['last_result']}",
+                "a non-zero result means the run failed", "/system-doctor")
+
+    loop_section = brief.get("loop") or {}
+    if loop_section.get("stale"):
+        add("warn", f"this brief is {loop_section.get('age_minutes')} min old",
+            "the hourly refresh has stopped, so everything here may be out of date", "/system-doctor")
+
+    positioning = ((brief.get("context") or {}).get("positioning") or {})
+    if not positioning.get("available"):
+        add("info", "positioning has no data", positioning.get("reason") or "", "/positioning")
+
+    items.sort(key=lambda item: ATTENTION_ORDER.get(item["severity"], 3))
+    worst = items[0]["severity"] if items else "ok"
+    return {"count": len(items), "worst": worst, "items": items,
+            "headline": {"ok": "Everything the pilot can check is running.",
+                         "info": "Running, with one thing worth knowing.",
+                         "warn": "Running, but something needs looking at.",
+                         "bad": "Something is stopped or misdirected."}[worst]}
+
+
+def activity(brief: dict, limit: int = 18) -> dict:
+    """The trail: what the system actually did recently, newest first.
+
+    A state tells you where things are; a trail tells you which way they are going. Entries come from the strategies'
+    own decision logs and from the scheduled tasks' last run times - nothing is synthesised.
+    """
+    events = []
+    for name, strategy in ((brief.get("context") or {}).get("strategies") or {}).items():
+        for row in strategy.get("recent_decisions") or []:
+            events.append({"at": _as_iso(row.get("at")) or str(row.get("at") or "")[:19], "source": name,
+                           "what": row.get("event"), "detail": row.get("reason")})
+    for task in (brief.get("schedule") or {}).get("tasks") or []:
+        ran = _as_iso(task.get("last_run")) if task.get("registered") else None
+        if ran:                       # Task Scheduler writes 30/11/1999 for a task that has never run
+            events.append({"at": ran, "source": "schedule", "what": task["task"],
+                           "detail": f"last result {task.get('last_result')}"})
+    learning = ((brief.get("context") or {}).get("learning") or {})
+    for symbol, decision in (learning.get("per_symbol") or {}).items():
+        events.append({"at": _as_iso(decision.get("at")) or "", "source": "learning", "what": f"{symbol} {decision.get('status')}",
+                       "detail": f"RF {'promoted' if decision.get('rf_promoted') else 'kept'}, "
+                                 f"LSTM {'promoted' if decision.get('lstm_promoted') else 'kept'}"})
+    events = [e for e in events if e["at"]]
+    events.sort(key=lambda e: e["at"], reverse=True)
+    return {"count": len(events), "events": events[:limit],
+            "note": "Straight from the strategies' decision logs and the task scheduler; nothing here is inferred."}
+
+
 def context(get: Optional[Callable] = None) -> dict:
     """What is true right now: the strategies, the models, the learning, and the data behind them.
 
@@ -257,6 +359,8 @@ def context(get: Optional[Callable] = None) -> dict:
                            "sending_orders": body.get("sending_orders"), "halted": body.get("halted"),
                            "account": body.get("account"), "cycle_health": body.get("cycle_health"),
                            "expectancy": body.get("expectancy"), "last_cycle": body.get("last_cycle"),
+                           "open_trade": body.get("open_trade"), "today_trades": len(body.get("today_trades") or []),
+                           "recent_decisions": (body.get("log") or [])[:6],
                            "backtest_verdict": body.get("backtest_verdict")}
 
     models_dir = smartentry_models_dir()
@@ -293,7 +397,7 @@ def build_brief(url_map=None, get: Optional[Callable] = None, now=None, csv_text
                 include_http: bool = True) -> dict:
     """The whole brain in one payload. Sections that cannot be read say so; none of them is filled in with a guess."""
     now = now or datetime.now(timezone.utc)
-    return {
+    brief = {
         "generated_at": _stamp(now),
         "identity": identity(),
         "rules": {"count": len(SIGNATURE_RULES), "signature_rules": SIGNATURE_RULES,
@@ -306,6 +410,9 @@ def build_brief(url_map=None, get: Optional[Callable] = None, now=None, csv_text
         "tools": tools(url_map),
         "loop": loop(now),
     }
+    brief["attention"] = attention(brief)
+    brief["activity"] = activity(brief)
+    return brief
 
 
 def save_brief(brief: dict, path: Optional[Path] = None) -> Path:

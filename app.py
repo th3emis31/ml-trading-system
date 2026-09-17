@@ -22165,122 +22165,268 @@ I40_PILOT_TEMPLATE = r"""
   <title>i40 Pilot</title>
   {{ theme_css | safe }}
   <style>
-    .pi-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
-    .ident { font-size:13px; color:#9fb3d1; font-variant-numeric:tabular-nums; }
-    .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
-    .grid2 .card { margin:0; }
-    .rule { padding:10px 0; border-bottom:1px solid rgba(148,176,222,.18); }
+    /* the shared container is sized for a desktop; on a phone the page must fit the screen, not scroll sideways */
+    html, body { max-width:100%; overflow-x:hidden; }
+    .wrap { max-width:1180px; margin:0 auto; box-sizing:border-box; }
+    @media (max-width: 720px) {
+      .container.wrap { padding-left:14px; padding-right:14px; width:100%; min-width:0; }
+      .nav { overflow-x:auto; }
+      h1 { font-size:26px; }
+      .verdict { font-size:15px; padding:12px 13px; }
+    }
+    .wrap * { min-width:0; }
+    .topline { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:4px; }
+    .topline h1 { margin:0; }
+    .sub { color:#8fa6c4; font-size:13px; margin:2px 0 0; }
+    .verdict { display:flex; align-items:center; gap:12px; border-radius:14px; padding:14px 16px; margin:14px 0;
+               border:1px solid; font-size:17px; font-weight:700; }
+    .verdict .dot { width:12px; height:12px; border-radius:50%; flex:0 0 auto; }
+    .v-ok   { border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.10); color:#d1fae5; }
+    .v-ok .dot { background:#34d399; box-shadow:0 0 12px #34d399; }
+    .v-info { border-color:rgba(96,165,250,.55); background:rgba(59,130,246,.10); color:#dbeafe; }
+    .v-info .dot { background:#60a5fa; box-shadow:0 0 12px #60a5fa; }
+    .v-warn { border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.10); color:#fde68a; }
+    .v-warn .dot { background:#fbbf24; box-shadow:0 0 12px #fbbf24; }
+    .v-bad  { border-color:rgba(251,113,133,.65); background:rgba(225,29,72,.14); color:#fecdd3; }
+    .v-bad .dot { background:#fb7185; box-shadow:0 0 12px #fb7185; }
+
+    .band { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin:0 0 16px; }
+    @media (max-width: 720px) { .band { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .stat .v { font-size:17px; } }
+    @media (max-width: 380px) { .band { grid-template-columns:1fr; } }
+    .stat { border-radius:12px; padding:11px 13px; background:rgba(15,23,42,.72); border:1px solid rgba(148,176,222,.22);
+            border-left:3px solid #38bdf8; }
+    .stat.ok { border-left-color:#34d399; } .stat.warn { border-left-color:#fbbf24; } .stat.bad { border-left-color:#fb7185; }
+    .stat .k { font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:#8fa6c4; }
+    .stat .v { font-size:19px; font-weight:800; color:#f8fafc; margin-top:3px; line-height:1.15; font-variant-numeric:tabular-nums; }
+    .stat .s { font-size:11.5px; color:#9fb3d1; margin-top:3px; }
+
+    .cols { display:grid; grid-template-columns:1.25fr .95fr; gap:14px; align-items:start; }
+    @media (max-width: 860px) { .cols { grid-template-columns:1fr; } }
+    .panel { border-radius:14px; border:1px solid rgba(148,176,222,.22); background:rgba(15,23,42,.6); padding:14px 16px; margin-bottom:14px; }
+    .panel h2 { margin:0 0 4px; font-size:17px; }
+    .panel .lead { color:#8fa6c4; font-size:12.5px; margin:0 0 10px; }
+
+    .att { display:flex; gap:10px; padding:9px 0; border-bottom:1px solid rgba(148,176,222,.14); }
+    .att:last-child { border-bottom:0; }
+    .att .sev { font-size:10px; font-weight:800; letter-spacing:.06em; padding:2px 7px; border-radius:999px; height:fit-content; }
+    .sev.bad { color:#fecdd3; background:rgba(225,29,72,.2); } .sev.warn { color:#fde68a; background:rgba(251,191,36,.18); }
+    .sev.info { color:#bfdbfe; background:rgba(59,130,246,.18); }
+    .att b { display:block; color:#f1f5f9; font-size:13.5px; } .att span { color:#9fb3d1; font-size:12px; }
+
+    .feed { max-height:420px; overflow:auto; }
+    .ev { display:grid; grid-template-columns:132px 1fr; gap:10px; padding:7px 0; border-bottom:1px solid rgba(148,176,222,.12); font-size:12.5px; }
+    .ev:last-child { border-bottom:0; }
+    .ev time { color:#8fa6c4; font-variant-numeric:tabular-nums; }
+    .ev .who { color:#93c5fd; }
+    .ev .what { color:#e2e8f0; } .ev .why { color:#8fa6c4; }
+    @media (max-width: 560px) { .ev { grid-template-columns:1fr; gap:2px; } }
+
+    .strat { border-radius:12px; border:1px solid rgba(148,176,222,.2); padding:11px 13px; margin-bottom:10px; background:rgba(2,6,23,.4); }
+    .strat .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+    .strat .name { font-weight:700; color:#f8fafc; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:700; border:1px solid; white-space:nowrap; }
+    .pill.live { color:#a7f3d0; border-color:rgba(52,211,153,.6); background:rgba(16,185,129,.12); }
+    .pill.dry  { color:#fde68a; border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.10); }
+    .pill.halt { color:#fecdd3; border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.14); }
+    .pill.flat { color:#cbd5e1; border-color:rgba(148,176,222,.4); }
+    .kv { font-size:12px; color:#9fb3d1; margin-top:5px; font-variant-numeric:tabular-nums; }
+
+    details.more { border-radius:12px; border:1px solid rgba(148,176,222,.2); background:rgba(15,23,42,.5); padding:0 14px; margin-bottom:10px; }
+    details.more > summary { cursor:pointer; padding:12px 0; font-weight:700; color:#e2e8f0; list-style:none; display:flex; justify-content:space-between; gap:10px; }
+    details.more > summary::-webkit-details-marker { display:none; }
+    details.more > summary .hint { font-weight:500; color:#8fa6c4; font-size:12px; }
+    details.more[open] > summary { border-bottom:1px solid rgba(148,176,222,.16); }
+    details.more .body { padding:12px 0 14px; }
+    .rule { padding:9px 0; border-bottom:1px solid rgba(148,176,222,.12); }
     .rule:last-child { border-bottom:0; }
-    .rule b { color:#f8fafc; }
-    .rule span { display:block; color:#9fb3d1; font-size:13px; margin-top:3px; }
-    .since { font-size:11px; color:#7f96b5; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; border:1px solid; }
-    .pill.ok { color:#a7f3d0; border-color:rgba(52,211,153,.6); background:rgba(16,185,129,.12); }
-    .pill.warn { color:#fde68a; border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.12); }
-    .pill.bad { color:#fecdd3; border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.14); }
-    ul.tight { margin:6px 0 0; padding-left:18px; } ul.tight li { margin:3px 0; }
-    code.mono { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:#bfdbfe; }
+    .rule b { color:#f1f5f9; font-size:13.5px; } .rule span { display:block; color:#9fb3d1; font-size:12px; margin-top:2px; }
+    .rule .since { color:#7f96b5; font-size:10.5px; }
+    ul.tight { margin:4px 0 0; padding-left:17px; font-size:13px; } ul.tight li { margin:3px 0; }
+    code.mono { font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:#bfdbfe; }
     td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .muted-small { font-size:12px; color:#8fa6c4; }
+    table { font-size:12.5px; }
+    .btn-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   </style>
 </head>
 <body>
   <div class='nav'>{{ main_nav }}</div>
-  <div class='container'>
-    <div class='pi-head'>
+  <div class='container wrap'>
+    <div class='topline'>
       <div>
         <h1>i40 Pilot</h1>
-        <p class='muted' id='role'>Loading…</p>
-        <p class='ident' id='ident'></p>
+        <p class='sub' id='ident'>Loading…</p>
       </div>
-      <div><button id='refresh-btn'>Rebuild now</button> <span class='muted' id='status-line'></span></div>
+      <div class='btn-row'><button id='refresh-btn'>Rebuild now</button><span class='sub' id='status-line'></span></div>
     </div>
-    <div class='card'><h2>Signature rules</h2>
-      <p class='muted' style='margin-top:0'>The owner's standing decisions. They are not defaults, and nothing here is relaxed without the owner saying so.</p>
-      <div id='rules'><p class='muted'>Loading…</p></div></div>
-    <div class='grid2'>
-      <div class='card'><h2>Context</h2><div id='context'><p class='muted'>Loading…</p></div></div>
-      <div class='card'><h2>Memory</h2><div id='memory'><p class='muted'>Loading…</p></div></div>
+
+    <div class='verdict v-info' id='verdict'><span class='dot'></span><span id='verdict-text'>Reading the system…</span></div>
+    <div class='band' id='band'></div>
+
+    <div class='cols'>
+      <div>
+        <div class='panel'>
+          <h2>Needs attention</h2>
+          <p class='lead'>Anything stopped, late, missing or misdirected. An empty list is the answer, not a blank space.</p>
+          <div id='attention'><p class='sub'>Loading…</p></div>
+        </div>
+        <div class='panel'>
+          <h2>Strategies</h2>
+          <p class='lead'>What is running against the demo account, and what it last decided.</p>
+          <div id='strategies'><p class='sub'>Loading…</p></div>
+        </div>
+      </div>
+      <div class='panel'>
+        <h2>Activity</h2>
+        <p class='lead' id='activity-note'>What the system actually did, newest first.</p>
+        <div class='feed' id='activity'><p class='sub'>Loading…</p></div>
+      </div>
     </div>
-    <div class='card'><h2>Schedule</h2><div class='table-wrap' id='schedule'><p class='muted'>Loading…</p></div></div>
-    <div class='grid2'>
-      <div class='card'><h2>Skills</h2><div id='skills'><p class='muted'>Loading…</p></div></div>
-      <div class='card'><h2>Instructions</h2><div id='instructions'><p class='muted'>Loading…</p></div></div>
-    </div>
-    <div class='card'><h2>Tools</h2><div id='tools'><p class='muted'>Loading…</p></div></div>
+
+    <details class='more' id='rules-box'><summary>Signature rules <span class='hint' id='rules-hint'></span></summary>
+      <div class='body'><p class='lead'>The owner's standing decisions. They are not defaults, and nothing here is relaxed without the owner saying so.</p>
+      <div id='rules'></div></div></details>
+    <details class='more'><summary>Schedule <span class='hint' id='schedule-hint'></span></summary>
+      <div class='body'><div class='table-wrap' id='schedule'></div></div></details>
+    <details class='more'><summary>Memory <span class='hint' id='memory-hint'></span></summary>
+      <div class='body' id='memory'></div></details>
+    <details class='more'><summary>Skills and instructions <span class='hint' id='skills-hint'></span></summary>
+      <div class='body'><div id='skills'></div><h3>Instructions</h3><div id='instructions'></div></div></details>
+    <details class='more'><summary>Tools <span class='hint' id='tools-hint'></span></summary>
+      <div class='body' id='tools'></div></details>
+    <details class='more'><summary>Context detail <span class='hint'>models, learning, positioning</span></summary>
+      <div class='body' id='context'></div></details>
   </div>
 <script>
 const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const gap = s => `<p class='muted'>${esc((s || {}).reason || 'not available')}</p>`;
+const gap = s => `<p class='sub'>${esc((s || {}).reason || 'not available')}</p>`;
+const shortTime = t => String(t || '').slice(5, 16);
+
+function setVerdict(attention, loop) {
+  const worst = (attention || {}).worst || 'info';
+  const box = document.getElementById('verdict');
+  box.className = 'verdict v-' + worst;
+  const extra = attention && attention.count ? ` — ${attention.count} item${attention.count > 1 ? 's' : ''} below` : '';
+  document.getElementById('verdict-text').textContent = ((attention || {}).headline || 'Reading the system…') + extra;
+}
+
+function band(d) {
+  const c = d.context || {}, strategies = Object.values(c.strategies || {});
+  const running = strategies.filter(s => s.available);
+  const sending = running.filter(s => s.sending_orders && !s.halted).length;
+  const halted = running.filter(s => s.halted).length;
+  const sched = d.schedule || {}, tasks = sched.tasks || [];
+  const late = (sched.missing || []).length;
+  const account = (running.find(s => (s.account || {}).available) || {}).account || {};
+  const mem = d.memory || {}, loop = d.loop || {};
+  const learn = c.learning || {};
+  const learned = Object.keys(learn.per_symbol || {}).length;
+  const tiles = [
+    {k: 'Strategies', v: `${sending} sending · ${running.length - sending - halted} dry`,
+     s: halted ? `${halted} halted` : `${running.length} of ${strategies.length} readable`,
+     cls: halted ? 'bad' : running.length === strategies.length ? 'ok' : 'warn'},
+    {k: 'Demo account', v: account.available ? `${Number(account.equity).toLocaleString('en-GB')} ${esc(account.currency || '')}` : '—',
+     s: account.available ? `equity · balance ${Number(account.balance).toLocaleString('en-GB')}` : 'MT5 not readable', cls: account.available ? 'ok' : 'warn'},
+    {k: 'Scheduled tasks', v: `${tasks.length - late} / ${tasks.length}`, s: late ? `${late} missing` : 'all registered',
+     cls: late ? 'bad' : 'ok'},
+    {k: 'Learning', v: learn.available ? `${learned} symbol${learned === 1 ? '' : 's'}` : '—',
+     s: learn.available ? `${learn.decisions} decisions recorded` : (learn.reason || ''), cls: learn.available ? 'ok' : 'warn'},
+    {k: 'Recorded results', v: mem.available ? mem.baseline_rows : '—',
+     s: mem.available ? `${mem.open_backlog_count} open backlog items` : (mem.reason || ''), cls: 'ok'},
+    {k: 'Brief age', v: loop.available ? `${loop.age_minutes} min` : 'not written',
+     s: loop.available ? `refreshes every ${loop.every_minutes} min` : (loop.reason || ''), cls: loop.stale ? 'warn' : 'ok'},
+  ];
+  document.getElementById('band').innerHTML = tiles.map(t =>
+    `<div class='stat ${t.cls}'><div class='k'>${esc(t.k)}</div><div class='v'>${esc(t.v)}</div><div class='s'>${esc(t.s)}</div></div>`).join('');
+}
+
+function renderAttention(a) {
+  const box = document.getElementById('attention');
+  if (!a || !a.count) { box.innerHTML = "<p class='sub'>Nothing is stuck: no strategy halted, no task missing, no cycle late.</p>"; return; }
+  box.innerHTML = (a.items || []).map(i => `<div class='att'><span class='sev ${esc(i.severity)}'>${esc(i.severity)}</span>
+    <div><b>${esc(i.what)}</b><span>${esc(i.why)}</span><span><a href='${esc(i.where)}'>${esc(i.where)}</a></span></div></div>`).join('');
+}
+
+function renderStrategies(c) {
+  const box = document.getElementById('strategies');
+  const entries = Object.entries((c || {}).strategies || {});
+  if (!entries.length) { box.innerHTML = "<p class='sub'>No strategy could be read.</p>"; return; }
+  box.innerHTML = entries.map(([name, s]) => {
+    if (!s.available) return `<div class='strat'><div class='row'><span class='name'>${esc(name)}</span><span class='pill halt'>unreadable</span></div><div class='kv'>${esc(s.reason)}</div></div>`;
+    const mode = s.halted ? "<span class='pill halt'>halted</span>" : s.sending_orders ? "<span class='pill live'>sending orders</span>" : "<span class='pill dry'>dry run</span>";
+    const cycle = s.cycle_health || {};
+    const cyclePill = cycle.available ? (cycle.late ? `<span class='pill halt'>cycle ${esc(cycle.age_minutes)} min late</span>` : `<span class='pill flat'>ran ${esc(cycle.age_minutes)} min ago</span>`) : '';
+    const last = (s.recent_decisions || [])[0] || {};
+    const ex = s.expectancy && s.expectancy.demo_broker_fills ? s.expectancy.demo_broker_fills : s.expectancy || {};
+    return `<div class='strat'>
+      <div class='row'><span class='name'>${esc(name)}</span>${mode}${cyclePill}</div>
+      <div class='kv'>${esc(s.symbol)} · magic ${esc(s.magic)} · ${s.open_trade ? 'position open' : 'flat'} · ${esc(s.today_trades)} trade(s) today · ${ex.trades || 0} settled, expectancy ${ex.expectancy_r === null || ex.expectancy_r === undefined ? '—' : esc(ex.expectancy_r) + 'R'}</div>
+      <div class='kv'>last: <strong>${esc(last.event || '—')}</strong> ${esc(last.reason || '')}</div></div>`;
+  }).join('');
+}
+
+function renderActivity(a) {
+  const box = document.getElementById('activity');
+  if (!a || !(a.events || []).length) { box.innerHTML = "<p class='sub'>No activity recorded yet.</p>"; return; }
+  document.getElementById('activity-note').textContent = a.note || '';
+  box.innerHTML = a.events.map(e => `<div class='ev'><time>${esc(shortTime(e.at))} <span class='who'>${esc(e.source)}</span></time>
+    <div><span class='what'>${esc(e.what)}</span> <span class='why'>${esc(e.detail || '')}</span></div></div>`).join('');
+}
 
 function renderRules(rules) {
-  document.getElementById('rules').innerHTML = (rules.signature_rules || []).map(r =>
+  document.getElementById('rules-hint').textContent = `${(rules || {}).count || 0} standing rules`;
+  document.getElementById('rules').innerHTML = ((rules || {}).signature_rules || []).map(r =>
     `<div class='rule'><b>${esc(r.rule)}</b><span>${esc(r.why)}</span><span class='since'>standing since ${esc(r.since)}</span></div>`).join('');
+}
+
+function renderSchedule(s) {
+  document.getElementById('schedule-hint').textContent = s && s.available
+    ? `${s.count} tasks${(s.missing || []).length ? ', ' + s.missing.length + ' missing' : ', none missing'}` : 'unavailable';
+  const box = document.getElementById('schedule');
+  if (!s || !s.available) { box.innerHTML = gap(s); return; }
+  box.innerHTML = `<table><tr><th>Task</th><th>Runs</th><th>Last run</th><th>Next run</th><th>Result</th></tr>` +
+    (s.tasks || []).map(t => `<tr><td>${esc(t.task)}</td><td>${esc(t.schedule)}</td><td>${esc(t.last_run)}</td>
+      <td>${esc(t.next_run)}</td><td>${t.registered ? esc(t.last_result) : "<span class='pill halt'>not registered</span>"}</td></tr>`).join('') + '</table>';
+}
+
+function renderMemory(m) {
+  document.getElementById('memory-hint').textContent = m && m.available
+    ? `${m.baseline_rows} recorded results · ${m.open_backlog_count} open` : 'unavailable';
+  const box = document.getElementById('memory');
+  if (!m || !m.available) { box.innerHTML = gap(m); return; }
+  box.innerHTML = `<p class='lead'>${esc(m.note)}</p>
+    <h3>Latest recorded results</h3><ul class='tight'>${(m.latest_results || []).map(row => {
+      const cells = row.split('|').filter(c => c.trim());
+      return `<li><strong>${esc((cells[0] || '').trim())}</strong> ${esc((cells[1] || '').trim())} — ${esc((cells[2] || '').trim().slice(0, 160))}</li>`;
+    }).join('')}</ul>
+    <h3>Recent notes</h3><ul class='tight'>${(m.recent_notes || []).map(n => `<li>${esc(n.slice(0, 220))}</li>`).join('')}</ul>`;
+}
+
+function renderSkills(s, instructions) {
+  document.getElementById('skills-hint').textContent = s && s.available ? `${s.count} skills` : 'unavailable';
+  document.getElementById('skills').innerHTML = s && s.available
+    ? `<ul class='tight'>${(s.skills || []).map(k => `<li><code class='mono'>/${esc(k.name)}</code> ${esc(k.description)}</li>`).join('')}</ul>`
+    : gap(s);
+  document.getElementById('instructions').innerHTML = `<ul class='tight'>${(instructions || []).map(i => `<li>${esc(i)}</li>`).join('')}</ul>`;
+}
+
+function renderTools(t) {
+  document.getElementById('tools-hint').textContent = `${((t || {}).commands || []).length} commands · ${esc((t || {}).api_endpoint_count)} endpoints`;
+  document.getElementById('tools').innerHTML = `<ul class='tight'>${((t || {}).commands || []).map(c =>
+      `<li><code class='mono'>${esc(c.command)}</code> — ${esc(c.does)}</li>`).join('')}</ul>
+    <details style='margin-top:10px'><summary class='sub'>every HTTP endpoint</summary>
+      <ul class='tight'>${((t || {}).api_endpoints || []).map(e => `<li><code class='mono'>${esc(e)}</code></li>`).join('')}</ul></details>`;
 }
 
 function renderContext(c) {
   const box = document.getElementById('context');
   if (!c) { box.innerHTML = gap(c); return; }
-  const strat = Object.entries(c.strategies || {}).map(([name, s]) => {
-    if (!s.available) return `<li>${esc(name)}: <span class='pill warn'>unreadable</span> <span class='muted-small'>${esc(s.reason)}</span></li>`;
-    const mode = s.halted ? "<span class='pill bad'>halted</span>" : s.sending_orders ? "<span class='pill ok'>sending orders</span>" : "<span class='pill warn'>dry run</span>";
-    const cycle = s.cycle_health && s.cycle_health.available
-      ? `${s.cycle_health.late ? "<span class='pill bad'>cycle late</span>" : ''} <span class='muted-small'>last cycle ${esc(s.cycle_health.last_cycle_utc)} (${esc(s.cycle_health.age_minutes)} min)</span>` : '';
-    return `<li>${esc(name)} <span class='muted-small'>magic ${esc(s.magic)} · ${esc(s.symbol)}</span> ${mode} ${cycle}</li>`;
-  }).join('');
-  const learn = c.learning && c.learning.available
-    ? `<ul class='tight'>${Object.entries(c.learning.per_symbol || {}).map(([sym, d]) =>
-        `<li>${esc(sym)}: ${esc(d.status)}, RF ${d.rf_promoted ? 'promoted' : 'kept'}, LSTM ${d.lstm_promoted ? 'promoted' : 'kept'} <span class='muted-small'>accuracy ${esc(d.accuracy)}</span></li>`).join('')}</ul>`
-    : gap(c.learning);
-  const models = c.models && c.models.available
-    ? `<p>${esc(c.models.count)} model file(s), newest written ${esc(c.models.newest_written)} UTC <span class='muted-small'>${esc(c.models.folder)}</span></p>`
-    : gap(c.models);
-  const pos = c.positioning && c.positioning.available
-    ? `<p>CFTC positioning as of ${esc(c.positioning.as_of)}</p>` : gap(c.positioning);
-  box.innerHTML = `<h3>Strategies</h3><ul class='tight'>${strat || '<li class="muted">none</li>'}</ul>
-    <h3>Learning</h3>${learn}<h3>Models</h3>${models}<h3>Positioning</h3>${pos}`;
-}
-
-function renderMemory(m) {
-  const box = document.getElementById('memory');
-  if (!m || !m.available) { box.innerHTML = gap(m); return; }
-  box.innerHTML = `<p><strong>${esc(m.baseline_rows)}</strong> recorded results, <strong>${esc(m.lesson_count)}</strong> lesson(s), <strong>${esc(m.open_backlog_count)}</strong> open backlog item(s).</p>
-    <p class='muted-small'>${esc(m.note)}</p>
-    <h3>Latest recorded results</h3><div class='table-wrap'><table>${(m.latest_results || []).map(row =>
-      '<tr>' + row.split('|').filter(c => c.trim()).slice(0, 4).map(c => {
-        const text = c.trim();
-        return `<td title='${esc(text)}'>${esc(text.length > 90 ? text.slice(0, 90) + '…' : text)}</td>`;
-      }).join('') + '</tr>').join('')}</table>
-      <p class='muted-small'>First columns only; the full rows are in .claude/memory/BASELINE.md.</p></div>
-    <h3>Recent notes</h3><ul class='tight'>${(m.recent_notes || []).map(n => `<li class='muted-small'>${esc(n)}</li>`).join('')}</ul>`;
-}
-
-function renderSchedule(s) {
-  const box = document.getElementById('schedule');
-  if (!s || !s.available) { box.innerHTML = gap(s); return; }
-  box.innerHTML = `<p class='muted' style='margin-top:0'>${esc(s.note)}${(s.missing || []).length ? " <span class='pill bad'>missing: " + esc((s.missing || []).join(', ')) + '</span>' : ''}</p>
-    <table><tr><th>Task</th><th>Runs</th><th>Last run</th><th>Next run</th><th>Last result</th></tr>` +
-    (s.tasks || []).map(t => `<tr><td>${esc(t.task)}<div class='muted-small'>${esc(t.script)}</div></td>
-      <td class='muted-small'>${esc(t.schedule)}</td><td>${esc(t.last_run)}</td><td>${esc(t.next_run)}</td>
-      <td>${t.registered ? esc(t.last_result) : "<span class='pill bad'>not registered</span>"}</td></tr>`).join('') + '</table>';
-}
-
-function renderSkills(s) {
-  const box = document.getElementById('skills');
-  if (!s || !s.available) { box.innerHTML = gap(s); return; }
-  box.innerHTML = `<ul class='tight'>${(s.skills || []).map(k =>
-    `<li><code class='mono'>/${esc(k.name)}</code> <span class='muted-small'>${esc(k.description)}</span></li>`).join('')}</ul>`;
-}
-
-function renderTools(t) {
-  document.getElementById('tools').innerHTML = `<p class='muted' style='margin-top:0'>${esc((t || {}).note || '')}</p>
-    <div class='grid2'>
-      <div><h3>Commands</h3><ul class='tight'>${((t || {}).commands || []).map(c =>
-        `<li><code class='mono'>${esc(c.command)}</code><div class='muted-small'>${esc(c.does)}</div></li>`).join('')}</ul></div>
-      <div><h3>HTTP endpoints (${esc((t || {}).api_endpoint_count)})</h3>
-        <details><summary class='muted'>show all</summary><ul class='tight'>${((t || {}).api_endpoints || []).map(e =>
-          `<li><code class='mono'>${esc(e)}</code></li>`).join('')}</ul></details></div>
-    </div>`;
+  const learn = c.learning || {}, models = c.models || {}, pos = c.positioning || {};
+  box.innerHTML = `<h3>Learning</h3>${learn.available
+      ? `<ul class='tight'>${Object.entries(learn.per_symbol || {}).map(([sym, d]) =>
+          `<li>${esc(sym)}: ${esc(d.status)} · RF ${d.rf_promoted ? 'promoted' : 'kept'} · LSTM ${d.lstm_promoted ? 'promoted' : 'kept'} · accuracy ${d.accuracy === null || d.accuracy === undefined ? '—' : Number(d.accuracy).toFixed(3)}</li>`).join('')}</ul>`
+      : gap(learn)}
+    <h3>Models</h3>${models.available ? `<p class='lead'>${esc(models.count)} file(s), newest written ${esc(models.newest_written)} UTC — ${esc(models.folder)}</p>` : gap(models)}
+    <h3>Positioning</h3>${pos.available ? `<p class='lead'>CFTC report as of ${esc(pos.as_of)} — <a href='/positioning'>open the page</a></p>` : gap(pos)}`;
 }
 
 async function load(live) {
@@ -22289,23 +22435,26 @@ async function load(live) {
   let d;
   try { d = await (await fetch('/api/i40-pilot' + (live ? '?live=1' : ''))).json(); }
   catch (e) { line.textContent = 'unavailable: ' + e; return; }
-  if (!d.available && d.reason) { line.textContent = d.reason; }
   const id = d.identity || {};
-  document.getElementById('role').textContent = id.role || '';
-  document.getElementById('ident').textContent = `${id.folder || ''} · ${id.branch || ''} @ ${id.commit || ''} · reads only, places no orders`;
-  renderRules(d.rules || {});
-  renderContext(d.context);
-  renderMemory(d.memory);
+  document.getElementById('ident').textContent = `${id.role || ''}`;
+  setVerdict(d.attention, d.loop);
+  band(d);
+  renderAttention(d.attention);
+  renderStrategies(d.context);
+  renderActivity(d.activity);
+  renderRules(d.rules);
   renderSchedule(d.schedule);
-  renderSkills(d.skills);
+  renderMemory(d.memory);
+  renderSkills(d.skills, d.instructions);
   renderTools(d.tools);
-  document.getElementById('instructions').innerHTML = `<ul class='tight'>${(d.instructions || []).map(i => `<li>${esc(i)}</li>`).join('')}</ul>`;
+  renderContext(d.context);
   const loop = d.loop || {};
-  line.textContent = `brief ${esc(d.generated_at)} UTC` + (loop.available ? ` · ${loop.age_minutes} min old${loop.stale ? ' · stale' : ''}` : '');
+  line.textContent = `${esc(id.branch || '')} @ ${esc(id.commit || '')} · brief ${esc(d.generated_at)} UTC`
+    + (loop.available ? ` · ${loop.age_minutes} min old` : '') + (d.available === false ? ` · ${esc(d.reason)}` : '');
 }
 document.getElementById('refresh-btn').addEventListener('click', () => load(true));
 load(false);
-setInterval(() => load(false), 300000);
+setInterval(() => load(false), 120000);
 </script>
 </body>
 </html>

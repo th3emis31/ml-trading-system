@@ -116,3 +116,57 @@ def test_endpoint_serves_the_brief_and_the_page_lists_the_rules(tmp_path, monkey
     html = client.get("/i40-pilot").get_data(as_text=True)
     for label in ("Signature rules", "Memory", "Schedule", "Skills", "Instructions", "Tools", "Context"):
         assert label in html, f"the page must show {label}"
+
+
+def test_attention_names_what_is_wrong_and_stays_quiet_when_nothing_is():
+    """Counting problems is useless; the page has to name them, worst first, with somewhere to look."""
+    healthy = {"context": {"strategies": {"pullback": {"available": True, "halted": None, "sending_orders": False,
+                                                       "cycle_health": {"available": True, "late": False},
+                                                       "account": {"available": True, "is_demo": True}}},
+                           "positioning": {"available": True}},
+               "schedule": {"tasks": [{"task": "SmartEntry Demo Pullback", "registered": True, "last_result": "0"}],
+                            "missing": []},
+               "loop": {"available": True, "stale": False}}
+    quiet = pilot.attention(healthy)
+    assert quiet["count"] == 0 and quiet["worst"] == "ok" and "running" in quiet["headline"]
+
+    broken = {"context": {"strategies": {
+                  "pullback": {"available": True, "halted": {"kind": "daily_loss", "reason": "day loss 3 %"},
+                               "cycle_health": {"available": True, "late": False},
+                               "account": {"available": True, "is_demo": True}},
+                  "breakout": {"available": True, "halted": None,
+                               "cycle_health": {"available": True, "late": True, "age_minutes": 240,
+                                                "note": "looks stopped"},
+                               "account": {"available": True, "is_demo": False}}},
+                  "positioning": {"available": False, "reason": "not downloaded"}},
+              "schedule": {"tasks": [{"task": "SmartEntry Daily Learning", "registered": True, "last_result": "1"}],
+                           "missing": ["SmartEntry i40 Pilot"]},
+              "loop": {"available": True, "stale": True, "age_minutes": 300}}
+    found = pilot.attention(broken)
+    # halted, non-demo account, unregistered task (bad); late cycle, failed task, stale brief (warn); no positioning (info)
+    assert found["worst"] == "bad" and found["count"] == 7
+    assert [i["severity"] for i in found["items"]] == sorted([i["severity"] for i in found["items"]],
+                                                            key=lambda s: pilot.ATTENTION_ORDER[s]), "worst first"
+    what = " ".join(i["what"] for i in found["items"])
+    assert "halted" in what and "non-demo account" in what and "not registered" in what and "brief is 300 min old" in what
+
+
+def test_activity_merges_sources_newest_first_and_drops_never_run_tasks():
+    brief = {"context": {"strategies": {"breakout": {"available": True, "recent_decisions": [
+                 {"at": "2026-09-17 22:03:06", "event": "no_setup", "reason": "no breakout"},
+                 {"at": "2026-09-17 21:03:05", "event": "no_setup", "reason": "no breakout"}]}},
+                         "learning": {"available": True, "per_symbol": {
+                             "XAUUSD": {"status": "trained", "rf_promoted": True, "lstm_promoted": False,
+                                        "at": "2026-09-17 05:31:00"}}}},
+             "schedule": {"tasks": [
+                 {"task": "SmartEntry System Doctor", "registered": True, "last_run": "17/09/2026 23:28:01",
+                  "last_result": "0"},
+                 {"task": "SmartEntry i40 Pilot", "registered": True, "last_run": "30/11/1999 00:00:00",
+                  "last_result": "267011"}]}}
+    trail = pilot.activity(brief)
+    stamps = [e["at"] for e in trail["events"]]
+    assert stamps == sorted(stamps, reverse=True), "newest first, whatever the source wrote"
+    assert "2026-09-17 23:28:01" in stamps, "a local dd/mm/yyyy task time is normalised"
+    assert all("1999" not in s for s in stamps), "a task that never ran is not an event"
+    assert {e["source"] for e in trail["events"]} == {"breakout", "schedule", "learning"}
+    assert pilot._as_iso("30/11/1999 00:00:00") is None and pilot._as_iso("") is None
