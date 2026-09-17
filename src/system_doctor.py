@@ -54,7 +54,8 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_learning_pollution.py", "tests/test_training_gate.py", "tests/test_retrain_routes_locked.py",
               "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py",
               "tests/test_demo_session_pullback.py",
-              "tests/test_demo_volatility_breakout.py")
+              "tests/test_demo_volatility_breakout.py",
+              "tests/test_plan_journal.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -65,6 +66,7 @@ TASKS = {
     "SmartEntry Daily Learning": {"script": "run_daily_learning.cmd", "schedule": ["/sc", "daily", "/st", "05:30"]},
     "SmartEntry Demo Pullback": {"script": "run_demo_pullback.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:01"]},
     "SmartEntry Demo Breakout": {"script": "run_demo_breakout.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:03"]},
+    "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
     # Opens Claude Code (tabs "bridge" and "desk") at this user's logon; recreated by --fix if missing.
     "SmartEntry Claude Code": {"script": "start_claude.cmd", "schedule": ["/sc", "onlogon"]},

@@ -22034,6 +22034,13 @@ def demo_breakout_resume_api():
   return jsonify(event)
 
 
+@app.route('/api/plan-journal')
+def plan_journal_api():
+  """What the system learned from its chart plans (src/plan_journal.py, task SmartEntry Plan Journal). Read-only."""
+  from src import plan_journal
+  return jsonify(plan_journal.read_latest())
+
+
 @app.route('/api/demo-breakout/status')
 def demo_breakout_status_api():
   from src import demo_volatility_breakout
