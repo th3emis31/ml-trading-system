@@ -1,0 +1,128 @@
+//@version=6
+// Family C Mean Reversion SHORT - v3 (honest-backtest build), 2026-09-17
+// Same signal and thresholds as v2. Changes, each from a measured problem (BASELINE.md 2026-09-17):
+//   1. HTF values: v2's "closed bar" option used request.security(..., [s, s[1]]) with lookahead_off, which on
+//      history returns the SECOND-latest closed 15M/30M bar but in realtime the latest one, so backtest and live saw
+//      different data. v3 requests expr[1] with lookahead_on: the latest closed HTF bar on history and in realtime.
+//   2. Costs: v2 charged 0.005 % commission and 3 ticks slippage (3 ticks = $0.003 on OANDA gold, effectively zero)
+//      and no spread. With a 1.5 x ATR(5M) stop (about $6) a real round trip of about $2 is ~0.3R per trade.
+//      v3 charges an editable cash cost per side per ounce plus slippage in ticks, defaulting to about $2.15 per
+//      round trip (0.05 % of price at 4,300).
+//   3. Optional filters (H1 EMA50<EMA200 trend, 07-20 UTC session) are OFF by default: tested on 17 months of
+//      Vantage 5M bars they did not fix the losing Apr 2025-Feb 2026 period, so they are for inspection only.
+// Status: NOT a validated edge. Replica test on Vantage MT5 5M XAUUSD 2025-04-24 -> 2026-09-15, broker costs:
+//   Apr 2025-Feb 2026 272 trades exp -0.42R PF 0.56; Feb-Sep 2026 134 trades exp +0.35R PF 1.61; best deflated
+//   Sharpe 0.83 (< 0.95). The thresholds are data-mined; the profitable period likely overlaps their discovery data.
+
+strategy("Family C Mean Reversion SHORT v3", overlay=true, pyramiding=0,
+     process_orders_on_close=false, calc_on_order_fills=true,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.07,
+     slippage=0)
+
+G_IND  = "① Indicators"
+G_RISK = "② Risk"
+G_THR  = "③ Family C thresholds"
+G_FLT  = "④ Optional filters (off = v2 behaviour)"
+
+rsiLength = input.int(14, "RSI Length", minval=1, group=G_IND)
+emaFast   = input.int(9, "EMA Fast", minval=1, group=G_IND)
+emaSlow   = input.int(21, "EMA Slow", minval=1, group=G_IND)
+atrLength = input.int(14, "ATR Length", minval=1, group=G_IND)
+
+stopATR        = input.float(1.50, "Stop ATR", minval=0.1, step=0.05, group=G_RISK)
+rr             = input.float(2.00, "Risk Reward", minval=0.1, step=0.25, group=G_RISK)
+maxBarsInTrade = input.int(144, "Max bars in trade", minval=1, group=G_RISK, tooltip="144 x 5M = 12 hours.")
+
+ema15ChangeThreshold = input.float(0.016396, "15M EMA spread change threshold", step=0.000001, group=G_THR)
+vol30Threshold       = input.float(0.001277, "30M volatility threshold", step=0.000001, group=G_THR)
+rsi5SlopeThreshold   = input.float(1.209244, "5M RSI slope threshold", step=0.000001, group=G_THR)
+ema5SlopeThreshold   = input.float(0.007065, "5M EMA spread slope threshold", step=0.000001, group=G_THR)
+
+// Costs are set in strategy() because Pine needs constants there: commission_value 1.07 = cash per side per ounce
+// (spread + commission, about $2.15 round trip). Change it in the strategy Properties tab to match your broker.
+useTrendFilter   = input.bool(false, "Short only when H1 EMA50 < EMA200", group=G_FLT)
+useSessionFilter = input.bool(false, "Entries 07:00-20:00 UTC only", group=G_FLT)
+
+is5m = timeframe.isminutes and timeframe.multiplier == 5
+if barstate.islast and not is5m
+    label.new(bar_index, high, "Family C: apply on the 5-minute chart. No trades on this timeframe.",
+         style=label.style_label_down, color=color.red, textcolor=color.white)
+
+// 5M features
+goldRsi5      = ta.rsi(close, rsiLength)
+goldRsiSlope6 = (goldRsi5 - goldRsi5[6]) / 6.0
+emaSpread5Pct = ((ta.ema(close, emaFast) - ta.ema(close, emaSlow)) / close) * 100.0
+emaSpread5Slope6 = (emaSpread5Pct - emaSpread5Pct[6]) / 6.0
+atr5 = ta.atr(atrLength)
+
+// HTF features: the latest CLOSED bar, identical on history and in realtime (expr[1] + lookahead_on)
+// Each function returns the value of the previous (closed) HTF bar.
+f_spread_prev() =>
+    s = ((ta.ema(close, emaFast) - ta.ema(close, emaSlow)) / close) * 100.0
+    s[1]
+f_vol_prev() =>
+    v = ta.stdev(close / close[1] - 1.0, 12)
+    v[1]
+f_trend_gap_prev() =>
+    g = ta.ema(close, 50) - ta.ema(close, 200)
+    g[1]
+
+emaSpread15Pct = request.security(syminfo.tickerid, "15", f_spread_prev(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+volatility30   = request.security(syminfo.tickerid, "30", f_vol_prev(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+h1TrendGap     = request.security(syminfo.tickerid, "60", f_trend_gap_prev(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+emaSpread15Change3 = emaSpread15Pct - emaSpread15Pct[3]
+
+// Signal
+condEma15 = emaSpread15Change3 > ema15ChangeThreshold
+condVol30 = volatility30 <= vol30Threshold
+condRsi5  = goldRsiSlope6 > rsi5SlopeThreshold
+condEma5  = emaSpread5Slope6 > ema5SlopeThreshold
+nextBarHourUtc = hour(time + timeframe.in_seconds() * 1000, "UTC")
+trendOk   = not useTrendFilter or (not na(h1TrendGap) and h1TrendGap < 0)
+sessionOk = not useSessionFilter or (nextBarHourUtc >= 7 and nextBarHourUtc < 20)
+
+familyC = is5m and barstate.isconfirmed and condEma15 and condVol30 and condRsi5 and condEma5 and trendOk and sessionOk
+
+// Trade state, entry, exits (as v2)
+var float pendingAtr = na
+var float stopPrice = na
+var float targetPrice = na
+var int entryBar = na
+
+if familyC and strategy.position_size == 0
+    pendingAtr := atr5
+    strategy.entry("Family C Short", strategy.short)
+
+newShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+if newShort
+    entryBar := bar_index
+    riskDistance = pendingAtr * stopATR
+    stopPrice := strategy.position_avg_price + riskDistance
+    targetPrice := strategy.position_avg_price - riskDistance * rr
+
+if strategy.position_size < 0
+    strategy.exit("Family C Exit", from_entry="Family C Short", stop=stopPrice, limit=targetPrice)
+
+barsInTrade = strategy.position_size < 0 and not na(entryBar) ? bar_index - entryBar + 1 : 0
+if strategy.position_size < 0 and barsInTrade >= maxBarsInTrade
+    strategy.close("Family C Short", comment="12H Timeout")
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    pendingAtr := na
+    stopPrice := na
+    targetPrice := na
+    entryBar := na
+
+// Plots
+plot(strategy.position_size < 0 ? stopPrice : na, "Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? targetPrice : na, "Take Profit", color=color.lime, linewidth=2, style=plot.style_linebr)
+plotshape(familyC and strategy.position_size == 0, title="Family C SELL", text="SELL",
+     style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.small)
+plot(goldRsiSlope6, "5M RSI slope6", display=display.data_window)
+plot(emaSpread5Slope6, "5M EMA spread slope6", display=display.data_window)
+plot(emaSpread15Change3, "15M EMA spread change3", display=display.data_window)
+plot(volatility30, "30M volatility12", display=display.data_window)
+
+alertcondition(familyC and strategy.position_size == 0, "Family C SELL", "Family C Mean Reversion SHORT v3: SELL signal on {{ticker}}")
