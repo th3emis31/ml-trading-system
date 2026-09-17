@@ -55,7 +55,7 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_event_defence.py", "tests/test_gold_session_pullback_lab.py",
               "tests/test_demo_session_pullback.py",
               "tests/test_demo_volatility_breakout.py",
-              "tests/test_plan_journal.py")
+              "tests/test_plan_journal.py", "tests/test_atomic_analyst.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -252,6 +252,26 @@ def check_demo_pullback(state_path: Path = ROOT / "data" / "paper_trading" / "de
         return _result(label, "trading", "warn", f"{label} {mode}: no cycle in the last 2.5 h (task {task}).", **detail)
     return _result(label, "trading", "ok", f"{label} {mode}; last cycle {state['last_cycle'].get('at')} UTC: "
                    f"{state['last_cycle'].get('reason')}", **detail)
+
+
+def check_atomic_analyst(now: Optional[datetime] = None) -> dict:
+    """The owner's MT5 ATOMIC ANALYST V85 panel: reports whether its files are fresh. Evidence only, never an input."""
+    from .atomic_analyst import SYMBOLS, read_panel
+
+    now = now or _now_utc()
+    panels = {symbol: read_panel(symbol, now) for symbol in SYMBOLS}
+    found = {s: p for s, p in panels.items() if p.get("available")}
+    detail = {s: {"verdict": p.get("verdict"), "age_minutes": p.get("age_minutes"), "fresh": p.get("fresh")}
+              for s, p in found.items()}
+    if not found:
+        return _result("Atomic panel", "trading", "info", "The ATOMIC ANALYST V85 panel has written no files "
+                       "(its MT5 chart is closed, or the indicator is not attached).")
+    stale = [s for s, p in found.items() if not p.get("fresh")]
+    if stale:
+        return _result("Atomic panel", "trading", "warn", f"Panel files are stale for {', '.join(stale)}: the MT5 chart "
+                       "is probably closed. Read-only evidence, so nothing in the system is affected.", **detail)
+    return _result("Atomic panel", "trading", "ok",
+                   "Panel fresh for " + ", ".join(f"{s} ({p.get('verdict')})" for s, p in found.items()), **detail)
 
 
 def check_paper_trader(state_path: Path = ROOT / "data" / "paper_trading" / "xauusd_4h_mtf_xgb_tight_q90.json",
@@ -600,7 +620,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               check_paper_trader, check_atomic_analyst, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]

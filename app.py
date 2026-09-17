@@ -22034,6 +22034,14 @@ def demo_breakout_resume_api():
   return jsonify(event)
 
 
+@app.route('/api/atomic-analyst')
+def atomic_analyst_api():
+  """The owner's MT5 ATOMIC ANALYST V85 panel as read-only evidence, with how it lines up with the system's plans.
+  It never feeds the signal engine, the execution gate, position size or a stop (src/atomic_analyst.py)."""
+  from src import atomic_analyst
+  return jsonify(atomic_analyst.overview())
+
+
 @app.route('/api/plan-journal')
 def plan_journal_api():
   """What the system learned from its chart plans (src/plan_journal.py, task SmartEntry Plan Journal). Read-only."""
