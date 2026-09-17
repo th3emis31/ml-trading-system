@@ -4,20 +4,22 @@
 //   1. HTF values: v2's "closed bar" option used request.security(..., [s, s[1]]) with lookahead_off, which on
 //      history returns the SECOND-latest closed 15M/30M bar but in realtime the latest one, so backtest and live saw
 //      different data. v3 requests expr[1] with lookahead_on: the latest closed HTF bar on history and in realtime.
-//   2. Costs: v2 charged 0.005 % commission and 3 ticks slippage (3 ticks = $0.003 on OANDA gold, effectively zero)
-//      and no spread. With a 1.5 x ATR(5M) stop (about $6) a real round trip of about $2 is ~0.3R per trade.
-//      v3 charges one editable cash cost per side per ounce (spread + commission + slippage together), defaulting to
-//      about $2.15 per round trip (0.05 % of price at 4,300).
+//   2. Costs: one editable cash cost per side per ounce (spread + commission + slippage together), default $0.215,
+//      i.e. about $0.43 per round trip - the same level as v2's 0.005 % per side at 4,300 and about twice the
+//      measured Vantage demo spread ($0.22, 2026-09-17). A first v3 draft used $1.07 per side ($2.14 round trip),
+//      about 10x the real spread, which wrongly made v3 look worse than v2.
 //   3. Optional filters (H1 EMA50<EMA200 trend, 07-20 UTC session) are OFF by default: tested on 17 months of
 //      Vantage 5M bars they did not fix the losing Apr 2025-Feb 2026 period, so they are for inspection only.
 // Status: NOT a validated edge. Replica test on Vantage MT5 5M XAUUSD 2025-04-24 -> 2026-09-15, broker costs:
-//   Apr 2025-Feb 2026 272 trades exp -0.42R PF 0.56; Feb-Sep 2026 134 trades exp +0.35R PF 1.61; best deflated
-//   Sharpe 0.83 (< 0.95). The thresholds are data-mined; the profitable period likely overlaps their discovery data.
+//   with ~$0.49 round-trip costs Apr 2025-Feb 2026 272 trades exp -0.10R PF 0.86; Feb-Sep 2026 134 trades exp +0.63R
+//   PF 2.35. The thresholds are data-mined; the profitable period likely overlaps their discovery data.
+// TradingView tester Aug 23-Sep 17 2026, same costs as v2: v3 33 trades, 39.4 % win, PF 0.478, -$73.63
+//   (v2: 33 trades, 39.4 % win, PF 0.476, -$74.14).
 
 strategy("Family C Mean Reversion SHORT v3", overlay=true, pyramiding=0,
      process_orders_on_close=false, calc_on_order_fills=true,
      default_qty_type=strategy.fixed, default_qty_value=1,
-     commission_type=strategy.commission.cash_per_contract, commission_value=1.07,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.215,
      slippage=0)
 
 G_IND  = "① Indicators"
@@ -39,8 +41,8 @@ vol30Threshold       = input.float(0.001277, "30M volatility threshold", step=0.
 rsi5SlopeThreshold   = input.float(1.209244, "5M RSI slope threshold", step=0.000001, group=G_THR)
 ema5SlopeThreshold   = input.float(0.007065, "5M EMA spread slope threshold", step=0.000001, group=G_THR)
 
-// Costs are set in strategy() because Pine needs constants there: commission_value 1.07 = cash per side per ounce
-// (spread + commission, about $2.15 round trip). Change it in the strategy Properties tab to match your broker.
+// Costs are set in strategy() because Pine needs constants there: commission_value 0.215 = cash per side per ounce
+// (about $0.43 round trip). Change it in the strategy Properties tab to match your broker.
 useTrendFilter   = input.bool(false, "Short only when H1 EMA50 < EMA200", group=G_FLT)
 useSessionFilter = input.bool(false, "Entries 07:00-20:00 UTC only", group=G_FLT)
 
