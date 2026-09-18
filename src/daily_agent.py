@@ -30,6 +30,7 @@ from . import economic_calendar as ec
 from . import strategy_lab as lab
 from .ea_monitor import _write_json_atomic
 from .paper_trader import drop_forming_bars
+from .runtime_paths import cycle_health
 from .system_doctor import _read_json  # tolerant reader: also opens the ANSI JSON that MetaTrader writes (ATOMIC feed)
 from .tradingview_plan import build_daily_plan
 
@@ -489,6 +490,11 @@ def summary(data_dir: Path = DATA_DIR) -> dict:
                   "avg_r": round(float(np.mean([t.get("r_multiple") or 0 for t in closed])), 2) if closed else None,
                   "max_drawdown_pct": round(max_dd, 2), "needed_for_evidence": 100},
         "decision_counts": counts, "latest": latest, "plans": plans,
+        # Two different clocks, and confusing them hides a stopped agent: the task runs hourly, but a decision is only
+        # taken when an H4 candle closes, so a four-hour-old decision is normal while a four-hour-old run is not.
+        "run_health": cycle_health({"at": state.get("updated_at")}, 60, pd.Timestamp.now(tz="UTC")),
+        "decision_health": cycle_health({"at": journal[-1].get("time_utc")} if journal else None,
+                                                      240, pd.Timestamp.now(tz="UTC")),
         "journal": journal[-JOURNAL_KEPT_IN_SUMMARY:][::-1],
     }
 

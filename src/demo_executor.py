@@ -29,6 +29,8 @@ from typing import Optional
 
 import pandas as pd
 
+from .runtime_paths import cycle_health  # shared clock helper; kept importable from here for callers
+
 CONFIG_PATH = Path("data") / "paper_trading" / "demo_execution.json"
 JOURNAL_PATH = Path("data") / "paper_trading" / "demo_execution_journal.json"
 MT5_TRADE_MODE_DEMO = 0
@@ -111,27 +113,6 @@ def account_view(account: Optional[dict], positions: Optional[list] = None) -> d
             "open_profit": round(sum(float(f) for f in floating), 2) if floating else 0.0,
             "open_legs": len(positions or []),
             "is_demo": account.get("trade_mode") == MT5_TRADE_MODE_DEMO}
-
-
-def cycle_health(last_cycle: Optional[dict], every_minutes: int, now) -> dict:
-    """Whether the scheduled task is still running this strategy, from the last cycle's own timestamp.
-
-    A strategy that stops being called looks identical to one that finds no setup, so the age of the last cycle is
-    reported explicitly and called late once it passes twice its interval.
-    """
-    stamp = (last_cycle or {}).get("at")
-    if not stamp:
-        return {"available": False, "reason": "no cycle has run yet", "every_minutes": every_minutes}
-    try:
-        ran = datetime.strptime(str(stamp)[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return {"available": False, "reason": f"the last cycle time {stamp!r} is unreadable", "every_minutes": every_minutes}
-    age = (now.astimezone(timezone.utc) - ran).total_seconds() / 60
-    late = age > every_minutes * 2
-    return {"available": True, "last_cycle_utc": str(stamp)[:19], "age_minutes": round(age, 1),
-            "every_minutes": every_minutes, "late": late,
-            "note": (f"the last cycle was {age:.0f} min ago; the task runs every {every_minutes} min, so it looks "
-                     "stopped or blocked") if late else f"running on schedule, every {every_minutes} min"}
 
 
 def check_signal(signal: dict, config: dict, now) -> tuple[bool, str]:

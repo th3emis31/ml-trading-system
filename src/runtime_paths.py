@@ -96,6 +96,32 @@ def read_latest_json(path, missing_reason: str) -> dict:
         return {"available": False, "reason": f"{path} is unreadable: {exc}"}
 
 
+def cycle_health(last_cycle: Optional[dict], every_minutes: int, now) -> dict:
+    """Whether the scheduled task is still running this strategy, from the last cycle's own timestamp.
+
+    A strategy that stops being called looks identical to one that finds no setup, so the age of the last cycle is
+    reported explicitly and called late once it passes twice its interval.
+    """
+    stamp = (last_cycle or {}).get("at")
+    if not stamp:
+        return {"available": False, "reason": "no cycle has run yet", "every_minutes": every_minutes}
+    ran = None
+    for pattern, width in (("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%d %H:%M", 16)):   # the daily agent stamps to the minute
+        try:
+            ran = datetime.strptime(str(stamp)[:width], pattern).replace(tzinfo=timezone.utc)
+            break
+        except ValueError:
+            continue
+    if ran is None:
+        return {"available": False, "reason": f"the last cycle time {stamp!r} is unreadable", "every_minutes": every_minutes}
+    age = (now.astimezone(timezone.utc) - ran).total_seconds() / 60
+    late = age > every_minutes * 2
+    return {"available": True, "last_cycle_utc": str(stamp)[:19], "age_minutes": round(age, 1),
+            "every_minutes": every_minutes, "late": late,
+            "note": (f"the last cycle was {age:.0f} min ago; the task runs every {every_minutes} min, so it looks "
+                     "stopped or blocked") if late else f"running on schedule, every {every_minutes} min"}
+
+
 def daily_learning_marker_path() -> Path:
     return smartentry_data_dir() / "learning" / "daily_learning_task_marker.json"
 

@@ -18341,6 +18341,7 @@ DAILY_AGENT_TEMPLATE = r"""
   <title>Daily Agent</title>
   {{ theme_css | safe }}
   <style>
+    .late { color:#fecdd3 !important; font-weight:700; }
     .da-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
     .banner { border-radius:14px; padding:12px 16px; margin:12px 0; border:1px solid rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
     .banner b { color:#7dd3fc; }
@@ -18422,7 +18423,14 @@ DAILY_AGENT_TEMPLATE = r"""
         tile('Max drawdown', (s.max_drawdown_pct ?? 0) + '%', 'on closed trades'),
         tile('Decisions logged', esc(Object.values(d.decision_counts || {}).reduce((a, b) => a + b, 0)), Object.entries(d.decision_counts || {}).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(' · ')),
       ].join('');
-      document.getElementById('updated').textContent = `Agent last run ${d.updated_at || '—'} UTC`;
+      // Two clocks: the task runs hourly, but a decision is only taken when an H4 candle closes. Showing both means a
+      // stopped agent cannot hide behind "the last decision was hours ago, that's normal".
+      const runH = d.run_health || {}, decH = d.decision_health || {};
+      const part = (label, h) => !h.available ? `${label}: ${esc(h.reason || 'unknown')}`
+        : `${label} ${esc(h.last_cycle_utc)} UTC (${esc(h.age_minutes)} min ago${h.late ? ', LATE' : ''})`;
+      const el = document.getElementById('updated');
+      el.innerHTML = `${part('Agent last ran', runH)} · ${part('last decision', decH)}`;
+      el.className = (runH.late || decH.late) ? 'muted late' : 'muted';
     }
 
     function renderSymbols(d) {
