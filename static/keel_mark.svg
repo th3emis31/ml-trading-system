@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- KEEL: the deck line, the hull curve that keeps it upright, and the keel itself. -->
+  <path d="M20 26 h60" stroke="#94a3b8" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <path d="M24 30 q26 58 52 0" stroke="#38bdf8" stroke-width="9" stroke-linecap="round" fill="none"/>
+  <path d="M50 30 v40" stroke="#34d399" stroke-width="8" stroke-linecap="round" fill="none"/>
+</svg>

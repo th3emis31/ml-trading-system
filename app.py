@@ -720,6 +720,7 @@ MAIN_NAV_GROUPS = [
     ('/performance', 'Performance'),
     ('/positioning', 'Positioning'),
     ('/i40-pilot', 'i40 Pilot'),
+    ('/keel', 'KEEL'),
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
@@ -15831,6 +15832,248 @@ def swing_trend_pullback_ea_api():
 @app.route('/voice-test')
 def voice_test_page():
   return send_from_directory('templates', 'voice_test.html')
+
+
+@app.route('/keel')
+def keel_page():
+  """KEEL: the assistant's own page - what the system is doing, what needs attention, and its voice.
+
+  It reads the i40 Pilot brief and the voice setting; it places no orders. The original voice console is untouched
+  at /jarvis-voice."""
+  return render_template_string(KEEL_TEMPLATE, theme_css=THEME_CSS)
+
+
+KEEL_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>KEEL</title>
+  <link rel='icon' href='/static/keel_mark.svg' type='image/svg+xml'>
+  {{ theme_css | safe }}
+  <style>
+    /* KEEL identity: the keel is what keeps a boat upright when the wind picks up. It does not make it fast.
+       That is what the gates, the kill switches and the 0.95 bar in this system actually are. */
+    html, body { max-width:100%; overflow-x:hidden; }
+    body { background:linear-gradient(160deg,#0a1224 0%, #070b16 55%, #0a1a18 100%); background-attachment:fixed; }
+    .keel-wrap { max-width:1120px; margin:0 auto; box-sizing:border-box; }
+    .keel-wrap * { min-width:0; }
+    @media (max-width:720px) { .container.keel-wrap { padding-left:14px; padding-right:14px; width:100%; } .nav { overflow-x:auto; } }
+
+    .brandbar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:26px 0 8px; }
+    .brand { display:flex; align-items:center; gap:14px; }
+    .brand .name { font-size:34px; font-weight:800; letter-spacing:7px; line-height:1; color:#f8fafc; }
+    .brand .sub { font-size:10px; letter-spacing:3px; color:#7dd3fc; margin-top:5px; }
+    .tagline { color:#8fa6c4; font-size:13px; max-width:520px; line-height:1.5; }
+
+    .stateline { display:flex; align-items:center; gap:12px; border-radius:14px; padding:13px 16px; margin:14px 0 16px;
+                 border:1px solid; font-weight:700; font-size:16px; }
+    .stateline .dot { width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
+    .s-ok { border-color:rgba(52,211,153,.5); background:rgba(16,185,129,.09); color:#d1fae5; }
+    .s-ok .dot { background:#34d399; box-shadow:0 0 12px #34d399; }
+    .s-warn { border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.09); color:#fde68a; }
+    .s-warn .dot { background:#fbbf24; box-shadow:0 0 12px #fbbf24; }
+    .s-bad { border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.12); color:#fecdd3; }
+    .s-bad .dot { background:#fb7185; box-shadow:0 0 12px #fb7185; }
+
+    .deck { display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin-bottom:18px; }
+    .plate { border-radius:14px; padding:13px 15px; background:rgba(7,11,22,.72); border:1px solid rgba(148,176,222,.22);
+             border-left:3px solid #38bdf8; }
+    .plate.good { border-left-color:#34d399; } .plate.warn { border-left-color:#fbbf24; } .plate.bad { border-left-color:#fb7185; }
+    .plate .k { font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:#8fa6c4; }
+    .plate .v { font-size:21px; font-weight:800; color:#f8fafc; margin-top:3px; line-height:1.15; font-variant-numeric:tabular-nums; }
+    .plate .s { font-size:11.5px; color:#9fb3d1; margin-top:3px; }
+
+    .cols { display:grid; grid-template-columns:1.1fr .9fr; gap:16px; align-items:start; }
+    @media (max-width:880px) { .cols { grid-template-columns:1fr; } }
+    .panel { border-radius:16px; border:1px solid rgba(148,176,222,.22); background:rgba(7,11,22,.6); padding:16px 18px; margin-bottom:16px; }
+    .panel h2 { margin:0 0 3px; font-size:17px; letter-spacing:.2px; }
+    .panel .lead { color:#8fa6c4; font-size:12.5px; margin:0 0 12px; }
+
+    .voicebar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .vbtn { border-radius:11px; border:1px solid rgba(56,189,248,.45); background:rgba(56,189,248,.12); color:#e0f2fe;
+            padding:9px 15px; font-size:13.5px; font-weight:700; cursor:pointer; }
+    .vbtn:hover { background:rgba(56,189,248,.2); }
+    .vbtn.quiet { border-color:rgba(148,176,222,.35); background:rgba(148,176,222,.08); color:#cbd5e1; }
+    .vpill { font-size:11.5px; color:#9fb3d1; border:1px solid rgba(148,176,222,.3); border-radius:999px; padding:4px 11px; }
+    .vpill b { color:#7dd3fc; }
+
+    .row { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid rgba(148,176,222,.13); font-size:13.5px; }
+    .row:last-child { border-bottom:0; }
+    .row .what { color:#e2e8f0; } .row .why { color:#8fa6c4; font-size:12px; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:700; border:1px solid; white-space:nowrap; }
+    .tag.live { color:#a7f3d0; border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.1); }
+    .tag.dry { color:#fde68a; border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.09); }
+    .tag.halt { color:#fecdd3; border-color:rgba(251,113,133,.55); background:rgba(225,29,72,.12); }
+    .feed { max-height:330px; overflow:auto; }
+    .ev { display:grid; grid-template-columns:112px 1fr; gap:10px; padding:6px 0; border-bottom:1px solid rgba(148,176,222,.1); font-size:12.5px; }
+    .ev:last-child { border-bottom:0; }
+    .ev time { color:#8fa6c4; font-variant-numeric:tabular-nums; }
+    @media (max-width:560px) { .ev { grid-template-columns:1fr; gap:1px; } }
+    .foot { color:#7f96b5; font-size:11.5px; margin:6px 0 30px; }
+  </style>
+</head>
+<body>
+  <div class='nav'>{{ main_nav }}</div>
+  <div class='container keel-wrap'>
+
+    <div class='brandbar'>
+      <div class='brand'>
+        <svg width="54" height="54" viewBox="0 0 100 100" aria-label="KEEL">
+          <path d="M20 26 h60" stroke="#94a3b8" stroke-width="6" stroke-linecap="round"/>
+          <path d="M24 30 q26 58 52 0" fill="none" stroke="#38bdf8" stroke-width="7" stroke-linecap="round"/>
+          <path d="M50 30 v40" stroke="#34d399" stroke-width="6" stroke-linecap="round"/>
+        </svg>
+        <div><div class='name'>KEEL</div><div class='sub'>SMARTENTRY SYSTEMS</div></div>
+      </div>
+      <div class='tagline'>The keel is what keeps a boat upright when the wind picks up — it does not make it fast.
+        This page is the assistant: what the system is doing right now, what it wants you to know, and its voice.</div>
+    </div>
+
+    <div class='stateline s-warn' id='state'><span class='dot'></span><span id='state-text'>Reading the system…</span></div>
+    <div class='deck' id='deck'></div>
+
+    <div class='cols'>
+      <div>
+        <div class='panel'>
+          <h2>Voice</h2>
+          <p class='lead'>Exactly one side speaks — this PC or this page, never both. The PC voice plays without you touching the page; the browser voice needs a click first.</p>
+          <div class='voicebar'>
+            <button class='vbtn' id='say-briefing'>Speak the briefing</button>
+            <button class='vbtn quiet' id='swap-speaker'>Switch speaker</button>
+            <span class='vpill'>speaking now: <b id='speaker-now'>…</b></span>
+            <span class='vpill' id='voice-msg'></span>
+          </div>
+        </div>
+
+        <div class='panel'>
+          <h2>Needs your attention</h2>
+          <p class='lead'>Anything stopped, late, missing or pointed at the wrong account. An empty list is the answer, not a blank space.</p>
+          <div id='attention'><p class='lead'>Loading…</p></div>
+        </div>
+
+        <div class='panel'>
+          <h2>Strategies</h2>
+          <p class='lead'>What is running against the demo account, and what it last decided.</p>
+          <div id='strategies'><p class='lead'>Loading…</p></div>
+        </div>
+      </div>
+
+      <div class='panel'>
+        <h2>What just happened</h2>
+        <p class='lead' id='activity-note'>Straight from the strategies' own logs and the task scheduler.</p>
+        <div class='feed' id='activity'><p class='lead'>Loading…</p></div>
+      </div>
+    </div>
+
+    <p class='foot'>KEEL reads the system and speaks; it places no orders. Orders come from the strategies on the demo account and from you.
+      The old voice console is still at <a href='/jarvis-voice'>/jarvis-voice</a>.</p>
+  </div>
+<script>
+const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function loadSpeaker() {
+  try {
+    const d = await (await fetch('/api/voice/speaker')).json();
+    document.getElementById('speaker-now').textContent = d.speaker === 'browser' ? 'this page' : 'the PC';
+    window.JARVIS_SPEAKER = d.speaker;
+  } catch (e) { document.getElementById('speaker-now').textContent = 'unknown'; }
+}
+
+document.getElementById('swap-speaker').addEventListener('click', async () => {
+  const next = (window.JARVIS_SPEAKER === 'browser') ? 'pc' : 'browser';
+  const msg = document.getElementById('voice-msg');
+  msg.textContent = 'switching…';
+  try {
+    const d = await (await fetch('/api/voice/speaker', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                        body: JSON.stringify({speaker: next})})).json();
+    msg.textContent = d.ok ? ('now ' + (d.speaker === 'browser' ? 'this page speaks' : 'the PC speaks')) : (d.reason || 'refused');
+  } catch (e) { msg.textContent = 'failed: ' + e; }
+  loadSpeaker();
+});
+
+document.getElementById('say-briefing').addEventListener('click', async () => {
+  const msg = document.getElementById('voice-msg');
+  msg.textContent = 'reading…';
+  try {
+    const d = await (await fetch('/api/morning-briefing')).json();
+    msg.textContent = d.spoken_by_server ? 'the PC is reading it' : 'sent to this page';
+    if (!d.spoken_by_server && typeof window.speakResponse === 'function') window.speakResponse(d.briefing, true, {source: 'keel'});
+  } catch (e) { msg.textContent = 'failed: ' + e; }
+});
+
+function deck(d) {
+  const c = d.context || {}, strategies = Object.values(c.strategies || {});
+  const running = strategies.filter(s => s.available);
+  const sending = running.filter(s => s.sending_orders && !s.halted).length;
+  const halted = running.filter(s => s.halted).length;
+  const account = (running.find(s => (s.account || {}).available) || {}).account || {};
+  const sched = d.schedule || {}, tasks = sched.tasks || [], missing = (sched.missing || []).length;
+  const loop = d.loop || {}, mem = d.memory || {};
+  const plates = [
+    {k: 'Strategies', v: `${sending} sending · ${running.length - sending - halted} dry`,
+     s: halted ? `${halted} halted` : `${running.length} of ${strategies.length} readable`,
+     cls: halted ? 'bad' : running.length === strategies.length ? 'good' : 'warn'},
+    {k: 'Demo equity', v: account.available ? `${Number(account.equity).toLocaleString('en-GB')} ${esc(account.currency || '')}` : '—',
+     s: account.available ? `balance ${Number(account.balance).toLocaleString('en-GB')}` : 'MT5 not readable',
+     cls: account.available ? 'good' : 'warn'},
+    {k: 'Scheduled work', v: `${tasks.length - missing} / ${tasks.length}`, s: missing ? `${missing} missing` : 'all registered',
+     cls: missing ? 'bad' : 'good'},
+    {k: 'Recorded results', v: mem.available ? mem.baseline_rows : '—',
+     s: mem.available ? `${mem.open_backlog_count} open items` : (mem.reason || ''), cls: 'good'},
+    {k: 'Brief age', v: loop.available ? `${loop.age_minutes} min` : 'not written',
+     s: loop.available ? `refreshes every ${loop.every_minutes} min` : (loop.reason || ''), cls: loop.stale ? 'warn' : 'good'},
+  ];
+  document.getElementById('deck').innerHTML = plates.map(p =>
+    `<div class='plate ${p.cls}'><div class='k'>${esc(p.k)}</div><div class='v'>${esc(p.v)}</div><div class='s'>${esc(p.s)}</div></div>`).join('');
+}
+
+function attention(a) {
+  const box = document.getElementById('attention');
+  if (!a || !a.count) { box.innerHTML = "<p class='lead'>Nothing is stuck: no strategy halted, no task missing, no cycle late.</p>"; return; }
+  box.innerHTML = (a.items || []).map(i => `<div class='row'><div><div class='what'>${esc(i.what)}</div>
+    <div class='why'>${esc(i.why)} · <a href='${esc(i.where)}'>${esc(i.where)}</a></div></div>
+    <span class='tag ${i.severity === 'bad' ? 'halt' : i.severity === 'warn' ? 'dry' : 'live'}'>${esc(i.severity)}</span></div>`).join('');
+}
+
+function strategies(c) {
+  const box = document.getElementById('strategies');
+  const entries = Object.entries((c || {}).strategies || {});
+  if (!entries.length) { box.innerHTML = "<p class='lead'>No strategy could be read.</p>"; return; }
+  box.innerHTML = entries.map(([name, s]) => {
+    if (!s.available) return `<div class='row'><div class='what'>${esc(name)}</div><span class='tag halt'>unreadable</span></div>`;
+    const mode = s.halted ? "<span class='tag halt'>halted</span>" : s.sending_orders ? "<span class='tag live'>sending orders</span>" : "<span class='tag dry'>dry run</span>";
+    const last = (s.recent_decisions || [])[0] || {};
+    return `<div class='row'><div><div class='what'>${esc(name)}</div>
+      <div class='why'>${esc(s.symbol)} · magic ${esc(s.magic)} · last: ${esc(last.event || '—')} ${esc(last.reason || '')}</div></div>${mode}</div>`;
+  }).join('');
+}
+
+function activity(a) {
+  const box = document.getElementById('activity');
+  if (!a || !(a.events || []).length) { box.innerHTML = "<p class='lead'>Nothing recorded yet.</p>"; return; }
+  document.getElementById('activity-note').textContent = a.note || '';
+  box.innerHTML = a.events.map(e => `<div class='ev'><time>${esc(String(e.at).slice(5, 16))} ${esc(e.source)}</time>
+    <div>${esc(e.what)} <span class='why'>${esc(e.detail || '')}</span></div></div>`).join('');
+}
+
+async function load() {
+  let d;
+  try { d = await (await fetch('/api/i40-pilot')).json(); }
+  catch (e) { document.getElementById('state-text').textContent = 'The system brief is unavailable: ' + e; return; }
+  const att = d.attention || {};
+  const state = document.getElementById('state');
+  state.className = 'stateline ' + (att.worst === 'bad' ? 's-bad' : (att.worst === 'warn' || att.worst === 'info') ? 's-warn' : 's-ok');
+  document.getElementById('state-text').textContent = (att.headline || 'Reading…') + (att.count ? ` — ${att.count} below` : '');
+  deck(d); attention(att); strategies(d.context); activity(d.activity);
+}
+loadSpeaker(); load();
+setInterval(load, 120000);
+</script>
+</body>
+</html>
+"""
 
 
 @app.route('/jarvis-voice')
