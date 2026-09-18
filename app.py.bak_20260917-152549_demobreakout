@@ -718,8 +718,6 @@ MAIN_NAV_GROUPS = [
     ('/history', 'History'),
     ('/analytics', 'Analytics'),
     ('/performance', 'Performance'),
-    ('/positioning', 'Positioning'),
-    ('/i40-pilot', 'i40 Pilot'),
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
@@ -5916,29 +5914,6 @@ def build_chart_insights(symbol: str):
     }
 
 
-def _model_evidence(internal: dict | None) -> dict:
-    """The numbers behind a live signal, straight from the enriched record: the blended probability, each model's
-    own probability, the thresholds it was compared with, how far it sits from the nearer one, and the age of the bar
-    it was computed on. Nothing is rounded into a verdict here - the page shows the same values the engine used."""
-    from src.signal_engine import get_config
-
-    config = get_config("live")
-    buy, sell = config["buy_threshold"], config["sell_threshold"]
-    if not internal:
-        return {"available": False, "reason": "no live signal record for this symbol",
-                "buy_threshold": buy, "sell_threshold": sell}
-    probability = internal.get("ensemble_probability")
-    distance = None
-    if probability is not None:
-        distance = round(min(abs(float(probability) - buy), abs(float(probability) - sell)), 4)
-    return {"available": True, "ensemble_probability": probability, "rf_probability": internal.get("rf_probability"),
-            "lstm_probability": internal.get("lstm_probability"), "buy_threshold": buy, "sell_threshold": sell,
-            "distance_to_nearer_threshold": distance,
-            "signal_bar_time": internal.get("signal_bar_time"),
-            "signal_bar_age_minutes": internal.get("signal_bar_age_minutes"),
-            "model_accuracy": internal.get("model_accuracy"), "lstm_accuracy": internal.get("lstm_accuracy")}
-
-
 def build_live_plan(symbol: str):
     symbol = symbol.upper()
     signals = build_signal_payload()
@@ -5971,7 +5946,6 @@ def build_live_plan(symbol: str):
         'chart_range_max': round(float(entry + atr * 3), 4),
         'model_bias': internal['bias'] if internal else 'Neutral',
         'reason': internal['reason'] if internal else 'Model probability sits in the neutral band; standing aside.',
-        'evidence': _model_evidence(internal),
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
       }
     direction = 1 if signal == 'BUY' else -1
@@ -6007,7 +5981,6 @@ def build_live_plan(symbol: str):
         'chart_range_min': round(chart_range_min, 4),
         'chart_range_max': round(chart_range_max, 4),
         'model_bias': internal['bias'] if internal else None,
-        'evidence': _model_evidence(internal),
         'reason': internal['reason'] if internal else 'Live model entry plan generated from current signal.',
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
     }
@@ -16955,18 +16928,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
       .stats { min-width:0; width:100%; }
     }
   </style>
-  <style>
-    .pscale { margin:10px 0 2px; }
-    .pscale .track { position:relative; height:16px; border-radius:999px; overflow:hidden;
-                     background:linear-gradient(90deg, rgba(244,63,94,.55) 0%, rgba(244,63,94,.55) 25%, rgba(148,163,184,.25) 25%, rgba(148,163,184,.25) 75%, rgba(52,211,153,.55) 75%, rgba(52,211,153,.55) 100%); }
-    .pscale .now { position:absolute; top:-3px; bottom:-3px; width:3px; background:#f8fafc; border-radius:2px; box-shadow:0 0 6px rgba(248,250,252,.8); }
-    .pscale .ends { display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-top:3px; }
-    .pscale .mid { text-align:center; font-size:12px; color:#cbd5e1; margin-top:4px; font-variant-numeric:tabular-nums; }
-    .agechip { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid rgba(148,176,222,.45); color:#cbd5e1; }
-    .agechip.stale { color:#fecdd3; border-color:rgba(251,113,133,.65); background:rgba(225,29,72,.14); }
-    .pos-o { color:#a7f3d0; font-weight:700; } .neg-o { color:#fecdd3; font-weight:700; } .open-o { color:#cbd5e1; }
-    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-  </style>
 </head>
 <body>
   <div class='nav'>
@@ -17005,12 +16966,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
     <div class='sc-grid' id='sc-grid'>
       <div class='card sym-card active' data-symbol='XAUUSD' id='card-XAUUSD'><p class='muted'>Loading XAUUSD…</p></div>
       <div class='card sym-card' data-symbol='BTCUSD' id='card-BTCUSD'><p class='muted'>Loading BTCUSD…</p></div>
-    </div>
-    <div class='card'>
-      <h2>Recent signals and how they settled</h2>
-      <p class='muted' style='margin-top:0'>Every signal this page has recorded, settled by walking the broker's bars forward to whichever of the stop or the target was touched first. HOLD rows carry no levels, so they never settle - they are listed to show what the model was doing, not as results.</p>
-      <div id='history-summary'></div>
-      <div class='table-wrap' id='history'><p class='muted'>Loading…</p></div>
     </div>
   </div>
 
@@ -17090,27 +17045,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
     }
 
     // ---------- cards ----------
-    function probabilityScale(evidence) {
-      const e = evidence || {};
-      if (!e.available || e.ensemble_probability === null || e.ensemble_probability === undefined) {
-        return `<p class='muted' style='margin:8px 0 0'>Model probability unavailable${e.reason ? ': ' + esc(e.reason) : ''}.</p>`;
-      }
-      const lo = 0.40, hi = 0.60, p = Number(e.ensemble_probability);
-      const at = Math.max(0, Math.min(100, ((p - lo) / (hi - lo)) * 100));
-      const side = p >= e.buy_threshold ? 'past the BUY line' : p <= e.sell_threshold ? 'past the SELL line' : 'inside the neutral band';
-      return `<div class='pscale'>
-        <div class='track'><i class='now' style='left:${at.toFixed(1)}%'></i></div>
-        <div class='ends'><span>SELL ≤ ${e.sell_threshold}</span><span>neutral</span><span>BUY ≥ ${e.buy_threshold}</span></div>
-        <div class='mid'>blend ${p.toFixed(4)} · ${esc(side)} · ${e.distance_to_nearer_threshold} from the nearer line
-          <span class='muted'>(RF ${e.rf_probability ?? '—'}, LSTM ${e.lstm_probability ?? '—'}, 50/50)</span></div>
-      </div>`;
-    }
-    function barAgeChip(evidence) {
-      const e = evidence || {};
-      if (!e.available || e.signal_bar_age_minutes === null || e.signal_bar_age_minutes === undefined) return '';
-      const age = Number(e.signal_bar_age_minutes), stale = age > 120;
-      return `<span class='agechip ${stale ? 'stale' : ''}' title='The closed bar the model was run on'>bar ${esc(e.signal_bar_time)} · ${age.toFixed(0)} min old${stale ? ' · stale' : ''}</span>`;
-    }
     function levelCard(cls, label, price, plan) {
       if (price === null || price === undefined) return '';
       const entry = plan.entry, risk = plan.stop_loss && entry ? Math.abs(entry - plan.stop_loss) : null;
@@ -17139,7 +17073,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
               <span class='sig ${esc(signal)}'>${directional ? esc(signal) : 'HOLD · no trade'}</span>
               <span class='chip src'>Bias ${esc(plan.model_bias || 'n/a')}</span>
               <a class='chip off' href='${TV_LINKS[symbol]}' target='_blank' rel='noopener'>Open in TradingView ↗</a>
-              ${barAgeChip(plan.evidence)}
             </div>
           </div>
           <div class='stats'>
@@ -17148,7 +17081,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
             <div class='stat'><span>Reward : risk</span><strong>${plan.risk_reward ? esc(plan.risk_reward) + ' : 1' : '—'}</strong></div>
           </div>
         </div>
-        ${probabilityScale(plan.evidence)}
         <div class='price-line'><strong id='price-${symbol}'>—</strong><span id='bar-${symbol}' class='muted'></span><span class='toolbar' style='margin:0;'>${tfButtons}</span></div>
         <div class='chart-box' id='chart-${symbol}'><div class='chart-msg'>Loading broker candles…</div></div>
         ${levels}
@@ -17202,33 +17134,6 @@ SIGNAL_CENTER_TEMPLATE = r"""
       const last = data.bars[data.bars.length - 1];
       document.getElementById('price-' + symbol).textContent = fmt(last.close);
       document.getElementById('bar-' + symbol).innerHTML = `last ${esc(state.timeframe)} bar ${esc(String(last.datetime).slice(0, 16).replace('T', ' '))} UTC · <span class='chip src'>${esc(data.source || 'source?')}</span>`;
-    }
-
-    function outcomeClass(outcome) {
-      const o = String(outcome || '').toUpperCase();
-      return o === 'WIN' ? 'pos-o' : o === 'LOSS' ? 'neg-o' : 'open-o';
-    }
-    async function loadHistory() {
-      let rows;
-      try { rows = await (await fetch('/api/signals')).json(); }
-      catch (error) { document.getElementById('history').innerHTML = `<p class='muted'>Signal history unavailable: ${esc(error)}</p>`; return; }
-      if (!Array.isArray(rows) || !rows.length) { document.getElementById('history').innerHTML = "<p class='muted'>No signals recorded yet.</p>"; return; }
-      const directional = rows.filter(r => r.signal === 'BUY' || r.signal === 'SELL');
-      const settled = directional.filter(r => ['WIN', 'LOSS'].includes(String(r.outcome || '').toUpperCase()));
-      const wins = settled.filter(r => String(r.outcome).toUpperCase() === 'WIN').length;
-      document.getElementById('history-summary').innerHTML = settled.length
-        ? `<p><strong>${wins} win / ${settled.length - wins} loss</strong> of ${settled.length} settled signal(s); ${directional.length - settled.length} still open, ${rows.length - directional.length} HOLD. <span class='muted'>Under 100 settled signals this is a record, not evidence of an edge - the walk-forward numbers above are the test.</span></p>`
-        : `<p class='muted'>No signal has settled yet: ${directional.length} directional signal(s) still open, ${rows.length - directional.length} HOLD.</p>`;
-      const sorted = rows.slice().sort((a, b) => String(b.recorded_at || '').localeCompare(String(a.recorded_at || '')));
-      document.getElementById('history').innerHTML = `<table>
-        <tr><th>Recorded (UTC)</th><th>Symbol</th><th>Signal</th><th class='num'>Blend</th><th class='num'>RF</th><th class='num'>LSTM</th><th>Outcome</th><th class='num'>Move</th><th>Settled</th></tr>` +
-        sorted.map(r => `<tr>
-          <td>${esc(r.recorded_at)}</td><td>${esc(r.symbol)}</td>
-          <td class='${outcomeClass(r.signal === 'HOLD' ? 'OPEN' : r.outcome)}'>${esc(r.signal)}</td>
-          <td class='num'>${esc(r.ensemble_probability)}</td><td class='num'>${esc(r.rf_probability)}</td><td class='num'>${esc(r.lstm_probability)}</td>
-          <td class='${outcomeClass(r.outcome)}'>${r.signal === 'HOLD' ? '<span class="muted">no levels</span>' : esc(r.outcome)}</td>
-          <td class='num'>${r.outcome_profit_pct === null || r.outcome_profit_pct === undefined ? '—' : esc(r.outcome_profit_pct) + ' %'}</td>
-          <td class='muted'>${esc(r.outcome_time || '')}</td></tr>`).join('') + '</table>';
     }
 
     async function loadPlans(initial) {
@@ -17291,10 +17196,8 @@ SIGNAL_CENTER_TEMPLATE = r"""
 
     loadPlans(true);
     loadEvidence();
-    loadHistory();
     setInterval(() => loadPlans(false), 60000);
     setInterval(loadEvidence, 300000);
-    setInterval(loadHistory, 120000);
   </script>
 </body>
 </html>
@@ -22087,577 +21990,6 @@ def demo_trading_status_api():
   return jsonify(demo_session_pullback.status_payload(MT5_ENGINE))
 
 
-# Volatility Trend Breakout (4H) on the same demo account, beside the pullback (src/demo_volatility_breakout.py, magic
-# 440603). Same guards: local request plus control secret for cycle / STOP / resume; the hourly task calls the cycle.
-_demo_breakout_lock = threading.Lock()
-
-
-@app.route('/api/demo-breakout/cycle', methods=['POST'])
-def demo_breakout_cycle_api():
-  refused = _demo_pullback_refused()
-  if refused:
-    return refused
-  from src import demo_volatility_breakout, economic_calendar
-  if MT5_ENGINE is None:
-    return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
-  try:
-    calendar_events = economic_calendar.load_calendar(datetime.now(timezone.utc)).get('events') or []
-  except Exception:
-    calendar_events = []
-  with _demo_breakout_lock:
-    summary = demo_volatility_breakout.breakout_cycle(MT5_ENGINE, get_bars, calendar_events)
-  return jsonify(summary)
-
-
-@app.route('/api/demo-breakout/stop', methods=['POST'])
-def demo_breakout_stop_api():
-  refused = _demo_pullback_refused()
-  if refused:
-    return refused
-  from src import demo_volatility_breakout
-  with _demo_breakout_lock:
-    event = demo_volatility_breakout.stop_breakout(MT5_ENGINE)
-  return jsonify(event)
-
-
-@app.route('/api/demo-breakout/resume', methods=['POST'])
-def demo_breakout_resume_api():
-  refused = _demo_pullback_refused()
-  if refused:
-    return refused
-  from src import demo_volatility_breakout
-  with _demo_breakout_lock:
-    event = demo_volatility_breakout.resume_breakout()
-  return jsonify(event)
-
-
-@app.route('/api/i40-pilot')
-def i40_pilot_api():
-  """The i40 Pilot brief: identity, signature rules, memory, live context, schedule, skills, tools and the loop.
-
-  Read-only. The cached brief on disk is the hourly one; ``?live=1`` rebuilds it now, which costs a few seconds
-  because it reads the scheduled tasks and the running strategies."""
-  from src import i40_pilot
-  from src.runtime_paths import read_latest_json
-
-  if request.args.get('live') == '1':
-    return jsonify(i40_pilot.build_brief(url_map=app.url_map))
-  brief = read_latest_json(i40_pilot.pilot_dir() / 'latest.json',
-                           'the brief has not been written yet (task SmartEntry i40 Pilot)')
-  if brief.get('available') and not (brief.get('tools') or {}).get('api_endpoints'):
-    brief.setdefault('tools', {})['api_endpoints'] = sorted({str(rule) for rule in app.url_map.iter_rules()
-                                                             if str(rule).startswith('/api/')})
-    brief['tools']['api_endpoint_count'] = len(brief['tools']['api_endpoints'])
-  return jsonify(brief)
-
-
-@app.route('/i40-pilot')
-def i40_pilot_page():
-  return render_template_string(I40_PILOT_TEMPLATE, theme_css=THEME_CSS)
-
-
-I40_PILOT_TEMPLATE = r"""
-<!doctype html>
-<html lang='en'>
-<head>
-  <meta charset='utf-8'>
-  <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>i40 Pilot</title>
-  {{ theme_css | safe }}
-  <style>
-    /* the shared container is sized for a desktop; on a phone the page must fit the screen, not scroll sideways */
-    html, body { max-width:100%; overflow-x:hidden; }
-    .wrap { max-width:1180px; margin:0 auto; box-sizing:border-box; }
-    @media (max-width: 720px) {
-      .container.wrap { padding-left:14px; padding-right:14px; width:100%; min-width:0; }
-      .nav { overflow-x:auto; }
-      h1 { font-size:26px; }
-      .verdict { font-size:15px; padding:12px 13px; }
-    }
-    .wrap * { min-width:0; }
-    .topline { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:4px; }
-    .topline h1 { margin:0; }
-    .sub { color:#8fa6c4; font-size:13px; margin:2px 0 0; }
-    .verdict { display:flex; align-items:center; gap:12px; border-radius:14px; padding:14px 16px; margin:14px 0;
-               border:1px solid; font-size:17px; font-weight:700; }
-    .verdict .dot { width:12px; height:12px; border-radius:50%; flex:0 0 auto; }
-    .v-ok   { border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.10); color:#d1fae5; }
-    .v-ok .dot { background:#34d399; box-shadow:0 0 12px #34d399; }
-    .v-info { border-color:rgba(96,165,250,.55); background:rgba(59,130,246,.10); color:#dbeafe; }
-    .v-info .dot { background:#60a5fa; box-shadow:0 0 12px #60a5fa; }
-    .v-warn { border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.10); color:#fde68a; }
-    .v-warn .dot { background:#fbbf24; box-shadow:0 0 12px #fbbf24; }
-    .v-bad  { border-color:rgba(251,113,133,.65); background:rgba(225,29,72,.14); color:#fecdd3; }
-    .v-bad .dot { background:#fb7185; box-shadow:0 0 12px #fb7185; }
-
-    .band { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin:0 0 16px; }
-    @media (max-width: 720px) { .band { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .stat .v { font-size:17px; } }
-    @media (max-width: 380px) { .band { grid-template-columns:1fr; } }
-    .stat { border-radius:12px; padding:11px 13px; background:rgba(15,23,42,.72); border:1px solid rgba(148,176,222,.22);
-            border-left:3px solid #38bdf8; }
-    .stat.ok { border-left-color:#34d399; } .stat.warn { border-left-color:#fbbf24; } .stat.bad { border-left-color:#fb7185; }
-    .stat .k { font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:#8fa6c4; }
-    .stat .v { font-size:19px; font-weight:800; color:#f8fafc; margin-top:3px; line-height:1.15; font-variant-numeric:tabular-nums; }
-    .stat .s { font-size:11.5px; color:#9fb3d1; margin-top:3px; }
-
-    .cols { display:grid; grid-template-columns:1.25fr .95fr; gap:14px; align-items:start; }
-    @media (max-width: 860px) { .cols { grid-template-columns:1fr; } }
-    .panel { border-radius:14px; border:1px solid rgba(148,176,222,.22); background:rgba(15,23,42,.6); padding:14px 16px; margin-bottom:14px; }
-    .panel h2 { margin:0 0 4px; font-size:17px; }
-    .panel .lead { color:#8fa6c4; font-size:12.5px; margin:0 0 10px; }
-
-    .att { display:flex; gap:10px; padding:9px 0; border-bottom:1px solid rgba(148,176,222,.14); }
-    .att:last-child { border-bottom:0; }
-    .att .sev { font-size:10px; font-weight:800; letter-spacing:.06em; padding:2px 7px; border-radius:999px; height:fit-content; }
-    .sev.bad { color:#fecdd3; background:rgba(225,29,72,.2); } .sev.warn { color:#fde68a; background:rgba(251,191,36,.18); }
-    .sev.info { color:#bfdbfe; background:rgba(59,130,246,.18); }
-    .att b { display:block; color:#f1f5f9; font-size:13.5px; } .att span { color:#9fb3d1; font-size:12px; }
-
-    .feed { max-height:420px; overflow:auto; }
-    .ev { display:grid; grid-template-columns:132px 1fr; gap:10px; padding:7px 0; border-bottom:1px solid rgba(148,176,222,.12); font-size:12.5px; }
-    .ev:last-child { border-bottom:0; }
-    .ev time { color:#8fa6c4; font-variant-numeric:tabular-nums; }
-    .ev .who { color:#93c5fd; }
-    .ev .what { color:#e2e8f0; } .ev .why { color:#8fa6c4; }
-    @media (max-width: 560px) { .ev { grid-template-columns:1fr; gap:2px; } }
-
-    .strat { border-radius:12px; border:1px solid rgba(148,176,222,.2); padding:11px 13px; margin-bottom:10px; background:rgba(2,6,23,.4); }
-    .strat .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-    .strat .name { font-weight:700; color:#f8fafc; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:700; border:1px solid; white-space:nowrap; }
-    .pill.live { color:#a7f3d0; border-color:rgba(52,211,153,.6); background:rgba(16,185,129,.12); }
-    .pill.dry  { color:#fde68a; border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.10); }
-    .pill.halt { color:#fecdd3; border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.14); }
-    .pill.flat { color:#cbd5e1; border-color:rgba(148,176,222,.4); }
-    .kv { font-size:12px; color:#9fb3d1; margin-top:5px; font-variant-numeric:tabular-nums; }
-
-    details.more { border-radius:12px; border:1px solid rgba(148,176,222,.2); background:rgba(15,23,42,.5); padding:0 14px; margin-bottom:10px; }
-    details.more > summary { cursor:pointer; padding:12px 0; font-weight:700; color:#e2e8f0; list-style:none; display:flex; justify-content:space-between; gap:10px; }
-    details.more > summary::-webkit-details-marker { display:none; }
-    details.more > summary .hint { font-weight:500; color:#8fa6c4; font-size:12px; }
-    details.more[open] > summary { border-bottom:1px solid rgba(148,176,222,.16); }
-    details.more .body { padding:12px 0 14px; }
-    .rule { padding:9px 0; border-bottom:1px solid rgba(148,176,222,.12); }
-    .rule:last-child { border-bottom:0; }
-    .rule b { color:#f1f5f9; font-size:13.5px; } .rule span { display:block; color:#9fb3d1; font-size:12px; margin-top:2px; }
-    .rule .since { color:#7f96b5; font-size:10.5px; }
-    ul.tight { margin:4px 0 0; padding-left:17px; font-size:13px; } ul.tight li { margin:3px 0; }
-    code.mono { font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:#bfdbfe; }
-    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-    table { font-size:12.5px; }
-    .btn-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  </style>
-</head>
-<body>
-  <div class='nav'>{{ main_nav }}</div>
-  <div class='container wrap'>
-    <div class='topline'>
-      <div>
-        <h1>i40 Pilot</h1>
-        <p class='sub' id='ident'>Loading…</p>
-      </div>
-      <div class='btn-row'><button id='refresh-btn'>Rebuild now</button><span class='sub' id='status-line'></span></div>
-    </div>
-
-    <div class='verdict v-info' id='verdict'><span class='dot'></span><span id='verdict-text'>Reading the system…</span></div>
-    <div class='band' id='band'></div>
-
-    <div class='cols'>
-      <div>
-        <div class='panel'>
-          <h2>Needs attention</h2>
-          <p class='lead'>Anything stopped, late, missing or misdirected. An empty list is the answer, not a blank space.</p>
-          <div id='attention'><p class='sub'>Loading…</p></div>
-        </div>
-        <div class='panel'>
-          <h2>Strategies</h2>
-          <p class='lead'>What is running against the demo account, and what it last decided.</p>
-          <div id='strategies'><p class='sub'>Loading…</p></div>
-        </div>
-      </div>
-      <div class='panel'>
-        <h2>Activity</h2>
-        <p class='lead' id='activity-note'>What the system actually did, newest first.</p>
-        <div class='feed' id='activity'><p class='sub'>Loading…</p></div>
-      </div>
-    </div>
-
-    <details class='more' id='rules-box'><summary>Signature rules <span class='hint' id='rules-hint'></span></summary>
-      <div class='body'><p class='lead'>The owner's standing decisions. They are not defaults, and nothing here is relaxed without the owner saying so.</p>
-      <div id='rules'></div></div></details>
-    <details class='more'><summary>Schedule <span class='hint' id='schedule-hint'></span></summary>
-      <div class='body'><div class='table-wrap' id='schedule'></div></div></details>
-    <details class='more'><summary>Memory <span class='hint' id='memory-hint'></span></summary>
-      <div class='body' id='memory'></div></details>
-    <details class='more'><summary>Skills and instructions <span class='hint' id='skills-hint'></span></summary>
-      <div class='body'><div id='skills'></div><h3>Instructions</h3><div id='instructions'></div></div></details>
-    <details class='more'><summary>Tools <span class='hint' id='tools-hint'></span></summary>
-      <div class='body' id='tools'></div></details>
-    <details class='more'><summary>Context detail <span class='hint'>models, learning, positioning</span></summary>
-      <div class='body' id='context'></div></details>
-  </div>
-<script>
-const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const gap = s => `<p class='sub'>${esc((s || {}).reason || 'not available')}</p>`;
-const shortTime = t => String(t || '').slice(5, 16);
-
-function setVerdict(attention, loop) {
-  const worst = (attention || {}).worst || 'info';
-  const box = document.getElementById('verdict');
-  box.className = 'verdict v-' + worst;
-  const extra = attention && attention.count ? ` — ${attention.count} item${attention.count > 1 ? 's' : ''} below` : '';
-  document.getElementById('verdict-text').textContent = ((attention || {}).headline || 'Reading the system…') + extra;
-}
-
-function band(d) {
-  const c = d.context || {}, strategies = Object.values(c.strategies || {});
-  const running = strategies.filter(s => s.available);
-  const sending = running.filter(s => s.sending_orders && !s.halted).length;
-  const halted = running.filter(s => s.halted).length;
-  const sched = d.schedule || {}, tasks = sched.tasks || [];
-  const late = (sched.missing || []).length;
-  const account = (running.find(s => (s.account || {}).available) || {}).account || {};
-  const mem = d.memory || {}, loop = d.loop || {};
-  const learn = c.learning || {};
-  const learned = Object.keys(learn.per_symbol || {}).length;
-  const tiles = [
-    {k: 'Strategies', v: `${sending} sending · ${running.length - sending - halted} dry`,
-     s: halted ? `${halted} halted` : `${running.length} of ${strategies.length} readable`,
-     cls: halted ? 'bad' : running.length === strategies.length ? 'ok' : 'warn'},
-    {k: 'Demo account', v: account.available ? `${Number(account.equity).toLocaleString('en-GB')} ${esc(account.currency || '')}` : '—',
-     s: account.available ? `equity · balance ${Number(account.balance).toLocaleString('en-GB')}` : 'MT5 not readable', cls: account.available ? 'ok' : 'warn'},
-    {k: 'Scheduled tasks', v: `${tasks.length - late} / ${tasks.length}`, s: late ? `${late} missing` : 'all registered',
-     cls: late ? 'bad' : 'ok'},
-    {k: 'Learning', v: learn.available ? `${learned} symbol${learned === 1 ? '' : 's'}` : '—',
-     s: learn.available ? `${learn.decisions} decisions recorded` : (learn.reason || ''), cls: learn.available ? 'ok' : 'warn'},
-    {k: 'Recorded results', v: mem.available ? mem.baseline_rows : '—',
-     s: mem.available ? `${mem.open_backlog_count} open backlog items` : (mem.reason || ''), cls: 'ok'},
-    {k: 'Brief age', v: loop.available ? `${loop.age_minutes} min` : 'not written',
-     s: loop.available ? `refreshes every ${loop.every_minutes} min` : (loop.reason || ''), cls: loop.stale ? 'warn' : 'ok'},
-  ];
-  document.getElementById('band').innerHTML = tiles.map(t =>
-    `<div class='stat ${t.cls}'><div class='k'>${esc(t.k)}</div><div class='v'>${esc(t.v)}</div><div class='s'>${esc(t.s)}</div></div>`).join('');
-}
-
-function renderAttention(a) {
-  const box = document.getElementById('attention');
-  if (!a || !a.count) { box.innerHTML = "<p class='sub'>Nothing is stuck: no strategy halted, no task missing, no cycle late.</p>"; return; }
-  box.innerHTML = (a.items || []).map(i => `<div class='att'><span class='sev ${esc(i.severity)}'>${esc(i.severity)}</span>
-    <div><b>${esc(i.what)}</b><span>${esc(i.why)}</span><span><a href='${esc(i.where)}'>${esc(i.where)}</a></span></div></div>`).join('');
-}
-
-function renderStrategies(c) {
-  const box = document.getElementById('strategies');
-  const entries = Object.entries((c || {}).strategies || {});
-  if (!entries.length) { box.innerHTML = "<p class='sub'>No strategy could be read.</p>"; return; }
-  box.innerHTML = entries.map(([name, s]) => {
-    if (!s.available) return `<div class='strat'><div class='row'><span class='name'>${esc(name)}</span><span class='pill halt'>unreadable</span></div><div class='kv'>${esc(s.reason)}</div></div>`;
-    const mode = s.halted ? "<span class='pill halt'>halted</span>" : s.sending_orders ? "<span class='pill live'>sending orders</span>" : "<span class='pill dry'>dry run</span>";
-    const cycle = s.cycle_health || {};
-    const cyclePill = cycle.available ? (cycle.late ? `<span class='pill halt'>cycle ${esc(cycle.age_minutes)} min late</span>` : `<span class='pill flat'>ran ${esc(cycle.age_minutes)} min ago</span>`) : '';
-    const last = (s.recent_decisions || [])[0] || {};
-    const ex = s.expectancy && s.expectancy.demo_broker_fills ? s.expectancy.demo_broker_fills : s.expectancy || {};
-    return `<div class='strat'>
-      <div class='row'><span class='name'>${esc(name)}</span>${mode}${cyclePill}</div>
-      <div class='kv'>${esc(s.symbol)} · magic ${esc(s.magic)} · ${s.open_trade ? 'position open' : 'flat'} · ${esc(s.today_trades)} trade(s) today · ${ex.trades || 0} settled, expectancy ${ex.expectancy_r === null || ex.expectancy_r === undefined ? '—' : esc(ex.expectancy_r) + 'R'}</div>
-      <div class='kv'>last: <strong>${esc(last.event || '—')}</strong> ${esc(last.reason || '')}</div></div>`;
-  }).join('');
-}
-
-function renderActivity(a) {
-  const box = document.getElementById('activity');
-  if (!a || !(a.events || []).length) { box.innerHTML = "<p class='sub'>No activity recorded yet.</p>"; return; }
-  document.getElementById('activity-note').textContent = a.note || '';
-  box.innerHTML = a.events.map(e => `<div class='ev'><time>${esc(shortTime(e.at))} <span class='who'>${esc(e.source)}</span></time>
-    <div><span class='what'>${esc(e.what)}</span> <span class='why'>${esc(e.detail || '')}</span></div></div>`).join('');
-}
-
-function renderRules(rules) {
-  document.getElementById('rules-hint').textContent = `${(rules || {}).count || 0} standing rules`;
-  document.getElementById('rules').innerHTML = ((rules || {}).signature_rules || []).map(r =>
-    `<div class='rule'><b>${esc(r.rule)}</b><span>${esc(r.why)}</span><span class='since'>standing since ${esc(r.since)}</span></div>`).join('');
-}
-
-function renderSchedule(s) {
-  document.getElementById('schedule-hint').textContent = s && s.available
-    ? `${s.count} tasks${(s.missing || []).length ? ', ' + s.missing.length + ' missing' : ', none missing'}` : 'unavailable';
-  const box = document.getElementById('schedule');
-  if (!s || !s.available) { box.innerHTML = gap(s); return; }
-  box.innerHTML = `<table><tr><th>Task</th><th>Runs</th><th>Last run</th><th>Next run</th><th>Result</th></tr>` +
-    (s.tasks || []).map(t => `<tr><td>${esc(t.task)}</td><td>${esc(t.schedule)}</td><td>${esc(t.last_run)}</td>
-      <td>${esc(t.next_run)}</td><td>${t.registered ? esc(t.last_result) : "<span class='pill halt'>not registered</span>"}</td></tr>`).join('') + '</table>';
-}
-
-function renderMemory(m) {
-  document.getElementById('memory-hint').textContent = m && m.available
-    ? `${m.baseline_rows} recorded results · ${m.open_backlog_count} open` : 'unavailable';
-  const box = document.getElementById('memory');
-  if (!m || !m.available) { box.innerHTML = gap(m); return; }
-  box.innerHTML = `<p class='lead'>${esc(m.note)}</p>
-    <h3>Latest recorded results</h3><ul class='tight'>${(m.latest_results || []).map(row => {
-      const cells = row.split('|').filter(c => c.trim());
-      return `<li><strong>${esc((cells[0] || '').trim())}</strong> ${esc((cells[1] || '').trim())} — ${esc((cells[2] || '').trim().slice(0, 160))}</li>`;
-    }).join('')}</ul>
-    <h3>Recent notes</h3><ul class='tight'>${(m.recent_notes || []).map(n => `<li>${esc(n.slice(0, 220))}</li>`).join('')}</ul>`;
-}
-
-function renderSkills(s, instructions) {
-  document.getElementById('skills-hint').textContent = s && s.available ? `${s.count} skills` : 'unavailable';
-  document.getElementById('skills').innerHTML = s && s.available
-    ? `<ul class='tight'>${(s.skills || []).map(k => `<li><code class='mono'>/${esc(k.name)}</code> ${esc(k.description)}</li>`).join('')}</ul>`
-    : gap(s);
-  document.getElementById('instructions').innerHTML = `<ul class='tight'>${(instructions || []).map(i => `<li>${esc(i)}</li>`).join('')}</ul>`;
-}
-
-function renderTools(t) {
-  document.getElementById('tools-hint').textContent = `${((t || {}).commands || []).length} commands · ${esc((t || {}).api_endpoint_count)} endpoints`;
-  document.getElementById('tools').innerHTML = `<ul class='tight'>${((t || {}).commands || []).map(c =>
-      `<li><code class='mono'>${esc(c.command)}</code> — ${esc(c.does)}</li>`).join('')}</ul>
-    <details style='margin-top:10px'><summary class='sub'>every HTTP endpoint</summary>
-      <ul class='tight'>${((t || {}).api_endpoints || []).map(e => `<li><code class='mono'>${esc(e)}</code></li>`).join('')}</ul></details>`;
-}
-
-function renderContext(c) {
-  const box = document.getElementById('context');
-  if (!c) { box.innerHTML = gap(c); return; }
-  const learn = c.learning || {}, models = c.models || {}, pos = c.positioning || {};
-  box.innerHTML = `<h3>Learning</h3>${learn.available
-      ? `<ul class='tight'>${Object.entries(learn.per_symbol || {}).map(([sym, d]) =>
-          `<li>${esc(sym)}: ${esc(d.status)} · RF ${d.rf_promoted ? 'promoted' : 'kept'} · LSTM ${d.lstm_promoted ? 'promoted' : 'kept'} · accuracy ${d.accuracy === null || d.accuracy === undefined ? '—' : Number(d.accuracy).toFixed(3)}</li>`).join('')}</ul>`
-      : gap(learn)}
-    <h3>Models</h3>${models.available ? `<p class='lead'>${esc(models.count)} file(s), newest written ${esc(models.newest_written)} UTC — ${esc(models.folder)}</p>` : gap(models)}
-    <h3>Positioning</h3>${pos.available ? `<p class='lead'>CFTC report as of ${esc(pos.as_of)} — <a href='/positioning'>open the page</a></p>` : gap(pos)}`;
-}
-
-async function load(live) {
-  const line = document.getElementById('status-line');
-  line.textContent = live ? 'rebuilding…' : 'loading…';
-  let d;
-  try { d = await (await fetch('/api/i40-pilot' + (live ? '?live=1' : ''))).json(); }
-  catch (e) { line.textContent = 'unavailable: ' + e; return; }
-  const id = d.identity || {};
-  document.getElementById('ident').textContent = `${id.role || ''}`;
-  setVerdict(d.attention, d.loop);
-  band(d);
-  renderAttention(d.attention);
-  renderStrategies(d.context);
-  renderActivity(d.activity);
-  renderRules(d.rules);
-  renderSchedule(d.schedule);
-  renderMemory(d.memory);
-  renderSkills(d.skills, d.instructions);
-  renderTools(d.tools);
-  renderContext(d.context);
-  const loop = d.loop || {};
-  line.textContent = `${esc(id.branch || '')} @ ${esc(id.commit || '')} · brief ${esc(d.generated_at)} UTC`
-    + (loop.available ? ` · ${loop.age_minutes} min old` : '') + (d.available === false ? ` · ${esc(d.reason)}` : '');
-}
-document.getElementById('refresh-btn').addEventListener('click', () => load(true));
-load(false);
-setInterval(() => load(false), 120000);
-</script>
-</body>
-</html>
-"""
-
-
-@app.route('/api/positioning')
-def positioning_api():
-  """Speculative positioning from the CFTC Commitments of Traders report (weekly, days old, context only)."""
-  from src import positioning
-  from src.runtime_paths import read_latest_json
-  return jsonify(read_latest_json(positioning.positioning_dir() / 'latest.json',
-                                  'positioning has not been downloaded yet (task SmartEntry Positioning)'))
-
-
-@app.route('/positioning')
-def positioning_page():
-  return render_template_string(POSITIONING_TEMPLATE, theme_css=THEME_CSS)
-
-
-POSITIONING_TEMPLATE = r"""
-<!doctype html>
-<html lang='en'>
-<head>
-  <meta charset='utf-8'>
-  <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Positioning</title>
-  {{ theme_css | safe }}
-  <style>
-    .po-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; }
-    .banner { border-radius:12px; padding:10px 14px; margin:10px 0 14px; border:1px solid rgba(251,191,36,.6); background:rgba(251,191,36,.12); color:#fde68a; }
-    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .long { color:#a7f3d0; } .short { color:#fecdd3; } .flat { color:#cbd5e1; }
-    .bar { position:relative; height:12px; border-radius:999px; background:rgba(148,176,222,.18); min-width:120px; }
-    .bar > i { position:absolute; top:-2px; bottom:-2px; width:3px; background:#f8fafc; border-radius:2px; }
-    .bar > b { position:absolute; top:0; bottom:0; left:0; border-radius:999px; background:linear-gradient(90deg,#38bdf8,#a78bfa); opacity:.6; }
-    .bar.idx > b { background:linear-gradient(90deg,#34d399,#fbbf24,#f43f5e); }
-    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
-    .tag.hot { color:#fecdd3; background:rgba(225,29,72,.18); border:1px solid rgba(251,113,133,.6); }
-    .tag.flip { color:#bfdbfe; background:rgba(59,130,246,.16); border:1px solid rgba(96,165,250,.6); }
-    .tag.thin { color:#fde68a; background:rgba(251,191,36,.14); border:1px solid rgba(251,191,36,.5); }
-    .mine td:first-child { box-shadow: inset 3px 0 0 #38bdf8; }
-    .focus { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
-    .focus .card { margin:0; }
-    .big { font-size:30px; font-weight:800; letter-spacing:-.5px; line-height:1.1; }
-    .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font-size:13px; margin:10px 0 0; }
-    .kv dt { color:#9fb3d1; } .kv dd { margin:0; font-variant-numeric:tabular-nums; }
-    .spark { display:block; width:100%; height:44px; }
-    .spark.sm { width:120px; height:22px; }
-    .glossary { columns:2; column-gap:26px; font-size:13px; }
-    .glossary p { margin:0 0 8px; break-inside:avoid; }
-    @media (max-width:760px) { .glossary { columns:1; } }
-    .subtle { font-size:12px; color:#8fa6c4; }
-  </style>
-</head>
-<body>
-  <div class='nav'>{{ main_nav }}</div>
-  <div class='container'>
-    <div class='po-head'>
-      <div>
-        <h1>Positioning</h1>
-        <p class='muted'>Who is holding what, from the CFTC Commitments of Traders report (Legacy, futures only). Large speculators are trend followers with no commercial exposure; commercials are producers and hedgers on the other side. Net = long minus short. Positions are reported for a Tuesday and published the Friday after, so this page is always days old and is context, never a trigger.</p>
-      </div>
-      <div><button id='refresh-btn'>Refresh</button> <span class='muted' id='status-line'></span></div>
-    </div>
-    <div class='banner' id='asof'>Loading...</div>
-    <h2>Gold and bitcoin, the two markets this system trades</h2>
-    <div class='focus' id='focus'><div class='card'><p class='muted'>Loading...</p></div></div>
-    <div class='card'><h2>Every market in the report</h2>
-      <div class='table-wrap' id='table'><p class='muted'>Loading...</p></div></div>
-    <div class='card'><h2>Dollar proxy</h2><div id='usd'><p class='muted'>Loading...</p></div></div>
-    <div class='card'><h2>How to read this page</h2>
-      <div class='glossary'>
-        <p><strong>Net</strong> - large speculators' long contracts minus their short contracts. Positive means the crowd of speculators is leaning long.</p>
-        <p><strong>% of open interest</strong> - the net as a share of all open contracts, so markets of different sizes can be compared.</p>
-        <p><strong>COT index</strong> - where this net sits inside its own three-year range: 0 = the most short it has been, 100 = the most long. A crowded reading says the fuel for more of the same is used up, not that a turn is due.</p>
-        <p><strong>Percentile</strong> - the same idea over the full history on this page, ranking today's % of open interest against every past week.</p>
-        <p><strong>1w / 4w / 13w</strong> - how many net contracts were added or cut over the last week, month and quarter. The direction of the change is often more informative than the level.</p>
-        <p><strong>Commercials</strong> - producers, miners and dealers. They are usually on the opposite side of the speculators; an unusually large commercial short is the mirror of a crowded speculative long.</p>
-        <p><strong>Small traders</strong> - the non-reportable accounts, too small to file. Useful only as a crowd read.</p>
-        <p><strong>What happened next</strong> - this market's own history: for every past week the index is recomputed from the data available then, and the move over the following four weeks is measured on broker candles. Descriptive, after the fact, and never a prediction.</p>
-        <p class='subtle'>The report itself is weekly and late; it explains the background a move happens against, so nothing on this page opens, closes or sizes a trade.</p>
-      </div>
-    </div>
-  </div>
-<script>
-const esc = v => String(v === null || v === undefined ? '-' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const num = v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString('en-GB');
-const signed = v => (v === null || v === undefined) ? '-' : (v > 0 ? '+' : '') + Number(v).toLocaleString('en-GB');
-const cls = stance => stance === 'net long' ? 'long' : stance === 'net short' ? 'short' : 'flat';
-const pct = v => (v === null || v === undefined) ? 0 : Math.max(0, Math.min(100, Number(v)));
-
-function spark(values, small) {
-  if (!values || values.length < 4) return "<span class='muted'>-</span>";
-  const w = small ? 120 : 320, h = small ? 22 : 44, lo = Math.min(...values, 0), hi = Math.max(...values, 0);
-  const span = (hi - lo) || 1;
-  const x = i => (i / (values.length - 1)) * (w - 2) + 1;
-  const y = v => h - 1 - ((v - lo) / span) * (h - 2);
-  const line = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const zero = (lo < 0 && hi > 0) ? `<line x1='0' x2='${w}' y1='${y(0).toFixed(1)}' y2='${y(0).toFixed(1)}' stroke='rgba(148,176,222,.45)' stroke-dasharray='3 3'/>` : '';
-  const last = values[values.length - 1];
-  return `<svg class='spark${small ? ' sm' : ''}' viewBox='0 0 ${w} ${h}' preserveAspectRatio='none' role='img'>${zero}
-    <path d='${line}' fill='none' stroke='${last >= 0 ? '#34d399' : '#fb7185'}' stroke-width='1.6'/>
-    <circle cx='${x(values.length - 1).toFixed(1)}' cy='${y(last).toFixed(1)}' r='2' fill='#f8fafc'/></svg>`;
-}
-
-function barCell(value, label, extraClass) {
-  return `<div class='bar ${extraClass || ''}'><b style='width:${pct(value)}%'></b><i style='left:${Math.min(99, pct(value))}%'></i></div>
-          <span class='muted'>${esc(value)} ${esc(label)}</span>`;
-}
-
-function nextTable(study) {
-  if (!study || !study.available) return `<p class='muted'>What happened next: ${esc(study && study.reason || 'no price history')}</p>`;
-  const order = ['crowded short (index <= 20)', 'middle (20-80)', 'crowded long (index >= 80)'];
-  const entries = Object.entries(study.buckets || {}).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
-  const rows = entries.map(([name, b]) =>
-    `<tr><td>${esc(name)}</td><td class='num'>${esc(b.weeks)}</td>
-     <td class='num ${b.avg_move_pct > 0 ? 'long' : b.avg_move_pct < 0 ? 'short' : 'flat'}'>${b.avg_move_pct === null ? '-' : (b.avg_move_pct > 0 ? '+' : '') + b.avg_move_pct + ' %'}</td>
-     <td class='num'>${esc(b.up_share_pct)} %</td>
-     <td>${b.evidence === 'sufficient' ? "<span class='muted'>enough weeks</span>" : "<span class='tag thin'>thin</span>"}</td></tr>`).join('');
-  return `<h3 style='margin:14px 0 6px'>What happened next, ${esc(study.weeks_ahead)} weeks on</h3>
-    <div class='table-wrap'><table><tr><th>Reading at the time</th><th class='num'>Weeks</th><th class='num'>Average move</th><th class='num'>Share up</th><th>Evidence</th></tr>${rows}</table></div>
-    <p class='subtle'>${esc(study.note)}</p>`;
-}
-
-function focusCard(symbol, m) {
-  const tags = [m.extreme ? `<span class='tag hot'>${esc(m.extreme)}</span>` : '',
-                m.flipped ? `<span class='tag flip'>${esc(m.flipped)}</span>` : ''].join(' ');
-  return `<div class='card'>
-    <div style='display:flex;justify-content:space-between;align-items:baseline;gap:8px'>
-      <h2 style='margin:0'>${esc(symbol)}</h2><span class='muted'>as of ${esc(m.as_of)}</span></div>
-    <p class='big ${cls(m.stance)}' style='margin:8px 0 0'>${signed(m.net)}<span class='muted' style='font-size:14px;font-weight:500'> contracts, ${esc(m.stance)}</span></p>
-    <p class='muted' style='margin:2px 0 0'>${esc(m.net_pct_of_open_interest)} % of open interest ${tags}</p>
-    <div style='margin:10px 0 0'>${spark(m.sparkline)}<span class='subtle'>net contracts, last ${esc(m.sparkline_weeks)} weeks</span></div>
-    <dl class='kv'>
-      <dt>COT index (3 years)</dt><dd>${barCell(m.cot_index, 'of 100', 'idx')}</dd>
-      <dt>Percentile of history</dt><dd>${barCell(m.percentile_net_pct, 'of 100')}</dd>
-      <dt>Change 1w / 4w</dt><dd>${signed(m.week_change_net)} / ${signed(m.change_4w)}</dd>
-      <dt>Commercials (other side)</dt><dd class='${m.commercial_net < 0 ? 'short' : 'long'}'>${signed(m.commercial_net)}</dd>
-      <dt>Small traders</dt><dd class='${m.small_trader_net < 0 ? 'short' : 'long'}'>${signed(m.small_trader_net)}</dd>
-      <dt>Open interest</dt><dd>${num(m.open_interest)} <span class='subtle'>(${signed(m.open_interest_change)} on the week)</span></dd>
-    </dl>
-    ${nextTable(m.what_happened_next)}</div>`;
-}
-
-async function load() {
-  let d;
-  try { d = await (await fetch('/api/positioning')).json(); } catch (e) { document.getElementById('asof').textContent = 'Unavailable: ' + e; return; }
-  if (!d.available) { document.getElementById('asof').textContent = d.reason || 'No positioning data yet.'; return; }
-  const r = d.report || {};
-  document.getElementById('asof').innerHTML = `<strong>Not live.</strong> Positions as of <strong>${esc(r.as_of_tuesday)}</strong> (Tuesday), published ${esc(r.released)} - <strong>${esc(r.age_days)} days old</strong>. Next release about ${esc(r.next_release_estimate)}. Source: ${esc(d.source)}.<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.note)}</div>`;
-  const rows = (d.markets || []).filter(m => m.available);
-  document.getElementById('table').innerHTML = `<table><tr><th>Market</th><th>Stance</th><th class='num'>Net</th><th class='num'>% of OI</th>
-      <th class='num'>1w</th><th class='num'>4w</th><th class='num'>13w</th><th class='num'>Commercials</th><th>COT index</th><th>Percentile</th><th>Net, 2 years</th></tr>` +
-    rows.map(m => `<tr class='${m.symbol ? 'mine' : ''}'>
-      <td>${esc(m.market)}${m.symbol ? " <span class='muted'>" + esc(m.symbol) + "</span>" : ''}</td>
-      <td class='${cls(m.stance)}'>${esc(m.stance)}${m.extreme ? " <span class='tag hot'>" + esc(m.extreme.split('(')[0].trim()) + "</span>" : ''}${m.flipped ? " <span class='tag flip'>" + esc(m.flipped) + "</span>" : ''}</td>
-      <td class='num ${cls(m.stance)}'>${signed(m.net)}</td>
-      <td class='num'>${esc(m.net_pct_of_open_interest)} %</td>
-      <td class='num'>${signed(m.week_change_net)}</td><td class='num'>${signed(m.change_4w)}</td><td class='num'>${signed(m.change_13w)}</td>
-      <td class='num ${m.commercial_net < 0 ? 'short' : 'long'}'>${signed(m.commercial_net)}</td>
-      <td>${barCell(m.cot_index, 'of 100', 'idx')}</td>
-      <td>${barCell(m.percentile_net_pct, '· ' + esc(m.weeks_of_history) + ' weeks')}</td>
-      <td>${spark(m.sparkline, true)}</td></tr>`).join('') + '</table>';
-  const u = d.usd_proxy || {};
-  document.getElementById('usd').innerHTML = u.available ? `<p><strong class='${u.net_of_currencies < 0 ? 'long' : 'short'}'>${esc(u.stance)}</strong> · summed currency net ${signed(u.net_of_currencies)} contracts (${esc((u.components || []).join(', '))})</p><p class='muted'>${esc(u.note)}</p>` : `<p class='muted'>${esc(u.reason)}</p>`;
-  const mine = d.system_markets || {};
-  const bySymbol = {}; rows.forEach(m => { if (m.symbol) bySymbol[m.symbol] = m; });
-  document.getElementById('focus').innerHTML = Object.keys(mine).length
-    ? Object.entries(mine).map(([sym, m]) => focusCard(sym, Object.assign({}, bySymbol[sym] || {}, m))).join('')
-    : "<div class='card'><p class='muted'>Neither traded market is in this report yet.</p></div>";
-  document.getElementById('status-line').textContent = 'updated ' + esc(d.generated_at) + ' UTC';
-}
-document.getElementById('refresh-btn').addEventListener('click', load);
-load();
-setInterval(load, 300000);
-</script>
-</body>
-</html>
-"""
-
-
-@app.route('/api/atomic-analyst')
-def atomic_analyst_api():
-  """The owner's MT5 ATOMIC ANALYST V85 panel as read-only evidence, with how it lines up with the system's plans.
-  It never feeds the signal engine, the execution gate, position size or a stop (src/atomic_analyst.py)."""
-  from src import atomic_analyst
-  return jsonify(atomic_analyst.overview())
-
-
-@app.route('/api/plan-journal')
-def plan_journal_api():
-  """What the system learned from its chart plans (src/plan_journal.py, task SmartEntry Plan Journal). Read-only."""
-  from src import plan_journal
-  return jsonify(plan_journal.read_latest())
-
-
-@app.route('/api/demo-breakout/status')
-def demo_breakout_status_api():
-  from src import demo_volatility_breakout
-  return jsonify(demo_volatility_breakout.breakout_status(MT5_ENGINE))
-
-
 @app.route('/demo-trading')
 def demo_trading_page():
   from src import execution_guard
@@ -22712,31 +22044,12 @@ DEMO_TRADING_TEMPLATE = r"""
         <div class='muted' id='control-msg' style='font-size:12px;margin-top:6px'></div>
       </div>
     </div>
-    <div class='card' id='account-card'><h2>Demo account</h2><div id='account-strip'><p class='muted'>Loading…</p></div></div>
     <div class='banner warn' id='mode-banner'>Loading…</div>
     <div class='tiles' id='tiles'></div>
     <div class='card'><h2>Open position</h2><div id='open-trade'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Today's trades</h2><div class='table-wrap' id='today'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Recent closed trades</h2><div class='table-wrap' id='closed'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Decision log</h2><div class='table-wrap' id='log'><p class='muted'>Loading…</p></div></div>
-
-    <div class='dt-head' style='margin-top:28px'>
-      <div>
-        <h1>Volatility Trend Breakout (4H)</h1>
-        <p class='muted'>The owner's Pine strategy on the same demo account (magic 440603): long breakouts above the 20-bar high, 2 legs of 0.01 lot, TP1 1.3R and TP2 2.8R, stop to break-even + trail after TP1, 65-candle time exit, one position at a time. Its own kill switches.</p>
-      </div>
-      <div style='text-align:right'>
-        <button class='stop-btn' id='b-stop-btn' type='button'>STOP</button>
-        <div class='muted' style='font-size:12px;margin-top:6px'>Halts the breakout and closes its open legs (magic 440603 only).</div>
-        <button class='resume-btn' id='b-resume-btn' type='button' hidden>Resume breakout</button>
-        <div class='muted' id='b-control-msg' style='font-size:12px;margin-top:6px'></div>
-      </div>
-    </div>
-    <div class='banner warn' id='b-mode-banner'>Loading…</div>
-    <div class='tiles' id='b-tiles'></div>
-    <div class='card'><h2>Breakout open position</h2><div id='b-open-trade'><p class='muted'>Loading…</p></div></div>
-    <div class='card'><h2>Breakout closed trades</h2><div class='table-wrap' id='b-closed'><p class='muted'>Loading…</p></div></div>
-    <div class='card'><h2>Breakout decision log</h2><div class='table-wrap' id='b-log'><p class='muted'>Loading…</p></div></div>
   </div>
 <script>
 const CONTROL_SECRET = {{ control_secret|tojson }};
@@ -22744,51 +22057,8 @@ const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>
 const fmtR = v => (v === null || v === undefined) ? '—' : `<span class='${v >= 0 ? 'pos' : 'neg'}'>${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}R</span>`;
 const pct = v => (v === null || v === undefined) ? '—' : (Number(v) * 100).toFixed(2) + ' %';
 let resumeArmed = false;
-let lastPullbackStatus = null, lastBreakoutStatus = null;
 
 function tile(k, v, s) { return `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${v}</div><div class='s'>${s || ''}</div></div>`; }
-
-const money = (v, ccy) => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + (ccy || '');
-
-function accountStrip(account, strategies) {
-  const box = document.getElementById('account-strip');
-  if (!account || !account.available) {
-    box.innerHTML = `<p class='muted'>${esc((account || {}).reason || 'the account is not readable')}. Balance, equity and open profit are read from MT5 only; nothing is shown from memory.</p>`;
-    return;
-  }
-  const open = strategies.reduce((sum, s) => sum + Number(((s || {}).account || {}).open_profit || 0), 0);
-  const legs = strategies.reduce((sum, s) => sum + Number(((s || {}).account || {}).open_legs || 0), 0);
-  box.innerHTML = `<div class='tiles' style='margin:0'>` + [
-    tile('Balance', money(account.balance, account.currency), `account ${esc(account.login)} · ${esc(account.server)}`),
-    tile('Equity', money(account.equity, account.currency), account.is_demo ? 'demo account, verified with MT5' : 'NOT a demo account'),
-    tile('Open profit, both strategies', `<span class='${open >= 0 ? 'pos' : 'neg'}'>${money(open, account.currency)}</span>`, `${legs} open leg(s) carrying these magic numbers`),
-  ].join('') + '</div>';
-}
-
-function cycleTile(health) {
-  const h = health || {};
-  if (!h.available) return tile('Cycle', 'not run yet', esc(h.reason || ''));
-  return tile('Last cycle', esc(h.last_cycle_utc), (h.late ? "<span class='neg'>late: </span>" : '') + esc(h.note));
-}
-
-function decisionLog(target, rows) {
-  const box = document.getElementById(target);
-  if (!rows || !rows.length) { box.innerHTML = "<p class='muted'>No decisions logged yet.</p>"; return; }
-  const groups = [];
-  rows.forEach(x => {
-    const last = groups[groups.length - 1];
-    if (last && last.event === x.event) { last.count += 1; last.from = x.at; }
-    else groups.push({event: x.event, reason: x.reason, count: 1, at: x.at, from: x.at});
-  });
-  const body = groups.map(g => `<tr><td>${esc(g.at)}${g.count > 1 ? " <span class='muted'>back to " + esc(g.from) + '</span>' : ''}</td>
-      <td>${esc(g.event)}${g.count > 1 ? " <span class='muted'>× " + g.count + ' cycles</span>' : ''}</td>
-      <td class='reason'>${esc(g.reason)}${g.count > 1 ? " <span class='muted'>(newest of " + g.count + '; each names its own bar)</span>' : ''}</td></tr>`).join('');
-  const full = rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('');
-  box.innerHTML = `<p class='muted' style='margin-top:0'>${groups.length} run(s) of the same decision across the last ${rows.length} cycles. Consecutive repeats are collapsed; every cycle is still below.</p>
-    <table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>${body}</table>
-    <details style='margin-top:8px'><summary class='muted'>Show every cycle (${rows.length})</summary>
-      <table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>${full}</table></details>`;
-}
 
 async function control(path) {
   const msg = document.getElementById('control-msg');
@@ -22839,10 +22109,8 @@ async function load() {
     tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
     tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
     tile('Account check', d.account_ok ? 'demo OK' : 'not verified', esc(d.account_reason)),
-    cycleTile(d.cycle_health),
+    tile('Last cycle', esc((d.last_cycle || {}).at || 'never'), esc((d.last_cycle || {}).reason || '')),
   ].join('');
-  lastPullbackStatus = d;
-  accountStrip(d.account, [d, lastBreakoutStatus]);
 
   const t = d.open_trade;
   const positions = d.open_positions || [];
@@ -22861,73 +22129,13 @@ async function load() {
     `<table><tr><th>Closed</th><th>Side</th><th>Mode</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
     closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td>${esc(x.side)}</td><td>${esc(x.mode)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
 
-  decisionLog('log', d.log || []);
+  const rows = d.log || [];
+  document.getElementById('log').innerHTML = !rows.length ? "<p class='muted'>No decisions logged yet.</p>" :
+    `<table><tr><th>UTC</th><th>Decision</th><th>Reason</th></tr>` +
+    rows.map(x => `<tr><td>${esc(x.at)}</td><td>${esc(x.event)}</td><td class='reason'>${esc(x.reason)}</td></tr>`).join('') + '</table>';
 }
-
-let breakoutResumeArmed = false;
-async function controlBreakout(path) {
-  const msg = document.getElementById('b-control-msg');
-  msg.textContent = 'Sending…';
-  try {
-    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Control-Secret': CONTROL_SECRET}, body: '{}'});
-    const body = await r.json();
-    msg.textContent = r.ok ? (body.reason || 'done') : ('Refused: ' + (body.reason || r.status));
-  } catch (e) { msg.textContent = 'Request failed: ' + e; }
-  loadBreakout();
-}
-document.getElementById('b-stop-btn').addEventListener('click', () => controlBreakout('/api/demo-breakout/stop'));
-document.getElementById('b-resume-btn').addEventListener('click', () => {
-  const btn = document.getElementById('b-resume-btn');
-  if (!breakoutResumeArmed) { breakoutResumeArmed = true; btn.textContent = 'Click again to resume'; setTimeout(() => { breakoutResumeArmed = false; btn.textContent = 'Resume breakout'; }, 5000); return; }
-  breakoutResumeArmed = false; btn.textContent = 'Resume breakout';
-  controlBreakout('/api/demo-breakout/resume');
-});
-
-async function loadBreakout() {
-  let d;
-  try { d = await (await fetch('/api/demo-breakout/status')).json(); } catch (e) {
-    document.getElementById('b-mode-banner').textContent = 'Status unavailable: ' + e; return;
-  }
-  const banner = document.getElementById('b-mode-banner');
-  const cfg = d.config || {};
-  if (d.halted) {
-    banner.className = 'banner bad';
-    banner.innerHTML = `<strong>HALTED (${esc(d.halted.kind)})</strong> at ${esc(d.halted.at)} UTC: ${esc(d.halted.reason)}`;
-  } else if (!cfg.enabled) {
-    banner.className = 'banner warn'; banner.innerHTML = '<strong>Disabled.</strong>';
-  } else if (!d.sending_orders) {
-    banner.className = 'banner warn'; banner.innerHTML = '<strong>Dry run.</strong> Orders are logged, not sent.';
-  } else {
-    banner.className = 'banner ok'; banner.innerHTML = '<strong>Sending orders</strong> to demo account 11581419.';
-  }
-  banner.innerHTML += `<div class='muted' style='margin-top:4px;font-size:12px'>${esc(d.backtest_verdict)}</div>`;
-  document.getElementById('b-stop-btn').disabled = !!(d.halted && d.halted.kind === 'owner_stop');
-  document.getElementById('b-resume-btn').hidden = !d.halted;
-  const ex = d.expectancy || {}, ks = d.kill_switches || {};
-  document.getElementById('b-tiles').innerHTML = [
-    tile('Running expectancy (demo fills)', fmtR(ex.expectancy_r), `${ex.trades || 0} trades, ${ex.wins || 0} wins, total ${ex.total_r ?? 0}R`),
-    tile('Day P&L (strategy)', pct(ks.day_change), `stop at -${pct(ks.daily_loss_limit)}`),
-    tile('Drawdown (strategy)', pct(ks.drawdown), `halt at ${pct(ks.halt_drawdown)}`),
-    cycleTile(d.cycle_health),
-  ].join('');
-  lastBreakoutStatus = d;
-  accountStrip(d.account, [lastPullbackStatus, d]);
-  const t = d.open_trade, positions = d.open_positions || [];
-  document.getElementById('b-open-trade').innerHTML = !t ? `<p class='muted'>No open trade.${positions.length ? ' Broker shows ' + positions.length + ' leg(s) with magic 440603.' : ''}</p>` :
-    `<p><strong>BUY</strong> signal ${esc(t.id)} UTC · entry ${esc(t.entry)} · stop ${esc(t.stop)} · R ${esc(t.r_price)} · TP1 ${esc(t.setup.tp1)} · TP2 ${esc(t.setup.tp2)}${t.leg_b_stop ? ' · leg B stop ' + esc(t.leg_b_stop) : ''}</p>` +
-    (positions.length ? `<table><tr><th>Ticket</th><th class='num'>Volume</th><th class='num'>Open</th><th class='num'>SL</th><th class='num'>TP</th><th class='num'>Profit</th><th>Comment</th></tr>` +
-      positions.map(p => `<tr><td>${esc(p.ticket)}</td><td class='num'>${esc(p.volume)}</td><td class='num'>${esc(p.price_open)}</td><td class='num'>${esc(p.sl)}</td><td class='num'>${esc(p.tp)}</td><td class='num'>${esc(p.profit)}</td><td>${esc(p.comment)}</td></tr>`).join('') + '</table>' : '');
-  const closed = d.recent_trades || [];
-  document.getElementById('b-closed').innerHTML = !closed.length ? "<p class='muted'>No closed trades yet.</p>" :
-    `<table><tr><th>Closed</th><th class='num'>R</th><th class='num'>Money</th><th>Session</th><th>Trend</th><th class='num'>Min to event</th></tr>` +
-    closed.map(x => `<tr><td>${esc(x.closed_at)}</td><td class='num'>${fmtR(x.r_result)}</td><td class='num'>${esc(x.net_money)}</td><td>${esc(x.session)}</td><td>${esc((x.regime || {}).trend)}</td><td class='num'>${esc(x.minutes_to_next_tier1_event)}</td></tr>`).join('') + '</table>';
-  decisionLog('b-log', d.log || []);
-}
-
 load();
-loadBreakout();
 setInterval(load, 30000);
-setInterval(loadBreakout, 30000);
 </script>
 </body>
 </html>

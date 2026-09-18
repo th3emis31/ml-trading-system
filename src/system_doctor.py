@@ -57,8 +57,7 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_demo_volatility_breakout.py",
               "tests/test_plan_journal.py", "tests/test_atomic_analyst.py",
               "tests/test_positioning.py",
-              "tests/test_i40_pilot.py",
-              "tests/test_gold_reaper_watch.py")
+              "tests/test_i40_pilot.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},
@@ -72,7 +71,6 @@ TASKS = {
     "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Positioning": {"script": "run_positioning.cmd", "schedule": ["/sc", "daily", "/st", "21:10"]},
     "SmartEntry i40 Pilot": {"script": "run_i40_pilot.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:40"]},
-    "SmartEntry Gold Reaper Watch": {"script": "run_gold_reaper_watch.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:45"]},
     "SmartEntry Obsidian Notes": {"script": "run_obsidian_notes.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:50"]},
     # Opens Claude Code (tabs "bridge" and "desk") at this user's logon; recreated by --fix if missing.
     "SmartEntry Claude Code": {"script": "start_claude.cmd", "schedule": ["/sc", "onlogon"]},
