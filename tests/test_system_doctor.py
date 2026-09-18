@@ -194,3 +194,15 @@ def test_a_task_running_from_the_fallback_folder_is_a_warning():
     assert list(elsewhere) == ["SmartEntry Daily Agent"], "only the task pointing away from the live folder"
     assert "run_daily_agent.cmd" in elsewhere["SmartEntry Daily Agent"]
     assert result["detail"]["live_folder"] == str(doc.ROOT)
+
+
+def test_the_doctor_page_states_the_check_age_and_labels_its_clocks():
+    """The page stamps the check in UTC and the page-load time in local time. Unlabelled, a reader subtracts them:
+    at 20:06 local a check stamped 18:58 UTC looks 68 minutes old when it is 8."""
+    import app as app_module
+
+    html = app_module.app.test_client().get("/system-doctor").get_data(as_text=True)
+    assert "function checkAge(stamp)" in html, "the page computes how old the check is"
+    assert "checkAge(r.generated_at)" in html, "and prints it beside the UTC stamp"
+    assert "Page loaded ${new Date().toLocaleTimeString()} local" in html, "the local clock says it is local"
+    assert "the 30-minute check has missed a run" in html, "past an hour it says a run was missed"

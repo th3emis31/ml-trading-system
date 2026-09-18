@@ -21356,13 +21356,25 @@ SYSTEM_DOCTOR_TEMPLATE = r"""
         <div><div class='name'>${esc(c.name)}</div><div class='summary'>${esc(c.summary)}</div></div>${detail}</div>`;
     }
 
+    function checkAge(stamp) {
+      // How old the check is, said outright, so nobody has to convert time zones to find out. The task runs every
+      // 30 minutes, so past an hour it has missed at least one run and the page should say so.
+      if (!stamp) return '';
+      const when = new Date(String(stamp).replace(' ', 'T') + 'Z');
+      if (isNaN(when)) return '';
+      const mins = (Date.now() - when.getTime()) / 60000;
+      const text = mins < 1 ? 'just now' : mins < 90 ? `${Math.round(mins)} min ago`
+        : mins < 2880 ? `${(mins / 60).toFixed(1)} h ago` : `${Math.round(mins / 1440)} days ago`;
+      return mins > 60 ? ` (<span class='negative'>${text} - the 30-minute check has missed a run</span>)` : ` (${text})`;
+    }
+
     function render(data) {
       const r = data.latest || {};
       const counts = r.counts || {};
       const history = data.history || [];
       document.getElementById('overall').innerHTML = `<h2>Overall</h2>
         <div class='overall'><span class='big ${esc(r.overall)}'>${esc(OVERALL[r.overall] || r.overall)}</span>
-          <span class='muted'>checked ${esc(r.generated_at)} UTC in ${esc(r.duration_sec)} s${r.deep ? ' (deep)' : ''}${data.running ? ' · a new check is running…' : ''}</span></div>
+          <span class='muted'>checked ${esc(r.generated_at)} UTC${checkAge(r.generated_at)} in ${esc(r.duration_sec)} s${r.deep ? ' (deep)' : ''}${data.running ? ' · a new check is running…' : ''}</span></div>
         <div class='tiles'>
           <div class='tile'><div class='k'>OK</div><div class='v positive'>${esc((counts.ok || 0) + (counts.info || 0))}</div></div>
           <div class='tile'><div class='k'>Warnings</div><div class='v'>${esc(counts.warn || 0)}</div></div>
@@ -21395,7 +21407,9 @@ SYSTEM_DOCTOR_TEMPLATE = r"""
           return;
         }
         render(data);
-        document.getElementById('status-line').textContent = `Loaded ${new Date().toLocaleTimeString()}`;
+        // Label the clock: the check is stamped UTC and this line is local time, so an unlabelled pair
+        // invites subtraction - at 20:06 local a check stamped 18:58 UTC looks 68 minutes old when it is 8.
+        document.getElementById('status-line').textContent = `Page loaded ${new Date().toLocaleTimeString()} local`;
       } catch (error) {
         document.getElementById('overall').innerHTML = `<p class='negative'>Could not load the System Doctor: ${esc(error.message || error)}</p>`;
       }
