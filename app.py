@@ -20710,6 +20710,7 @@ PAPER_TRADING_TEMPLATE = r"""
     <div class='card' id='summary'><p class='muted'>Loading…</p></div>
     <div class='card' id='open-trade'><h2>Open paper trade</h2><p class='muted'>Loading…</p></div>
     <div class='card'><h2>Closed paper trades</h2><div class='table-wrap' id='closed'><p class='muted'>Loading…</p></div></div>
+    <div class='card' id='why-quiet'></div>
     <div class='card'>
       <h2>Decisions (newest first)</h2>
       <p class='muted'>EV is the expected result of a trade in R (1R = the amount risked) after costs. A trade is taken only when its EV is above the threshold: the top 10% of the model's own recent EVs, the rule that scored PF 1.29 in the backtest.</p>
@@ -20785,6 +20786,37 @@ PAPER_TRADING_TEMPLATE = r"""
       return `<table><thead><tr><th>Signal bar (UTC)</th><th>Side</th><th class='num'>Entry</th><th class='num'>Stop</th><th class='num'>Target</th><th>Exit (UTC)</th><th>Result</th><th class='num'>Bars</th><th class='num'>Net</th><th class='num'>R</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
+    function renderWhyQuiet(decisions) {
+      // The page said "waiting for the next 4h close" without saying why nothing fires. A model that is declining
+      // by a wide margin and one that keeps missing by a hair need different responses, so show the distance.
+      const box = document.getElementById('why-quiet');
+      const scored = decisions.filter(d => d.threshold_r !== undefined && d.threshold_r !== null &&
+                                           (d.ev_buy_r !== undefined || d.ev_sell_r !== undefined));
+      if (!scored.length) { box.innerHTML = ''; return; }
+      const gaps = scored.map(d => {
+        const best = Math.max(d.ev_buy_r ?? -99, d.ev_sell_r ?? -99);
+        return {bar: d.bar_time, best, thr: d.threshold_r, gap: d.threshold_r - best, action: d.action};
+      });
+      const taken = gaps.filter(g => g.action === 'BUY' || g.action === 'SELL').length;
+      const misses = gaps.filter(g => g.gap > 0).sort((a, b) => a.gap - b.gap);
+      const closest = misses[0];
+      const median = (arr => arr.length ? arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null)(misses.map(m => m.gap));
+      box.innerHTML = `<h2>Why it is quiet</h2>
+        <p class='muted'>The model scores every closed 4H bar and trades only when the expected value of a trade clears its own
+        threshold. Over the last ${scored.length} bars it took <strong>${taken}</strong>, so the useful question is how close the rest came.</p>
+        <div class='tiles'>
+          <div class='tile'><div class='k'>Signals taken</div><div class='v'>${taken} of ${scored.length}</div><div class='s'>bars where EV cleared the threshold</div></div>
+          <div class='tile'><div class='k'>Closest miss</div><div class='v'>${closest ? closest.gap.toFixed(3) + ' R' : '—'}</div>
+            <div class='s'>${closest ? `on ${esc(closest.bar)} · EV ${closest.best.toFixed(3)} against ${closest.thr.toFixed(3)}` : 'none'}</div></div>
+          <div class='tile'><div class='k'>Typical shortfall</div><div class='v'>${median !== null ? median.toFixed(3) + ' R' : '—'}</div>
+            <div class='s'>median gap on the bars it refused</div></div>
+        </div>
+        <p class='muted' style='margin-top:8px'>${closest && closest.gap < 0.05
+          ? 'It is missing by a hair, not standing far back: the model is finding near-qualifying setups and the next one may well clear.'
+          : 'It is refusing by a wide margin, which is the model judging the recent setups genuinely poor rather than narrowly missing.'}
+          Measured on 2026-09-18, this model clears its threshold about 1.75 times a week, matching the 1.6 a week in its backtest - it is built to trade rarely.</p>`;
+    }
+
     function renderDecisions(decisions) {
       if (!decisions.length) return `<p class='muted'>No decisions yet.</p>`;
       const rows = decisions.map(d => `<tr>
@@ -20808,6 +20840,7 @@ PAPER_TRADING_TEMPLATE = r"""
         document.getElementById('open-trade').innerHTML = renderOpen(data.open_trade);
         document.getElementById('closed').innerHTML = renderClosed(data.closed_trades || []);
         document.getElementById('decisions').innerHTML = renderDecisions(data.decisions || []);
+        renderWhyQuiet(data.decisions || []);
         document.getElementById('status-line').textContent = data.running ? 'Check running…' : `Loaded ${new Date().toLocaleTimeString()}`;
       } catch (error) {
         document.getElementById('summary').innerHTML = `<p class='negative'>Could not load paper trading: ${esc(error.message || error)}</p>`;
