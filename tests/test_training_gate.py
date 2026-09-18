@@ -133,3 +133,31 @@ def test_caller_includes_the_http_request_inside_the_web_app():
     assert caller["http"]["path"] == "/api/train-daily"
     assert caller["http"]["method"] == "POST"
     assert "prefetch-bot" in caller["http"]["user_agent"]
+
+
+def test_learning_trains_on_broker_candles_and_says_so(monkeypatch):
+    """Until 2026-09-18 the daily learning trained on Yahoo, which proxies XAUUSD with the GC=F futures contract and
+    sits about 1 % away from the broker's spot. The models were learning a price series they would never trade at."""
+    import pandas as pd
+
+    from src import daily_learning
+
+    broker = pd.DataFrame({"datetime": pd.date_range("2026-09-01", periods=50, freq="h", tz="UTC"),
+                           "open": 4300.0, "high": 4310.0, "low": 4290.0, "close": 4305.0, "volume": 1.0})
+    broker.attrs["source"] = "app:mt5:XAUUSD"
+    monkeypatch.setattr(daily_learning, "fetch_app_bars", lambda *a, **k: broker, raising=False)
+    monkeypatch.setitem(__import__("sys").modules, "src.mtf_data",
+                        type("m", (), {"fetch_app_bars": staticmethod(lambda *a, **k: broker)}))
+
+    frame = daily_learning.training_bars("XAUUSD", "120d", "1h")
+    assert frame.attrs["source"] == "broker", "a run must record which prices it learned from"
+    assert float(frame["close"].iloc[-1]) == 4305.0
+
+    # the broker being unreadable falls back to Yahoo, and the record says it was a fallback rather than a choice
+    empty = pd.DataFrame()
+    monkeypatch.setitem(__import__("sys").modules, "src.mtf_data",
+                        type("m", (), {"fetch_app_bars": staticmethod(lambda *a, **k: empty)}))
+    yahoo = pd.DataFrame({"datetime": pd.date_range("2026-09-01", periods=10, freq="h"), "close": 4400.0})
+    yahoo.attrs["source"] = "yahoo"
+    monkeypatch.setattr(daily_learning, "fetch_real_data", lambda *a, **k: yahoo)
+    assert daily_learning.training_bars("XAUUSD", "120d", "1h").attrs["source"] == "yahoo_fallback"

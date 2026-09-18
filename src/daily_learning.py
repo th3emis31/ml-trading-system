@@ -12,6 +12,31 @@ from . import model_promotion as promotion
 from .runtime_paths import live_training_allowed, smartentry_data_dir
 
 
+def training_bars(symbol: str, period: str, interval: str):
+    """Candles to learn from: the broker's own, falling back to Yahoo only when the broker cannot be read.
+
+    Until 2026-09-18 this trained on Yahoo. Yahoo proxies XAUUSD with the GC=F futures contract, which carries roughly
+    1.4 % basis against the broker's spot, so the models were learning a price series they would never trade at. The
+    broker's candles come through the running app (never a second MetaTrader connection), and the frame keeps its
+    ``source`` tag so a run always records which prices it learned from.
+    """
+    from .mtf_data import fetch_app_bars
+
+    bars_needed = {"1h": 24 * int(str(period).rstrip("d") or 120), "1d": int(str(period).rstrip("d") or 240)}
+    try:
+        frame = fetch_app_bars(symbol, interval, bars_needed.get(interval, 3000))
+    except Exception:
+        frame = None
+    if frame is not None and not frame.empty and str(frame.attrs.get("source", "")).startswith("app:mt5"):
+        frame = frame.sort_values("datetime").reset_index(drop=True)
+        frame.attrs["source"] = "broker"
+        return frame
+    fallback = fetch_real_data(symbol, period=period, interval=interval)
+    if str(fallback.attrs.get("source")) == "yahoo":
+        fallback.attrs["source"] = "yahoo_fallback"     # the broker could not be read; say so in the record
+    return fallback
+
+
 class DailyLearner:
     def __init__(self, symbol: str):
         self.symbol = symbol
@@ -61,7 +86,7 @@ class DailyLearner:
             return blocked
         interval = "1h" if frequency == "daily" else "1d"
         period = "120d" if frequency == "daily" else "240d"
-        data = fetch_real_data(self.symbol, period=period, interval=interval)
+        data = training_bars(self.symbol, period, interval)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if data.empty:
             return {"symbol": self.symbol, "status": "no_data", "frequency": frequency}
