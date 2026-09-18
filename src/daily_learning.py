@@ -169,6 +169,10 @@ class DailyLearner:
             "lstm_promoted": lstm_promoted,
             "lstm_decision": lstm_reason,
             "trained_at": now,
+            # Which prices this run learned from. Until 2026-09-18 every run used Yahoo, whose XAUUSD is the GC=F
+            # futures proxy about 1 % from the broker's spot; accuracy either side of that change is not the same
+            # measurement, so the learning curve needs to know where the source changed.
+            "data_source": data.attrs.get("source"),
         }
 
         # PHASE 3.2 IMPROVEMENT: Add ensemble voting results (optional)

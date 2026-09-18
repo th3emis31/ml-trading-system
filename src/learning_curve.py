@@ -79,6 +79,10 @@ def _point(row: dict) -> dict:
         "rf_promoted": row.get("rf_promoted"), "lstm_promoted": row.get("lstm_promoted"),
         "rf_decision": row.get("rf_decision") or row.get("reason"), "lstm_decision": row.get("lstm_decision"),
         "error": row.get("error"), "gated": row.get("rf_promoted") is not None, "counted": False,
+        # Which prices the run learned from. Until 2026-09-18 every run used Yahoo, which proxies XAUUSD with the
+        # GC=F futures contract about 1 % away from the broker's spot; from then on the learner reads broker candles.
+        # Accuracy either side of that change is not the same measurement, so the curve has to say where it changed.
+        "data_source": row.get("data_source"),
     }
 
 
@@ -101,6 +105,31 @@ def _gate(row: dict) -> Optional[dict]:
         "live_return_pct": live.get("total_return_pct"), "live_expectancy_pct": live.get("expectancy_pct"),
         "trades": live.get("trades"), "window": live.get("window"),
     }
+
+
+def _source_history(points: list[dict]) -> dict:
+    """Which price sources the curve spans, and where it changed.
+
+    A curve that silently splices two price sources is a chart that lies: the models trained on Yahoo's gold futures
+    proxy and on the broker's spot are not measuring the same thing, so runs either side of the change cannot be
+    compared. When more than one source appears, the page says so rather than drawing one continuous line.
+    """
+    seen, changes = [], []
+    for point in points:
+        source = point.get("data_source")
+        if source and (not seen or seen[-1] != source):
+            if seen:
+                changes.append({"at": point.get("trained_at"), "from": seen[-1], "to": source})
+            seen.append(source)
+    counts: dict[str, int] = {}
+    for point in points:
+        if point.get("data_source"):
+            counts[point["data_source"]] = counts.get(point["data_source"], 0) + 1
+    return {"sources": seen, "counts": counts, "changes": changes, "mixed": len(seen) > 1,
+            "note": ("The curve spans more than one price source, so accuracy before and after the change is not the "
+                     "same measurement and the two stretches should not be compared."
+                     if len(seen) > 1 else
+                     f"Every run learned from {seen[0]} prices." if seen else "No run recorded which prices it used.")}
 
 
 def _symbol_curve(data_dir: Path, symbol: str, decisions: list, excluded_times=frozenset()) -> Optional[dict]:
@@ -155,6 +184,7 @@ def _symbol_curve(data_dir: Path, symbol: str, decisions: list, excluded_times=f
             "lstm_kept": sum(1 for p in points if p["lstm_promoted"] is True),
             "lstm_rejected": sum(1 for p in points if p["lstm_promoted"] is False and p["status"] == "trained"),
         },
+        "data_sources": _source_history(points),
     }
 
 

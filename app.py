@@ -18547,6 +18547,7 @@ SELF_LEARNING_TEMPLATE = r"""
         <div>
           <h3 style='margin:8px 0 0;'>Accuracy after every training run</h3>
           <p class='muted-small muted' style='margin:2px 0;'>One point per day (the day's last run; repeats on the same day are not counted twice). Solid = model kept live. Dashed = the new model tried that day. Grey line = 50% (coin flip). Runs before 13 Sep were scored on different months, so small ups and downs are not meaningful.</p>
+          <p class='muted-small' id='curve-source' style='margin:2px 0;'></p>
           <div class='chart-box'><canvas id='acc-chart'></canvas></div>
         </div>
         <div>
@@ -18646,6 +18647,17 @@ SELF_LEARNING_TEMPLATE = r"""
         tile('Live LSTM accuracy', pct(latest.lstm), `best ${pct(tr.lstm && tr.lstm.best)} · worst ${pct(tr.lstm && tr.lstm.worst)}`),
         tile('Money test (latest)', s.latest_gate ? num(s.latest_gate.live_return_pct) + '%' : '—', s.latest_gate ? `expectancy ${num(s.latest_gate.live_expectancy_pct, 3)}% per trade · ${esc(s.latest_gate.trades)} trades` : 'no gated run yet', s.latest_gate ? (s.latest_gate.live_return_pct > 0 ? 'good' : 'bad') : ''),
       ].join('');
+      // Say which prices the curve was measured on. Accuracy on Yahoo's gold futures proxy and on the broker's spot
+      // are not the same measurement, so a curve that spans both must not be read as one continuous line.
+      const src = s.data_sources || {};
+      const srcBox = document.getElementById('curve-source');
+      if (srcBox) {
+        const counts = Object.entries(src.counts || {}).map(([k, v]) => `${esc(k)} ${v} run${v === 1 ? '' : 's'}`).join(' · ');
+        const changed = (src.changes || []).map(c => `${esc(c.from)} → ${esc(c.to)} on ${esc(String(c.at).slice(0, 10))}`).join('; ');
+        srcBox.innerHTML = src.mixed
+          ? `<span style='color:#fde68a;font-weight:700'>Prices changed mid-curve:</span> ${esc(changed)}. ${esc(src.note)} (${counts})`
+          : (counts ? `Measured on ${counts}. ${esc(src.note || '')}` : '');
+      }
       const cp = p.filter(r => r.counted);
       const labels = cp.map(r => (r.trained_at || '').slice(0, 10));
       lineChart('acc-chart', labels, [

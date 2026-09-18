@@ -83,3 +83,22 @@ def test_empty_data_dir(tmp_path):
     assert curve["available"] is True
     assert curve["symbols"] == {}
     assert curve["task"]["healthy"] is False
+
+
+def test_the_curve_says_when_its_prices_changed_mid_way():
+    """Accuracy measured on Yahoo's gold futures proxy and on the broker's spot are not the same measurement, so a
+    curve spanning both must say so rather than drawing one continuous line. The source changed on 2026-09-18."""
+    from src.learning_curve import _source_history
+
+    one = _source_history([{"trained_at": "2026-09-17 05:30", "data_source": "yahoo"},
+                           {"trained_at": "2026-09-18 05:30", "data_source": "yahoo"}])
+    assert one["mixed"] is False and one["counts"] == {"yahoo": 2} and "Every run" in one["note"]
+
+    mixed = _source_history([{"trained_at": "2026-09-17 05:30", "data_source": "yahoo"},
+                             {"trained_at": "2026-09-19 05:30", "data_source": "broker"},
+                             {"trained_at": "2026-09-20 05:30", "data_source": "broker"}])
+    assert mixed["mixed"] is True and mixed["counts"] == {"yahoo": 1, "broker": 2}
+    assert mixed["changes"] == [{"at": "2026-09-19 05:30", "from": "yahoo", "to": "broker"}]
+    assert "not the same measurement" in mixed["note"], "the warning has to say why, not just that it happened"
+
+    assert _source_history([{"trained_at": "x"}])["note"].startswith("No run recorded")
