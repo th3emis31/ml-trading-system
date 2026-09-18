@@ -1,0 +1,135 @@
+{
+  "scanned_at": "2026-09-18T08:15:00Z",
+  "gappers": [
+    {
+      "rank": 1,
+      "symbol": "SDGR",
+      "price": 30.24,
+      "gap_pct": 26.37,
+      "premarket_volume": 8950000,
+      "catalyst": "Schrödinger's stock surge appears driven by strong Q2 2026 results and new AI product momentum.",
+      "headlines": [
+        "Schrödinger Announces Strategic Collaboration and Software Agreement with Bristol Myers Squibb to Deploy AI Co-Scientist Bunsen",
+        "Schrödinger Introduces Bunsen, an AI Co-Scientist for Molecular Discovery"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 2,
+      "symbol": "GNRC",
+      "price": 207.23,
+      "gap_pct": 18.34,
+      "premarket_volume": 8007000,
+      "catalyst": "Generac announced an $8 billion long-term supply agreement with Amazon for backup generators to power data centers.",
+      "headlines": [
+        "Generac Stock (GNRC) Surges 19% as Analysts Hail 'Transformational' $8B Amazon Deal - TipRanks",
+        "Generac Stock Soars on $8B Deal to Sell Amazon Generators to Power Data Centers - Investopedia"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 3,
+      "symbol": "VICR",
+      "price": 216.39,
+      "gap_pct": 17.66,
+      "premarket_volume": 1676000,
+      "catalyst": "Vicor's stock surge is driven by strong AI demand for its power delivery solutions and recent licensing agreements with major OEMs.",
+      "headlines": [
+        "Vicor licenses VPD to a leading AI OEM",
+        "Vicor acquires sites for additional ChiP fabs"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 4,
+      "symbol": "BHVN",
+      "price": 13.89,
+      "gap_pct": 15.56,
+      "premarket_volume": 5823000,
+      "catalyst": "The FDA imposed a partial clinical hold on Biohaven's epilepsy drug trials, pausing new patient enrollment and triggering a sharp stock decline.",
+      "headlines": [
+        "US FDA pauses new enrollment in Biohaven's epilepsy drug trials — Reuters, 7 days ago",
+        "Biohaven Stock Is Sinking. Epilepsy Drug Trial Roadblock Is Only the Latest Blow. — Barron's, 7 days ago"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 5,
+      "symbol": "TEM",
+      "price": 80.36,
+      "gap_pct": 14.85,
+      "premarket_volume": 16826000,
+      "catalyst": "Tempus AI stock gained 14.85% today on positive sentiment around AI healthcare applications and recent FDA approvals.",
+      "headlines": [
+        "Tempus AI Transcript: Morgan Stanley 24th Annual Global Healthcare Conference",
+        "Tempus Receives FDA Clearance for its AI Product Intended to Detect Signs of Pulmonary Hypertension From Standard ECGs"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 6,
+      "symbol": "PURR",
+      "price": 12.83,
+      "gap_pct": 12.15,
+      "premarket_volume": 27374000,
+      "catalyst": "Strong analyst coverage and price target increases are driving momentum in Hyperliquid Strategies stock.",
+      "headlines": [
+        "Hyperliquid Strategies initiated with a Buy at Compass Point",
+        "Hyperliquid Strategies price target raised to $34.20 from $22.60 at Cantor Fitzgerald"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 7,
+      "symbol": "XE",
+      "price": 16.33,
+      "gap_pct": 12.08,
+      "premarket_volume": 8545000,
+      "catalyst": "X-Energy's stock is rising following regulatory approval in the UK and continued government funding support for its advanced reactor technology.",
+      "headlines": [
+        "X-energy, Centrica advance nuclear plans in UK",
+        "X-energy rises 10.4%"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 8,
+      "symbol": "INIO",
+      "price": 20.96,
+      "gap_pct": 12.03,
+      "premarket_volume": 13124000,
+      "catalyst": "INNIO secured a major 450 MW power infrastructure order for data center applications, driving today's gain.",
+      "headlines": [
+        "INNIO Secures 450 MW Order to Power Next-Generation Data Centers",
+        "INNIO Expands Waukesha Site to Meet Growing Demand for Decentralized Energy Solutions in the U.S."
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 9,
+      "symbol": "OKLO",
+      "price": 39.65,
+      "gap_pct": 11.31,
+      "premarket_volume": 17111000,
+      "catalyst": "OKLO stock rose 11.31% following positive earnings results that included first-ever quarterly revenue exceeding estimates.",
+      "headlines": [
+        "Oklo stock rises 13% as first-ever revenue tops estimates despite wider Q2 loss",
+        "Oklo's Groves Reactor Achieves First Criticality in Under a Year"
+      ],
+      "catalyst_source": "stockanalysis"
+    },
+    {
+      "rank": 10,
+      "symbol": "PBLS",
+      "price": 40.88,
+      "gap_pct": 10.85,
+      "premarket_volume": 1093000,
+      "catalyst": "Parabilis Medicines' most recent news is conference participation and a board appointment rather than a same-day catalyst.",
+      "headlines": [
+        "Parabilis Medicines Transcript: Morgan Stanley 24th Annual Global Healthcare Conference",
+        "Parabilis Medicines appoints Craig Tendler to board of directors"
+      ],
+      "catalyst_source": "stockanalysis"
+    }
+  ]
+}

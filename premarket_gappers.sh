@@ -21,7 +21,12 @@ OUT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STAMP_DATE="$(date -u +%Y-%m-%d)"
 OUT_FILE="$OUT_DIR/premarket_gappers_${STAMP_DATE}.json"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# GAPPERS_KEEP_WORK=1 leaves the raw fetch replies in place; without it a failed run leaves nothing to diagnose.
+if [ "${GAPPERS_KEEP_WORK:-0}" = "1" ]; then
+  trap 'echo "work kept: $WORK"' EXIT
+else
+  trap 'rm -rf "$WORK"' EXIT
+fi
 PY="$(command -v python || command -v python3)"
 CLAUDE_FLAGS=(-p --model sonnet --output-format text --allowedTools WebFetch
               --disallowedTools "Bash,Edit,Write,NotebookEdit,Task,Agent,Glob,Grep,Read")
@@ -71,7 +76,9 @@ clean.sort(key=lambda r: r["gap_pct"], reverse=True)
 json.dump({"parsed_rows": len(rows) if isinstance(rows, list) else 0, "top": clean[:10]}, open(sys.argv[2], "w"))
 PY
 
-mapfile -t SYMBOLS < <("$PY" -c "import json,sys; [print(r['symbol']) for r in json.load(open(sys.argv[1]))['top']]" "$WORK/top10.json")
+# Windows Python prints CRLF, and a carriage return kept in a symbol makes this write news_GNRC<CR>.txt while the
+# assembler below looks for news_GNRC.txt: every catalyst then reads as "not found". Strip it here.
+mapfile -t SYMBOLS < <("$PY" -c "import json,sys; [print(r['symbol']) for r in json.load(open(sys.argv[1]))['top']]" "$WORK/top10.json" | tr -d "\015")
 
 # ------------------------------------------------------------------ 2. catalysts, in parallel
 for T in "${SYMBOLS[@]}"; do
