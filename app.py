@@ -17328,6 +17328,8 @@ SIGNAL_CENTER_TEMPLATE = r"""
     .sc-grid.one { grid-template-columns:1fr; }
     .sc-grid.one .sym-card:not(.active) { display:none; }
     .sym-card { border-radius:16px; }
+    .ev.lead { border-left:3px solid #34d399; }
+    .ev.dim { opacity:.72; border-left:3px solid rgba(251,113,133,.55); }
     .sym-card[data-symbol='XAUUSD'] { border-top:3px solid #fbbf24; }
     .sym-card[data-symbol='BTCUSD'] { border-top:3px solid #34d399; }
     .sym-top { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; align-items:flex-start; }
@@ -17383,7 +17385,7 @@ SIGNAL_CENTER_TEMPLATE = r"""
     <div class='sc-head'>
       <div>
         <h1>Signal Center</h1>
-        <p class='muted'>Live entry plans for XAUUSD and BTCUSD on the broker's own candles, with exact Entry / SL / TP levels, confidence, grade, and the evidence behind each model. Refreshes every minute.</p>
+        <p class='muted'>The evidence behind every signal this system produces, strongest first. The cards below show the RF + LSTM ensemble's live reading on broker candles - useful as context, but it has no measured edge, so it is not what the system trades. What trades is on <a href='/demo-trading'>Demo Trading</a>.</p>
       </div>
       <div><button id='refresh-btn'>Refresh now</button> <span class='muted' id='status-line'></span></div>
     </div>
@@ -17458,18 +17460,21 @@ SIGNAL_CENTER_TEMPLATE = r"""
           const [label, cls] = verdictFor(m);
           return `<div class='row'><span>${esc(run.range_label || run.range)}</span><span>${esc(m.trades ?? '—')} trades · PF ${esc(m.profit_factor ?? '—')} · ${esc(m.total_return_pct ?? '—')}% <span class='chip ${cls}'>${esc(label)}</span></span></div>`;
         }).join('');
-        return `<div class='ev'><h3>Live RF + LSTM signal · ${esc(symbol)}</h3>${rows || `<p class='muted'>No walk-forward backtest recorded yet (Training &amp; Backtest page).</p>`}
-          <p class='muted' style='margin:6px 0 0;font-size:12px;'>Walk-forward test of this exact signal rule, after costs.</p></div>`;
+        return `<div class='ev dim'><h3>RF + LSTM ensemble · ${esc(symbol)} <span class='chip down'>no measured edge</span></h3>${rows || `<p class='muted'>No walk-forward backtest recorded yet (Training &amp; Backtest page).</p>`}
+          <p class='muted' style='margin:6px 0 0;font-size:12px;'>Walk-forward test of this exact rule, after costs. Tested again on 2026-09-18 with more history, smaller networks and a triple-barrier label: no configuration beat a coin flip. Shown for transparency, not as a recommendation.</p></div>`;
       }).join('');
       const s = paper.summary || {}, d = s.last_decision || {}, c = demo.config || {};
       const demoMode = c.enabled ? (c.dry_run ? 'dry run' : `ON (demo ${c.account_login})`) : 'off';
-      const research = `<div class='ev'><h3>Gold 4H research model (best evidence so far)</h3>
+      const research = `<div class='ev lead'><h3>Gold 4H research model <span class='chip up'>best evidence · trades the demo account</span></h3>
         <div class='row'><span>Backtest holdout</span><span>PF ${esc(((s.research_reference || {}).profit_factor) ?? '—')} · ${esc(((s.research_reference || {}).trades) ?? '—')} trades</span></div>
         <div class='row'><span>Latest decision</span><span>${esc(d.bar_time || '—')} · <span class='chip ${d.action === 'BUY' ? 'up' : d.action === 'SELL' ? 'down' : 'off'}'>${esc(d.action || '—')}</span></span></div>
         <div class='row'><span>Forward paper trades</span><span>${esc(((s.metrics || {}).trades) ?? 0)} closed</span></div>
         <div class='row'><span>Demo execution</span><span>${esc(demoMode)}</span></div>
         <p class='muted' style='margin:6px 0 0;font-size:12px;'>Details on the <a href='/paper-trading'>Paper Trading</a> page.</p></div>`;
-      box.innerHTML = liveCards + research;
+      // Order by evidence, not by age: the 4H research model has 192 holdout trades at PF 1.29, while the RF+LSTM
+      // ensemble walk-forwards at PF 0.73 and has gone 0 win / 4 loss on settled signals. Whichever is on top is
+      // read as the system's recommendation, so the evidenced one goes first.
+      box.innerHTML = research + liveCards;
     }
 
     // ---------- sound ----------
