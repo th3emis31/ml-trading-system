@@ -133,6 +133,20 @@ def analyse_momentum(daily: pd.DataFrame) -> dict:
             "vs_ema200_pct": round((close.iloc[-1] / ema200 - 1) * 100, 2)}
 
 
+def _daily_bar_window(opened) -> dict:
+    """Both ends of a broker daily candle, because its open date is not the trading day a person means.
+
+    On this broker the daily candle opens at 21:00 UTC and closes 24 hours later, so the candle stamped 2026-09-16
+    holds Wednesday 17 September's trading. Reporting only the open date makes a fresh report read as a day behind.
+    """
+    start = pd.Timestamp(opened)
+    if start.tzinfo is None:
+        start = start.tz_localize("UTC")
+    end = start + pd.Timedelta(hours=24)
+    return {"opens_utc": start.strftime("%Y-%m-%d %H:%M"), "closes_utc": end.strftime("%Y-%m-%d %H:%M"),
+            "covers": end.strftime("%Y-%m-%d") if start.hour else start.strftime("%Y-%m-%d")}
+
+
 def analyse_sessions(hourly: Optional[pd.DataFrame], now: datetime) -> dict:
     if hourly is None or hourly.empty:
         return {"available": False, "reason": "no hourly candles"}
@@ -283,7 +297,10 @@ def build_daily_report(now: Optional[datetime] = None, get: Callable = get_json,
         dailies[symbol] = daily
         section.update({
             "available": True,
+            # The broker's daily candle runs 21:00 -> 21:00 UTC, so the bar stamped 16 Sep actually covers Wednesday
+            # the 17th. Labelling it by its open made a current report look a day stale; both ends are reported now.
             "last_daily_bar": pd.Timestamp(daily["datetime"].iloc[-1]).strftime("%Y-%m-%d"),
+            "last_daily_bar_window": _daily_bar_window(daily["datetime"].iloc[-1]),
             "levels": analyse_levels(daily),
             "volatility": analyse_volatility(daily, symbol),
             "momentum": analyse_momentum(daily),

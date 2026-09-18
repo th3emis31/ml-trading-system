@@ -123,3 +123,20 @@ def test_build_daily_report_offline(monkeypatch, tmp_path):
     assert report["gold_btc_correlation_60d"] is not None
     path = dr.save_daily_report(report, report_dir=tmp_path)
     assert path.name == "2026-09-13.json" and (tmp_path / "latest.json").exists()
+
+
+def test_the_daily_candle_is_labelled_by_the_session_it_covers():
+    """The broker's daily candle opens at 21:00 UTC, so labelling it by its open date made a current report read as a
+    day stale: the candle stamped 16 September holds Wednesday the 17th."""
+    import pandas as pd
+
+    from src.daily_report import _daily_bar_window
+
+    broker = _daily_bar_window(pd.Timestamp("2026-09-16 21:00", tz="UTC"))
+    assert broker["opens_utc"] == "2026-09-16 21:00" and broker["closes_utc"] == "2026-09-17 21:00"
+    assert broker["covers"] == "2026-09-17", "a trader calls this Wednesday's candle"
+
+    midnight = _daily_bar_window(pd.Timestamp("2026-09-16 00:00", tz="UTC"))
+    assert midnight["covers"] == "2026-09-16", "a candle that opens at midnight covers its own date"
+    naive = _daily_bar_window(pd.Timestamp("2026-09-16 21:00"))
+    assert naive["covers"] == "2026-09-17", "a stamp without a timezone is read as UTC, not rejected"

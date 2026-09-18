@@ -21067,7 +21067,9 @@ DAILY_REPORT_TEMPLATE = r"""
           <span class='chip ${biasClass(bias.label)}'>score ${esc(fmt(bias.score))}</span> ${m.market_closed ? `<span class='chip mixed'>market closed</span>` : ''}</span></div>
         <ul class='reasons'>${(bias.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}<li class='muted'>${esc(bias.note)}</li></ul>
         <div class='tiles'>
-          ${tile('Close', fmt(lv.close), `last daily bar ${m.last_daily_bar}`)}
+          ${tile('Close', fmt(lv.close), m.last_daily_bar_window
+            ? `daily candle ${m.last_daily_bar_window.opens_utc} → ${m.last_daily_bar_window.closes_utc} UTC (the ${m.last_daily_bar_window.covers} session)`
+            : `last daily bar ${m.last_daily_bar}`)}
           ${tile('Volatility', vol.regime, `ATR ${fmt(vol.atr_pct, '%')} · ${fmt(vol.atr_percentile_1y)} percentile · 20d vol ${fmt(vol.realised_vol_20d_pct, '%')}`)}
           ${tile('Daily RSI 14', fmt(mom.rsi_14), mom.rsi_state)}
           ${tile('Returns', `${fmt(ret['5d'], '%')} 5d`, `1d ${fmt(ret['1d'], '%')} · 20d ${fmt(ret['20d'], '%')} · 60d ${fmt(ret['60d'], '%')}`, tone(ret['5d']))}
@@ -21079,7 +21081,8 @@ DAILY_REPORT_TEMPLATE = r"""
           <div>
             <h3>Timeframes</h3><div class='table-wrap'><table><thead><tr><th>TF</th><th>Trend</th><th class='num'>RSI</th><th class='num'>ATR %</th><th class='num'>Range pos</th><th class='num'>5 bars</th></tr></thead><tbody>${tfRows}</tbody></table></div>
             <h3>Sessions ${ses.available ? `(${esc(ses.date)} UTC)` : ''}</h3>
-            ${ses.available ? `<p class='muted'>Day range ${esc(ses.day_range)} · high at ${esc(ses.high_hour_utc)}:00 UTC · low at ${esc(ses.low_hour_utc)}:00 UTC</p>
+            ${ses.available ? `<p class='muted'>Day range ${esc(ses.day_range)} · high at ${esc(ses.high_hour_utc)}:00 UTC · low at ${esc(ses.low_hour_utc)}:00 UTC.
+              Sessions are UTC calendar hours and they overlap — Asia 00–08, London 07–16, New York 12–21 — so two sessions holding the same high or low is the overlap, not a repeated row.</p>
               <div class='table-wrap'><table><thead><tr><th>Session</th><th class='num'>High</th><th class='num'>Low</th><th class='num'>Range</th><th class='num'>Return</th></tr></thead><tbody>${sessionRows}</tbody></table></div>`
               : `<p class='muted'>${esc(ses.reason || 'not available')}</p>`}
           </div>
