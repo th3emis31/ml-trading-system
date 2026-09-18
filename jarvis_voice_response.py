@@ -3,8 +3,10 @@ JARVIS Voice Response System
 Handles text-to-speech and voice feedback
 Enhanced with voice pause/resume support
 """
+import json
 import threading
 import logging
+from pathlib import Path
 from queue import Queue
 from typing import Optional
 
@@ -25,6 +27,32 @@ try:
 except:
     PAUSE_MANAGER_AVAILABLE = False
     logger.warning("Pause manager not available - voice pause/resume disabled")
+
+# ---------------------------------------------------------------- who speaks
+# Three things can speak on this machine: this PC engine, the browser's own speech synthesis, and (historically) each
+# page's own utterance. When more than one does, the owner hears two voices - a woman and a man - reading the same
+# words. One setting decides, and every speaker on both sides checks it.
+SPEAKER_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "voice_config.json"
+DEFAULT_SPEAKER = "pc"          # the PC voice always plays; a browser stays silent until the page is clicked
+
+
+def speaker_choice() -> str:
+    """'pc' (this engine speaks) or 'browser' (the page speaks and this engine stays quiet)."""
+    try:
+        choice = json.loads(SPEAKER_CONFIG_PATH.read_text(encoding="utf-8")).get("speaker")
+    except (OSError, ValueError, AttributeError):
+        return DEFAULT_SPEAKER
+    return choice if choice in ("pc", "browser") else DEFAULT_SPEAKER
+
+
+def set_speaker_choice(choice: str) -> dict:
+    """Record which side speaks. Anything else is refused rather than silently ignored."""
+    if choice not in ("pc", "browser"):
+        raise ValueError(f"speaker must be 'pc' or 'browser', not {choice!r}")
+    SPEAKER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SPEAKER_CONFIG_PATH.write_text(json.dumps({"speaker": choice}, indent=1), encoding="utf-8")
+    return {"speaker": choice}
+
 
 class VoiceResponseEngine:
     def __init__(self):
@@ -91,6 +119,9 @@ class VoiceResponseEngine:
             pause_listening: Pause voice listening while speaking (default True)
         """
         if not text or not self.engine:
+            return
+        if speaker_choice() != "pc":
+            logger.debug("PC voice is off (the browser speaks); not saying: %s", str(text)[:40])
             return
         
         try:

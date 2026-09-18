@@ -777,6 +777,20 @@ _MAIN_NAV_STYLE = (
 )
 
 
+# Every page carries this: one setting decides whether the PC voice or this page speaks, and each speaker checks it
+# before making a sound. Two speakers reading the same text is what the owner heard as "a woman and a man".
+_SPEAKER_GATE = (
+  "<script>"
+  "window.JARVIS_SPEAKER = window.JARVIS_SPEAKER || 'pc';"
+  "window.jarvisBrowserMaySpeak = function () { return window.JARVIS_SPEAKER === 'browser'; };"
+  "fetch('/api/voice/speaker').then(function (r) { return r.json(); })"
+  ".then(function (d) { window.JARVIS_SPEAKER = (d && d.speaker) || 'pc'; }).catch(function () {});"
+  "</script>"
+)
+
+
+
+
 @app.context_processor
 def inject_main_nav():
   from markupsafe import Markup, escape
@@ -792,7 +806,7 @@ def inject_main_nav():
     groups.append(
       f"<span class='nav-group'><span class='nav-group-label'>{escape(group_label)}</span>{''.join(links)}</span>"
     )
-  return {'main_nav': Markup(_MAIN_NAV_STYLE + ''.join(groups))}
+  return {'main_nav': Markup(_MAIN_NAV_STYLE + _SPEAKER_GATE + ''.join(groups))}
 
 
 # Pages outside the main templates (JARVIS dashboards, brain pages, voice tools,
@@ -4904,6 +4918,7 @@ HTML_TEMPLATE = """
     <script>
       // ========== JARVIS AI AUTO GREETING ==========
       window.jarvisSpeak = function(text) {
+        if (!window.jarvisBrowserMaySpeak || !window.jarvisBrowserMaySpeak()) return;   // the PC voice is speaking
         // Route through the main queue when the page has one: two speakers with different voices used to overlap.
         if (typeof window.speakResponse === 'function') {
           window.speakResponse(text, true, {source: 'greeting'});
@@ -11336,6 +11351,7 @@ JARVIS_VOICE_TEMPLATE = """<!doctype html>
 
     function speakResponse(text, isGreeting = false, options = {}) {
       if (!voiceResponseEnabled) return;
+      if (window.jarvisBrowserMaySpeak && !window.jarvisBrowserMaySpeak()) return;   // the PC voice is speaking
       if (!('speechSynthesis' in window)) return;
 
       const config = {
@@ -26034,6 +26050,7 @@ if (typeof window.speakResponse !== 'function') {
     try {
       var msg = String(text || '').trim();
       if (!msg || !('speechSynthesis' in window)) return;
+      if (window.jarvisBrowserMaySpeak && !window.jarvisBrowserMaySpeak()) return;   // the PC voice is speaking
       var opts = options || {};
       if (opts.interrupt && window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
@@ -27127,6 +27144,26 @@ def system_health_api():
     }
 
   return jsonify(health)
+
+
+@app.route('/api/voice/speaker', methods=['GET', 'POST'])
+def voice_speaker_api():
+  """Which side speaks: the PC's own voice engine or the browser's speech synthesis - never both.
+
+  Two speakers reading the same text is what the owner heard as "a woman and a man". Every speaker on both sides
+  checks this one setting. POST {"speaker": "pc" | "browser"} to switch."""
+  from jarvis_voice_response import set_speaker_choice, speaker_choice
+
+  if request.method == 'POST':
+    wanted = str((request.get_json(silent=True) or {}).get('speaker') or '').strip().lower()
+    try:
+      set_speaker_choice(wanted)
+    except ValueError as exc:
+      return jsonify({'ok': False, 'reason': str(exc), 'speaker': speaker_choice()}), 400
+  choice = speaker_choice()
+  return jsonify({'ok': True, 'speaker': choice, 'pc_speaks': choice == 'pc', 'browser_speaks': choice == 'browser',
+                  'note': 'Exactly one side speaks. The PC voice plays without the page being clicked; the browser '
+                          'voice needs the page focused first.'})
 
 
 @app.route('/api/morning-briefing')
