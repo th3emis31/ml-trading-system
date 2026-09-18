@@ -868,6 +868,41 @@ def _public_record(registry: dict, record: dict) -> dict:
     return out
 
 
+def deflation_toll(registry: dict) -> dict:
+    """What the deflated-Sharpe bar actually rejected, and how good those rejects looked.
+
+    "0 passed the holdout" reads as a broken lab unless you can see the step before it. Thousands of candidates clear
+    every money test on unseen data - profit factor, trade count, drawdown, positive return - and are then refused
+    because, once the number of candidates tried on that market is counted, their result is what chance produces
+    anyway. This reports that step so the bar can be judged on its own evidence.
+    """
+    survivors, best = 0, None
+    for record in (registry.get("candidates") or {}).values():
+        if record.get("tag") or not record.get("validated"):
+            continue
+        verdict = record.get("holdout_verdict") or {}
+        checks = verdict.get("checks") or {}
+        if not checks or verdict.get("passed"):
+            continue
+        money = [k for k in ("profit_factor", "trades", "max_drawdown", "positive_return")]
+        if not all(checks.get(k) for k in money) or checks.get("deflated_sharpe"):
+            continue
+        survivors += 1
+        holdout = record.get("holdout") or {}
+        if best is None or (holdout.get("sharpe") or -9) > (best["sharpe"] or -9):
+            best = {"market": record.get("market"), "family": record.get("family"),
+                    "trades": holdout.get("trades"), "profit_factor": holdout.get("profit_factor"),
+                    "total_return_pct": holdout.get("total_return_pct"),
+                    "max_drawdown_pct": holdout.get("max_drawdown_pct"), "sharpe": holdout.get("sharpe"),
+                    "deflated_sharpe": verdict.get("deflated_sharpe"), "n_trials": verdict.get("n_trials"),
+                    "years": holdout.get("years")}
+    return {"rejected_only_by_deflation": survivors, "best_rejected": best,
+            "bar": HOLDOUT_CRITERIA.get("min_deflated_sharpe"),
+            "note": ("These cleared every money test on bars the search never saw, and were still refused: counting "
+                     "how many candidates were tried on that market, results this good turn up by chance."
+                     if survivors else "No candidate has reached the deflated-Sharpe step yet.")}
+
+
 def lab_summary(registry_path: Optional[Path] = None, status_path: Optional[Path] = None, limit: int = 50) -> dict:
     registry = load_registry(registry_path)
     counts: dict[str, dict] = {}
@@ -900,6 +935,7 @@ def lab_summary(registry_path: Optional[Path] = None, status_path: Optional[Path
         "recent_rejected": recent_rejected,
         "rules": {"gates": GATES, "holdout": HOLDOUT_CRITERIA, "search_fraction": SEARCH_FRACTION,
                   "validation_fraction": VALIDATION_FRACTION},
+        "deflation": deflation_toll(registry),
     }
 
 

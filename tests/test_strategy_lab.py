@@ -161,3 +161,31 @@ def test_run_search_is_resumable_and_respects_an_active_run(tmp_path, bars):
     lab.write_status({"state": "running", "heartbeat": lab._iso(pd.Timestamp.now(tz="UTC"))}, status_path)
     assert lab.run_search(["XAUUSD:4h"], max_candidates=5, loader=loader, registry_path=registry_path,
                           status_path=status_path, now=now)["skipped"] is True
+
+
+def test_deflation_toll_shows_what_the_bar_rejected():
+    """"0 passed the holdout" reads as a broken lab unless the step before it is visible: candidates that cleared
+    every money test on unseen bars and were refused only because the trials on that market were counted."""
+    from src.strategy_lab import deflation_toll
+
+    def candidate(cid, sharpe, deflated, checks, validated=True, tag=None):
+        return {"id": cid, "market": "XAUUSD:4h", "family": "donchian_breakout", "validated": validated, "tag": tag,
+                "holdout": {"trades": 69, "profit_factor": 3.185, "total_return_pct": 49.78,
+                            "max_drawdown_pct": 2.616, "sharpe": sharpe, "years": 2.04},
+                "holdout_verdict": {"passed": False, "checks": checks, "deflated_sharpe": deflated, "n_trials": 6382}}
+
+    money_ok = {"profit_factor": True, "trades": True, "max_drawdown": True, "positive_return": True,
+                "deflated_sharpe": False}
+    registry = {"candidates": {
+        "a": candidate("a", 2.362, 0.5606, money_ok),
+        "b": candidate("b", 1.100, 0.4000, money_ok),
+        "c": candidate("c", 3.000, 0.3000, {**money_ok, "profit_factor": False}),   # failed a money test too
+        "d": candidate("d", 4.000, 0.2000, money_ok, validated=False),               # never validated
+        "e": candidate("e", 5.000, 0.1000, money_ok, tag="baseline"),                # a reference, not a candidate
+    }}
+    toll = deflation_toll(registry)
+    assert toll["rejected_only_by_deflation"] == 2, "only the ones the deflation bar alone stopped"
+    best = toll["best_rejected"]
+    assert best["sharpe"] == 2.362 and best["deflated_sharpe"] == 0.5606 and best["n_trials"] == 6382
+    assert "chance" in toll["note"], "the card has to say why, not only how many"
+    assert deflation_toll({"candidates": {}})["best_rejected"] is None

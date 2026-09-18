@@ -21010,6 +21010,7 @@ STRATEGY_LAB_TEMPLATE = r"""
     </div>
     <div class='card' id='lab-status'><p class='muted'>Loading…</p></div>
     <div class='card'>
+      <div id='deflation'></div>
       <h2>How a strategy earns a pass</h2>
       <ul class='rules' id='rules'></ul>
     </div>
@@ -21039,6 +21040,32 @@ STRATEGY_LAB_TEMPLATE = r"""
     function verdictChip(v) {
       if (!v) return `<span class='chip mixed'>not checked</span>`;
       return v.passed ? `<span class='chip up'>Passed</span>` : `<span class='chip down'>Failed</span>`;
+    }
+
+    function renderDeflation(d) {
+      // "0 passed" reads as a broken lab without the step before it: candidates that cleared every money test on
+      // unseen bars and were still refused because, once the trials on that market are counted, results that good
+      // turn up by chance. This is the 0.95 bar earning its keep, shown with the owner's own numbers.
+      const box = document.getElementById('deflation');
+      if (!box) return;
+      const f = d.deflation || {};
+      const b = f.best_rejected;
+      if (!f.rejected_only_by_deflation || !b) { box.innerHTML = ''; return; }
+      box.innerHTML = `<h2>What the 0.95 bar caught</h2>
+        <p class='muted'>${esc(f.rejected_only_by_deflation)} candidates passed <em>every</em> money test on bars the search never saw
+        - profit factor, trade count, drawdown and a positive return - and were still refused. ${esc(f.note)}</p>
+        <div class='tiles'>
+          <div class='tile'><div class='k'>Best one rejected</div><div class='v'>PF ${esc(b.profit_factor)}</div>
+            <div class='s'>${esc(b.trades)} trades over ${esc(b.years)} years · ${esc(b.market)} ${esc(b.family)}</div></div>
+          <div class='tile'><div class='k'>Its holdout result</div><div class='v'>+${esc(b.total_return_pct)}%</div>
+            <div class='s'>drawdown ${esc(b.max_drawdown_pct)}% · Sharpe ${esc(b.sharpe)}</div></div>
+          <div class='tile'><div class='k'>After counting the trials</div><div class='v'>${esc(b.deflated_sharpe)}</div>
+            <div class='s'>deflated Sharpe against the ${esc(f.bar)} bar · ${esc(b.n_trials)} candidates tried on that market</div></div>
+        </div>
+        <p class='muted' style='margin-top:8px'>That is the whole argument for the bar: a strategy returning
+        ${esc(b.total_return_pct)}% with a ${esc(b.max_drawdown_pct)}% drawdown looks like a find, and after
+        ${esc(b.n_trials)} attempts on one market it is what searching produces by luck. Lower the bar and this is the
+        first thing that would reach your money.</p>`;
     }
 
     function renderStatus(data) {
@@ -21164,6 +21191,7 @@ STRATEGY_LAB_TEMPLATE = r"""
           return;
         }
         document.getElementById('lab-status').innerHTML = renderStatus(data);
+        renderDeflation(data);
         document.getElementById('rules').innerHTML = renderRules(data.rules || {});
         document.getElementById('markets').innerHTML = renderMarkets(data.markets);
         document.getElementById('baselines').innerHTML = renderBaselines(data.baselines || []);
