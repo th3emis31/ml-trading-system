@@ -57,7 +57,8 @@ TEST_FILES = ("tests/test_rocket_features.py", "tests/test_edge_research.py", "t
               "tests/test_demo_volatility_breakout.py",
               "tests/test_plan_journal.py", "tests/test_atomic_analyst.py",
               "tests/test_positioning.py",
-              "tests/test_i40_pilot.py")
+              "tests/test_i40_pilot.py",
+              "tests/test_voice_single_speaker.py")
 TASKS = {
     "SmartEntry Paper Trader": {"script": "run_paper_trader.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:05"]},
     "SmartEntry Strategy Lab": {"script": "run_strategy_lab.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:20"]},

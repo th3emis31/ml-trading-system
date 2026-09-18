@@ -4904,6 +4904,11 @@ HTML_TEMPLATE = """
     <script>
       // ========== JARVIS AI AUTO GREETING ==========
       window.jarvisSpeak = function(text) {
+        // Route through the main queue when the page has one: two speakers with different voices used to overlap.
+        if (typeof window.speakResponse === 'function') {
+          window.speakResponse(text, true, {source: 'greeting'});
+          return;
+        }
         if ('speechSynthesis' in window) {
           if (window.speechSynthesis.speaking) {
             window.speechSynthesis.cancel();
@@ -11466,6 +11471,12 @@ JARVIS_VOICE_TEMPLATE = """<!doctype html>
 
       runNextSpeech();
     }
+
+    // One voice, one queue. speakResponse owns the chosen voice, the queue and the startup lock, but it used to stay
+    // private, so the fallback further down installed its own speaker on window.speakResponse - and that one speaks in
+    // the browser's default voice. Anything calling window.speakResponse then talked over the queue in a second voice.
+    window.speakResponse = speakResponse;
+    window.stopJarvisSpeech = stopJarvisSpeech;
 
     function stopJarvisSpeech() {
       jarvisSpeechState.queue = [];
@@ -27173,15 +27184,21 @@ def morning_briefing_api():
 
   briefing_text = " ".join(lines)
   
-  # Speak the briefing if voice engine is available
-  try:
-    voice_engine = get_voice_engine()
-    if voice_engine and voice_engine.engine:
-      voice_engine.speak(briefing_text, wait=False)
-  except Exception as e:
-    logger.warning(f"Could not speak briefing: {e}")
+  # The browser speaks this briefing itself, in the voice the page picked. Speaking it here as well - through the PC's
+  # own Windows voice - meant two different voices reading the same words a fraction of a second apart, which is what
+  # the owner heard. The server now speaks only when a caller explicitly asks (?speak=1), for callers with no browser.
+  spoken_here = False
+  if str(request.args.get('speak') or '').strip() in ('1', 'true', 'yes'):
+    try:
+      voice_engine = get_voice_engine()
+      if voice_engine and voice_engine.engine:
+        voice_engine.speak(briefing_text, wait=False)
+        spoken_here = True
+    except Exception as e:
+      logger.warning(f"Could not speak briefing: {e}")
   
   return jsonify({
+    "spoken_by_server": spoken_here,
     "briefing": briefing_text,
     "lines": lines,
     "health": h,
