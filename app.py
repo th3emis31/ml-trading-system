@@ -15981,7 +15981,8 @@ KEEL_TEMPLATE = r"""
       <div class='hero-r'>
         <div class='micro'>UTC now</div>
         <div class='clock'><span class='t num' id='utc'>--:--:--</span><span class='micro' id='utc-date'></span></div>
-        <div class='micro' style='margin-bottom:7px'>Session</div>
+        <div class='micro' style='text-transform:none;letter-spacing:.04em;font-size:12px;margin:-8px 0 14px' id='local-time'></div>
+        <div class='micro' style='margin-bottom:7px'>Session <span style='text-transform:none;letter-spacing:.03em'>(hours are UTC)</span></div>
         <div class='sessions' id='sessions'></div>
         <div class='micro' style='margin:16px 0 7px'>Demo account</div>
         <div class='num' style='font-size:22px;font-weight:800' id='equity'>—</div>
@@ -16031,6 +16032,14 @@ function tickClock() {
         ss = String(now.getUTCSeconds()).padStart(2, '0');
   document.getElementById('utc').textContent = `${hh}:${mm}:${ss}`;
   document.getElementById('utc-date').textContent = now.toUTCString().slice(5, 16);
+  // The owner reads the clock in London time; the sessions are defined in UTC, so both are shown rather than one.
+  try {
+    const london = new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit'}).format(now);
+    const here = new Intl.DateTimeFormat('en-GB', {hour: '2-digit', minute: '2-digit'}).format(now);
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'this machine';
+    document.getElementById('local-time').textContent = (london === here)
+      ? `London ${london} · ${zone}` : `London ${london} · here ${here}`;
+  } catch (e) { /* the UTC clock is enough */ }
   const h = now.getUTCHours();
   document.getElementById('sessions').innerHTML = SESSIONS.map(([n, a, b]) =>
     `<div class='ses ${h >= a && h < b ? 'on' : ''}'><span class='micro'>${String(a).padStart(2, '0')}–${String(b).padStart(2, '0')}</span><b>${n}</b></div>`).join('');
