@@ -17935,6 +17935,13 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
     .entry-toast.test h4 { color:#7dd3fc; }
     .entry-toast .kv { display:grid; grid-template-columns:90px 1fr; gap:3px 8px; font-size:13px; font-variant-numeric:tabular-nums; }
     .entry-toast .kv span:nth-child(odd) { color:#94a3b8; }
+    .tv-state { display:flex; align-items:center; gap:11px; border-radius:14px; padding:12px 15px; margin:12px 0 4px;
+                 border:1px solid; font-weight:700; font-size:15.5px; }
+    .tv-state::before { content:''; width:11px; height:11px; border-radius:50%; flex:0 0 auto; background:currentColor; }
+    .tv-state.live { border-color:rgba(52,211,153,.5); background:rgba(16,185,129,.09); color:#a7f3d0; }
+    .tv-state.idle { border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.09); color:#fde68a; }
+    .tv-state.off  { border-color:rgba(251,113,133,.5); background:rgba(225,29,72,.11); color:#fecdd3; }
+    .tv-state small { font-weight:500; color:#9fb3d1; }
     .entry-toast .acts { display:flex; gap:8px; margin-top:10px; }
     .entry-toast .acts button { font-size:12px; padding:5px 10px; }
     @keyframes toastin { from { transform:translateY(-8px); opacity:0; } to { transform:none; opacity:1; } }
@@ -17963,6 +17970,9 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
         <p class='muted'>Live TradingView charts for gold and bitcoin, the alerts your TradingView account sends to this system, and a step-by-step guide to connect them securely. No TradingView login is needed or stored here, and alerts never place orders.</p>
       </div>
       <div><span class='muted' id='status-line'></span></div>
+    </div>
+    <div class='tv-state' id='tv-state'>Reading the connection…</div>
+    <div style='display:none'>
     </div>
 
     <div class='card' id='plan-card'>
@@ -18356,6 +18366,33 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
       const cls = side === 'BUY' ? 'up' : side === 'SELL' ? 'down' : 'off';
       return `<span class='chip ${cls}'>${esc(side || '—')}</span>`;
     }
+    function renderTvState(data) {
+      // One sentence for the whole connection, the way KEEL does it: is the webhook armed, has anything arrived, and
+      // is anything being accepted. The detail is all still below; this is so the state is not something to assemble.
+      const box = document.getElementById('tv-state');
+      if (!box) return;
+      const alerts = (data.alerts || []).slice().reverse();
+      const real = alerts.filter(a => a.source !== 'dashboard-test');
+      // /api/tradingview returns only {alerts, status}; the secret lives server-side and is never sent to the page.
+      // Stored alerts are the proof the pipe works, so treat the webhook as armed unless the endpoint itself is down.
+      const armed = String(data.status || 'ok') === 'ok';
+      let hours = null;
+      if (real.length) {
+        const last = new Date(String(real[0].received_at || '').replace(' ', 'T') + 'Z');
+        if (!isNaN(last)) hours = (Date.now() - last.getTime()) / 3600000;
+      }
+      const dry = !(data.config && data.config.allow_approval_queue);
+      let cls = 'idle', text;
+      if (!armed) { cls = 'off'; text = 'The alert endpoint is not answering, so TradingView cannot reach this system.'; }
+      else if (!real.length) { text = 'The webhook is armed and has never received a real alert.'; }
+      else if (hours !== null && hours > 24) {
+        text = `The webhook is armed, but the last alert arrived ${Math.round(hours / 24)} day${Math.round(hours / 24) === 1 ? '' : 's'} ago - nothing is being sent.`;
+      } else { cls = 'live'; text = `The webhook is armed and received an alert ${hours === null ? 'recently' : hours < 1 ? 'in the last hour' : Math.round(hours) + ' hours ago'}.`; }
+      box.className = 'tv-state ' + cls;
+      box.innerHTML = `<span>${esc(text)}</span> <small>${real.length} alert${real.length === 1 ? '' : 's'} stored · ` +
+        `${dry ? 'dry run: nothing here can place an order' : 'approval queue on: alerts can be queued for your approval'}</small>`;
+    }
+
     async function loadAlerts() {
       try {
         const data = await (await fetch('/api/tradingview')).json();
@@ -18390,7 +18427,8 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
             <td class='num'>${a.confidence !== undefined ? esc(Math.round(Number(a.confidence) * 100)) + '%' : '—'}</td>
             <td>${a.source === 'dashboard-test' ? `<span class='chip off'>test</span>` : esc(a.source || 'tradingview')}</td></tr>`).join('')}</tbody></table>`
           : `<p class='muted'>No alerts received yet. Follow the steps below, or press “Send test alert”.</p>`;
-        document.getElementById('status-line').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+        document.getElementById('status-line').textContent = `Updated ${new Date().toLocaleTimeString()} local`;
+        renderTvState(data);
       } catch (error) {
         document.getElementById('alerts').innerHTML = `<p class='negative'>Could not load alerts: ${esc(error.message || error)}</p>`;
       }
