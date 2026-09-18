@@ -15853,137 +15853,234 @@ KEEL_TEMPLATE = r"""
   <link rel='icon' href='/static/keel_mark.svg' type='image/svg+xml'>
   {{ theme_css | safe }}
   <style>
-    /* KEEL identity: the keel is what keeps a boat upright when the wind picks up. It does not make it fast.
-       That is what the gates, the kill switches and the 0.95 bar in this system actually are. */
+    /* KEEL - the assistant's own surface. Frosted panels over an aurora field: depth from layered translucency
+       rather than from boxes, one very large statement of state, and every number set in tabular figures. */
     html, body { max-width:100%; overflow-x:hidden; }
-    body { background:linear-gradient(160deg,#0a1224 0%, #070b16 55%, #0a1a18 100%); background-attachment:fixed; }
-    .keel-wrap { max-width:1120px; margin:0 auto; box-sizing:border-box; }
-    .keel-wrap * { min-width:0; }
-    @media (max-width:720px) { .container.keel-wrap { padding-left:14px; padding-right:14px; width:100%; } .nav { overflow-x:auto; } }
+    body {
+      background:
+        radial-gradient(900px 620px at 8% -8%, rgba(56,189,248,.20), transparent 60%),
+        radial-gradient(760px 520px at 96% 4%, rgba(167,139,250,.17), transparent 58%),
+        radial-gradient(900px 700px at 60% 108%, rgba(52,211,153,.13), transparent 60%),
+        #05070f;
+      background-attachment:fixed;
+    }
+    .kl { max-width:1180px; margin:0 auto; box-sizing:border-box; }
+    .kl * { min-width:0; }
+    .glass { background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
+             border:1px solid rgba(255,255,255,.10); border-radius:20px;
+             box-shadow:0 20px 60px rgba(2,6,23,.55), inset 0 1px 0 rgba(255,255,255,.13);
+             backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+    .micro { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#8aa3c4; }
+    .num { font-variant-numeric:tabular-nums; }
 
-    .brandbar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:26px 0 8px; }
-    .brand { display:flex; align-items:center; gap:14px; }
-    .brand .name { font-size:34px; font-weight:800; letter-spacing:7px; line-height:1; color:#f8fafc; }
-    .brand .sub { font-size:10px; letter-spacing:3px; color:#7dd3fc; margin-top:5px; }
-    .tagline { color:#8fa6c4; font-size:13px; max-width:520px; line-height:1.5; }
+    /* ---------- hero ---------- */
+    .hero { display:grid; grid-template-columns:1.35fr .9fr; gap:0; overflow:hidden; margin:22px 0 16px; }
+    @media (max-width:900px) { .hero { grid-template-columns:1fr; } }
+    .hero-l { padding:30px 34px 26px; }
+    .hero-r { padding:26px 30px; border-left:1px solid rgba(255,255,255,.08); background:rgba(2,6,23,.22); }
+    @media (max-width:900px) { .hero-r { border-left:0; border-top:1px solid rgba(255,255,255,.08); } }
+    .brandline { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
+    .brandline .mk { filter:drop-shadow(0 0 14px rgba(56,189,248,.45)); }
+    .brandline .mk .hull { animation:sway 7s ease-in-out infinite; transform-origin:50px 30px; }
+    @keyframes sway { 0%,100% { transform:rotate(-2.2deg); } 50% { transform:rotate(2.2deg); } }
+    .brandline .nm { font-size:26px; font-weight:800; letter-spacing:8px; line-height:1; color:#f8fafc; }
+    .brandline .sb { font-size:9.5px; letter-spacing:3.2px; color:#7dd3fc; margin-top:6px; }
+    .state { font-size:31px; line-height:1.18; font-weight:800; letter-spacing:-.6px; color:#f8fafc; margin:0 0 10px; }
+    @media (max-width:560px) { .state { font-size:25px; } .hero-l { padding:24px 20px; } }
+    .state .pulse { display:inline-block; width:13px; height:13px; border-radius:50%; margin-right:12px; vertical-align:middle; }
+    .pulse.ok { background:#34d399; box-shadow:0 0 0 0 rgba(52,211,153,.55); animation:ring 2.6s infinite; }
+    .pulse.warn { background:#fbbf24; box-shadow:0 0 0 0 rgba(251,191,36,.5); animation:ring 2.6s infinite; }
+    .pulse.bad { background:#fb7185; box-shadow:0 0 0 0 rgba(251,113,133,.5); animation:ring 1.7s infinite; }
+    @keyframes ring { 70% { box-shadow:0 0 0 16px rgba(0,0,0,0); } 100% { box-shadow:0 0 0 0 rgba(0,0,0,0); } }
+    .sub { color:#9fb3d1; font-size:13.5px; line-height:1.55; margin:0; max-width:560px; }
+    .facts { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+    .fact { flex:1 1 150px; padding:11px 13px; border-radius:13px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.035); }
+    .fact .v { font-size:15px; font-weight:800; color:#f1f5f9; margin-top:3px; letter-spacing:-.2px; }
+    .fact .v.small { font-size:13px; font-weight:700; }
+    .clock { display:flex; align-items:baseline; gap:10px; margin-bottom:18px; }
+    .clock .t { font-size:34px; font-weight:800; letter-spacing:-1px; color:#f8fafc; }
+    .sessions { display:flex; gap:8px; flex-wrap:wrap; }
+    .ses { flex:1 1 0; text-align:center; padding:9px 6px; border-radius:12px; border:1px solid rgba(255,255,255,.09);
+           background:rgba(255,255,255,.03); }
+    .ses.on { border-color:rgba(56,189,248,.55); background:rgba(56,189,248,.13); box-shadow:0 0 22px rgba(56,189,248,.18) inset; }
+    .ses b { display:block; font-size:12.5px; color:#e2e8f0; margin-top:3px; }
+    .ses.on b { color:#7dd3fc; }
 
-    .stateline { display:flex; align-items:center; gap:12px; border-radius:14px; padding:13px 16px; margin:14px 0 16px;
-                 border:1px solid; font-weight:700; font-size:16px; }
-    .stateline .dot { width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
-    .s-ok { border-color:rgba(52,211,153,.5); background:rgba(16,185,129,.09); color:#d1fae5; }
-    .s-ok .dot { background:#34d399; box-shadow:0 0 12px #34d399; }
-    .s-warn { border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.09); color:#fde68a; }
-    .s-warn .dot { background:#fbbf24; box-shadow:0 0 12px #fbbf24; }
-    .s-bad { border-color:rgba(251,113,133,.6); background:rgba(225,29,72,.12); color:#fecdd3; }
-    .s-bad .dot { background:#fb7185; box-shadow:0 0 12px #fb7185; }
+    /* ---------- metric rail ---------- */
+    .rail { display:grid; grid-template-columns:repeat(auto-fit,minmax(196px,1fr)); gap:12px; margin-bottom:16px; }
+    .met { padding:15px 17px 13px; position:relative; overflow:hidden; }
+    .met .v { font-size:25px; font-weight:800; color:#f8fafc; margin-top:5px; letter-spacing:-.4px; }
+    .met .s { font-size:11.5px; color:#93a9c8; margin-top:4px; }
+    .met .edge { position:absolute; left:0; top:0; bottom:0; width:3px; background:#38bdf8; }
+    .met.good .edge { background:linear-gradient(180deg,#34d399,#0ea5e9); }
+    .met.warn .edge { background:linear-gradient(180deg,#fbbf24,#f97316); }
+    .met.bad .edge  { background:linear-gradient(180deg,#fb7185,#e11d48); }
 
-    .deck { display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin-bottom:18px; }
-    .plate { border-radius:14px; padding:13px 15px; background:rgba(7,11,22,.72); border:1px solid rgba(148,176,222,.22);
-             border-left:3px solid #38bdf8; }
-    .plate.good { border-left-color:#34d399; } .plate.warn { border-left-color:#fbbf24; } .plate.bad { border-left-color:#fb7185; }
-    .plate .k { font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:#8fa6c4; }
-    .plate .v { font-size:21px; font-weight:800; color:#f8fafc; margin-top:3px; line-height:1.15; font-variant-numeric:tabular-nums; }
-    .plate .s { font-size:11.5px; color:#9fb3d1; margin-top:3px; }
+    /* ---------- markets ---------- */
+    .mkts { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+    @media (max-width:760px) { .mkts { grid-template-columns:1fr; } }
+    .mkt { padding:16px 18px; display:flex; justify-content:space-between; align-items:flex-end; gap:14px; }
+    .mkt .px { font-size:27px; font-weight:800; color:#f8fafc; letter-spacing:-.5px; }
+    .mkt .chg { font-size:12.5px; font-weight:700; }
+    .up { color:#6ee7b7; } .down { color:#fda4af; }
+    .spark { width:158px; height:46px; flex:0 0 auto; }
 
-    .cols { display:grid; grid-template-columns:1.1fr .9fr; gap:16px; align-items:start; }
-    @media (max-width:880px) { .cols { grid-template-columns:1fr; } }
-    .panel { border-radius:16px; border:1px solid rgba(148,176,222,.22); background:rgba(7,11,22,.6); padding:16px 18px; margin-bottom:16px; }
-    .panel h2 { margin:0 0 3px; font-size:17px; letter-spacing:.2px; }
-    .panel .lead { color:#8fa6c4; font-size:12.5px; margin:0 0 12px; }
-
-    .voicebar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-    .vbtn { border-radius:11px; border:1px solid rgba(56,189,248,.45); background:rgba(56,189,248,.12); color:#e0f2fe;
-            padding:9px 15px; font-size:13.5px; font-weight:700; cursor:pointer; }
-    .vbtn:hover { background:rgba(56,189,248,.2); }
-    .vbtn.quiet { border-color:rgba(148,176,222,.35); background:rgba(148,176,222,.08); color:#cbd5e1; }
-    .vpill { font-size:11.5px; color:#9fb3d1; border:1px solid rgba(148,176,222,.3); border-radius:999px; padding:4px 11px; }
-    .vpill b { color:#7dd3fc; }
-
-    .row { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid rgba(148,176,222,.13); font-size:13.5px; }
-    .row:last-child { border-bottom:0; }
-    .row .what { color:#e2e8f0; } .row .why { color:#8fa6c4; font-size:12px; }
-    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:700; border:1px solid; white-space:nowrap; }
-    .tag.live { color:#a7f3d0; border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.1); }
-    .tag.dry { color:#fde68a; border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.09); }
-    .tag.halt { color:#fecdd3; border-color:rgba(251,113,133,.55); background:rgba(225,29,72,.12); }
-    .feed { max-height:330px; overflow:auto; }
-    .ev { display:grid; grid-template-columns:112px 1fr; gap:10px; padding:6px 0; border-bottom:1px solid rgba(148,176,222,.1); font-size:12.5px; }
+    /* ---------- panels ---------- */
+    .cols { display:grid; grid-template-columns:1.08fr .92fr; gap:14px; align-items:start; }
+    @media (max-width:900px) { .cols { grid-template-columns:1fr; } }
+    .pnl { padding:18px 20px; margin-bottom:14px; }
+    .pnl h2 { margin:0 0 3px; font-size:16.5px; letter-spacing:-.2px; }
+    .pnl .lead { color:#8aa3c4; font-size:12.5px; margin:0 0 13px; line-height:1.5; }
+    .item { display:flex; justify-content:space-between; gap:12px; padding:11px 0; border-bottom:1px solid rgba(255,255,255,.06); }
+    .item:last-child { border-bottom:0; }
+    .item .t { color:#f1f5f9; font-size:13.5px; }
+    .item .d { color:#8aa3c4; font-size:12px; margin-top:2px; line-height:1.45; }
+    .tag { align-self:flex-start; padding:3px 9px; border-radius:999px; font-size:10px; font-weight:800; letter-spacing:.06em;
+           text-transform:uppercase; border:1px solid; white-space:nowrap; }
+    .tag.live { color:#a7f3d0; border-color:rgba(52,211,153,.5); background:rgba(16,185,129,.12); }
+    .tag.dry  { color:#fde68a; border-color:rgba(251,191,36,.45); background:rgba(251,191,36,.10); }
+    .tag.halt { color:#fecdd3; border-color:rgba(251,113,133,.5); background:rgba(225,29,72,.14); }
+    .feed { max-height:358px; overflow:auto; }
+    .feed::-webkit-scrollbar { width:6px; } .feed::-webkit-scrollbar-thumb { background:rgba(148,176,222,.25); border-radius:3px; }
+    .ev { display:grid; grid-template-columns:104px 1fr; gap:10px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12.5px; }
     .ev:last-child { border-bottom:0; }
-    .ev time { color:#8fa6c4; font-variant-numeric:tabular-nums; }
-    @media (max-width:560px) { .ev { grid-template-columns:1fr; gap:1px; } }
-    .foot { color:#7f96b5; font-size:11.5px; margin:6px 0 30px; }
+    .ev time { color:#7f96b5; }
+    .ev .src { color:#7dd3fc; }
+
+    /* ---------- voice ---------- */
+    .voice { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px 18px; margin-bottom:16px; }
+    .vb { border-radius:12px; border:1px solid rgba(56,189,248,.4); background:linear-gradient(180deg, rgba(56,189,248,.20), rgba(56,189,248,.07));
+          color:#e0f2fe; padding:10px 17px; font-size:13.5px; font-weight:700; cursor:pointer; letter-spacing:.2px; }
+    .vb:hover { border-color:rgba(56,189,248,.75); }
+    .vb.q { border-color:rgba(255,255,255,.14); background:rgba(255,255,255,.04); color:#cbd5e1; }
+    .vinfo { font-size:12px; color:#93a9c8; } .vinfo b { color:#7dd3fc; }
+    .foot { color:#7f96b5; font-size:11.5px; margin:4px 0 34px; }
+    a { color:#7dd3fc; }
   </style>
 </head>
 <body>
   <div class='nav'>{{ main_nav }}</div>
-  <div class='container keel-wrap'>
+  <div class='container kl'>
 
-    <div class='brandbar'>
-      <div class='brand'>
-        <svg width="54" height="54" viewBox="0 0 100 100" aria-label="KEEL">
-          <path d="M20 26 h60" stroke="#94a3b8" stroke-width="6" stroke-linecap="round"/>
-          <path d="M24 30 q26 58 52 0" fill="none" stroke="#38bdf8" stroke-width="7" stroke-linecap="round"/>
-          <path d="M50 30 v40" stroke="#34d399" stroke-width="6" stroke-linecap="round"/>
-        </svg>
-        <div><div class='name'>KEEL</div><div class='sub'>SMARTENTRY SYSTEMS</div></div>
+    <div class='hero glass'>
+      <div class='hero-l'>
+        <div class='brandline'>
+          <svg class='mk' width="46" height="46" viewBox="0 0 100 100" aria-label='KEEL'>
+            <g class='hull'>
+              <path d="M20 26 h60" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" fill="none"/>
+              <path d="M24 30 q26 58 52 0" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" fill="none"/>
+              <path d="M50 30 v40" stroke="#34d399" stroke-width="6" stroke-linecap="round" fill="none"/>
+            </g>
+          </svg>
+          <div><div class='nm'>KEEL</div><div class='sb'>SMARTENTRY SYSTEMS</div></div>
+        </div>
+        <h1 class='state' id='state'><span class='pulse warn' id='pulse'></span><span id='state-text'>Reading the system…</span></h1>
+        <p class='sub' id='state-sub'>The keel is what keeps a boat upright when the wind picks up — it does not make it fast. This page is the assistant: what is running, what needs you, and its voice. It places no orders.</p>
+        <div class='facts' id='facts'></div>
       </div>
-      <div class='tagline'>The keel is what keeps a boat upright when the wind picks up — it does not make it fast.
-        This page is the assistant: what the system is doing right now, what it wants you to know, and its voice.</div>
+      <div class='hero-r'>
+        <div class='micro'>UTC now</div>
+        <div class='clock'><span class='t num' id='utc'>--:--:--</span><span class='micro' id='utc-date'></span></div>
+        <div class='micro' style='margin-bottom:7px'>Session</div>
+        <div class='sessions' id='sessions'></div>
+        <div class='micro' style='margin:16px 0 7px'>Demo account</div>
+        <div class='num' style='font-size:22px;font-weight:800' id='equity'>—</div>
+        <div class='micro' id='equity-sub' style='letter-spacing:.04em;text-transform:none;font-size:11.5px'>reading MT5…</div>
+      </div>
     </div>
 
-    <div class='stateline s-warn' id='state'><span class='dot'></span><span id='state-text'>Reading the system…</span></div>
-    <div class='deck' id='deck'></div>
+    <div class='rail' id='rail'></div>
+    <div class='mkts' id='mkts'></div>
+
+    <div class='voice glass'>
+      <button class='vb' id='say-briefing'>Speak the briefing</button>
+      <button class='vb q' id='swap-speaker'>Switch speaker</button>
+      <span class='vinfo'>speaking now: <b id='speaker-now'>…</b> · one side only, never both</span>
+      <span class='vinfo' id='voice-msg'></span>
+    </div>
 
     <div class='cols'>
       <div>
-        <div class='panel'>
-          <h2>Voice</h2>
-          <p class='lead'>Exactly one side speaks — this PC or this page, never both. The PC voice plays without you touching the page; the browser voice needs a click first.</p>
-          <div class='voicebar'>
-            <button class='vbtn' id='say-briefing'>Speak the briefing</button>
-            <button class='vbtn quiet' id='swap-speaker'>Switch speaker</button>
-            <span class='vpill'>speaking now: <b id='speaker-now'>…</b></span>
-            <span class='vpill' id='voice-msg'></span>
-          </div>
-        </div>
-
-        <div class='panel'>
-          <h2>Needs your attention</h2>
+        <div class='pnl glass'>
+          <h2>Needs you</h2>
           <p class='lead'>Anything stopped, late, missing or pointed at the wrong account. An empty list is the answer, not a blank space.</p>
           <div id='attention'><p class='lead'>Loading…</p></div>
         </div>
-
-        <div class='panel'>
+        <div class='pnl glass'>
           <h2>Strategies</h2>
-          <p class='lead'>What is running against the demo account, and what it last decided.</p>
+          <p class='lead'>What runs against the demo account, and what it last decided.</p>
           <div id='strategies'><p class='lead'>Loading…</p></div>
         </div>
       </div>
-
-      <div class='panel'>
+      <div class='pnl glass'>
         <h2>What just happened</h2>
-        <p class='lead' id='activity-note'>Straight from the strategies' own logs and the task scheduler.</p>
+        <p class='lead' id='activity-note'>From the strategies' own logs and the task scheduler.</p>
         <div class='feed' id='activity'><p class='lead'>Loading…</p></div>
       </div>
     </div>
 
-    <p class='foot'>KEEL reads the system and speaks; it places no orders. Orders come from the strategies on the demo account and from you.
-      The old voice console is still at <a href='/jarvis-voice'>/jarvis-voice</a>.</p>
+    <p class='foot'>KEEL reads and speaks; orders come from the strategies on the demo account and from you. The original voice console is unchanged at <a href='/jarvis-voice'>/jarvis-voice</a>.</p>
   </div>
 <script>
 const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SESSIONS = [['Asia', 0, 8], ['London', 7, 16], ['New York', 12, 21]];
+
+function tickClock() {
+  const now = new Date();
+  const hh = String(now.getUTCHours()).padStart(2, '0'), mm = String(now.getUTCMinutes()).padStart(2, '0'),
+        ss = String(now.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('utc').textContent = `${hh}:${mm}:${ss}`;
+  document.getElementById('utc-date').textContent = now.toUTCString().slice(5, 16);
+  const h = now.getUTCHours();
+  document.getElementById('sessions').innerHTML = SESSIONS.map(([n, a, b]) =>
+    `<div class='ses ${h >= a && h < b ? 'on' : ''}'><span class='micro'>${String(a).padStart(2, '0')}–${String(b).padStart(2, '0')}</span><b>${n}</b></div>`).join('');
+}
+
+function sparkline(values, up) {
+  if (!values || values.length < 4) return '';
+  const w = 158, h = 46, lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
+  const x = i => (i / (values.length - 1)) * (w - 3) + 1.5;
+  const y = v => h - 4 - ((v - lo) / span) * (h - 9);
+  const line = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const colour = up ? '#34d399' : '#fb7185';
+  const id = 'sg' + Math.random().toString(36).slice(2, 8);
+  return `<svg class='spark' viewBox='0 0 ${w} ${h}'>
+    <defs><linearGradient id='${id}' x1='0' y1='0' x2='0' y2='1'>
+      <stop offset='0' stop-color='${colour}' stop-opacity='.35'/><stop offset='1' stop-color='${colour}' stop-opacity='0'/></linearGradient></defs>
+    <path d='${line} L${w - 1.5},${h} L1.5,${h} Z' fill='url(#${id})'/>
+    <path d='${line}' fill='none' stroke='${colour}' stroke-width='2' stroke-linejoin='round'/>
+    <circle cx='${x(values.length - 1).toFixed(1)}' cy='${y(values[values.length - 1]).toFixed(1)}' r='2.6' fill='#f8fafc'/></svg>`;
+}
+
+async function loadMarkets() {
+  const box = document.getElementById('mkts');
+  const cards = await Promise.all(['XAUUSD', 'BTCUSD'].map(async sym => {
+    try {
+      const closes = await (await fetch(`/api/price-history/${sym}?limit=60`)).json();
+      if (!Array.isArray(closes) || closes.length < 4) throw new Error('no series');
+      const last = closes[closes.length - 1], first = closes[0], chg = (last / first - 1) * 100, up = chg >= 0;
+      return `<div class='mkt glass'>
+        <div><div class='micro'>${esc(sym)}</div>
+          <div class='px num'>${last.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+          <div class='chg num ${up ? 'up' : 'down'}'>${up ? '▲' : '▼'} ${Math.abs(chg).toFixed(2)} % <span class='micro' style='letter-spacing:.04em;text-transform:none'>over the last ${closes.length} closes</span></div></div>
+        ${sparkline(closes, up)}</div>`;
+    } catch (e) {
+      return `<div class='mkt glass'><div><div class='micro'>${esc(sym)}</div><div class='px'>—</div>
+        <div class='chg'><span class='micro' style='text-transform:none;letter-spacing:.04em'>price series unavailable</span></div></div></div>`;
+    }
+  }));
+  box.innerHTML = cards.join('');
+}
 
 async function loadSpeaker() {
   try {
     const d = await (await fetch('/api/voice/speaker')).json();
-    document.getElementById('speaker-now').textContent = d.speaker === 'browser' ? 'this page' : 'the PC';
     window.JARVIS_SPEAKER = d.speaker;
+    document.getElementById('speaker-now').textContent = d.speaker === 'browser' ? 'this page' : 'the PC';
   } catch (e) { document.getElementById('speaker-now').textContent = 'unknown'; }
 }
-
 document.getElementById('swap-speaker').addEventListener('click', async () => {
-  const next = (window.JARVIS_SPEAKER === 'browser') ? 'pc' : 'browser';
-  const msg = document.getElementById('voice-msg');
+  const next = (window.JARVIS_SPEAKER === 'browser') ? 'pc' : 'browser', msg = document.getElementById('voice-msg');
   msg.textContent = 'switching…';
   try {
     const d = await (await fetch('/api/voice/speaker', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -15992,7 +16089,6 @@ document.getElementById('swap-speaker').addEventListener('click', async () => {
   } catch (e) { msg.textContent = 'failed: ' + e; }
   loadSpeaker();
 });
-
 document.getElementById('say-briefing').addEventListener('click', async () => {
   const msg = document.getElementById('voice-msg');
   msg.textContent = 'reading…';
@@ -16003,73 +16099,100 @@ document.getElementById('say-briefing').addEventListener('click', async () => {
   } catch (e) { msg.textContent = 'failed: ' + e; }
 });
 
-function deck(d) {
-  const c = d.context || {}, strategies = Object.values(c.strategies || {});
-  const running = strategies.filter(s => s.available);
-  const sending = running.filter(s => s.sending_orders && !s.halted).length;
-  const halted = running.filter(s => s.halted).length;
-  const account = (running.find(s => (s.account || {}).available) || {}).account || {};
-  const sched = d.schedule || {}, tasks = sched.tasks || [], missing = (sched.missing || []).length;
-  const loop = d.loop || {}, mem = d.memory || {};
+function facts(d) {
+  const c = d.context || {}, entries = Object.values(c.strategies || {}).filter(s => s.available);
+  const newest = (d.activity || {}).events || [];
+  const decision = newest.find(e => e.source !== 'schedule') || {};
+  const learn = c.learning || {}, pos = c.positioning || {};
+  document.getElementById('facts').innerHTML = [
+    ['Last decision', decision.what ? `${esc(decision.what)}` : 'none yet',
+     decision.at ? `${esc(decision.source)} · ${esc(String(decision.at).slice(5, 16))}` : ''],
+    ['Open positions', entries.some(s => s.open_trade) ? 'a trade is open' : 'flat',
+     `${entries.length} strateg${entries.length === 1 ? 'y' : 'ies'} readable`],
+    ['Positioning', pos.available ? `CFTC ${esc(pos.as_of)}` : 'no data', learn.available ? 'models retrained daily' : ''],
+  ].map(([k, v, s]) => `<div class='fact'><div class='micro'>${esc(k)}</div><div class='v small'>${v}</div><div class='micro' style='text-transform:none;letter-spacing:.03em;margin-top:3px'>${s}</div></div>`).join('');
+}
+
+function rail(d) {
+  const c = d.context || {}, all = Object.values(c.strategies || {}), live = all.filter(s => s.available);
+  const sending = live.filter(s => s.sending_orders && !s.halted).length, halted = live.filter(s => s.halted).length;
+  const sched = d.schedule || {}, tasks = (sched.tasks || []).length, missing = (sched.missing || []).length;
+  const loop = d.loop || {}, mem = d.memory || {}, learn = c.learning || {};
   const plates = [
-    {k: 'Strategies', v: `${sending} sending · ${running.length - sending - halted} dry`,
-     s: halted ? `${halted} halted` : `${running.length} of ${strategies.length} readable`,
-     cls: halted ? 'bad' : running.length === strategies.length ? 'good' : 'warn'},
-    {k: 'Demo equity', v: account.available ? `${Number(account.equity).toLocaleString('en-GB')} ${esc(account.currency || '')}` : '—',
-     s: account.available ? `balance ${Number(account.balance).toLocaleString('en-GB')}` : 'MT5 not readable',
-     cls: account.available ? 'good' : 'warn'},
-    {k: 'Scheduled work', v: `${tasks.length - missing} / ${tasks.length}`, s: missing ? `${missing} missing` : 'all registered',
-     cls: missing ? 'bad' : 'good'},
-    {k: 'Recorded results', v: mem.available ? mem.baseline_rows : '—',
-     s: mem.available ? `${mem.open_backlog_count} open items` : (mem.reason || ''), cls: 'good'},
-    {k: 'Brief age', v: loop.available ? `${loop.age_minutes} min` : 'not written',
-     s: loop.available ? `refreshes every ${loop.every_minutes} min` : (loop.reason || ''), cls: loop.stale ? 'warn' : 'good'},
+    ['Strategies', halted ? `${halted} halted` : `${sending} sending`, halted ? 'both stopped themselves' : `${live.length - sending - halted} in dry run`, halted ? 'bad' : 'good'],
+    ['Scheduled work', `${tasks - missing} / ${tasks}`, missing ? `${missing} missing` : 'all registered, live folder', missing ? 'bad' : 'good'],
+    ['Learning', learn.available ? `${Object.keys(learn.per_symbol || {}).length} symbols` : '—', learn.available ? `${learn.decisions} decisions recorded` : (learn.reason || ''), 'good'],
+    ['Recorded results', mem.available ? mem.baseline_rows : '—', mem.available ? `${mem.open_backlog_count} open items` : '', 'good'],
+    ['Brief age', loop.available ? `${loop.age_minutes} min` : 'not written', loop.available ? `refreshes every ${loop.every_minutes} min` : (loop.reason || ''), loop.stale ? 'warn' : 'good'],
   ];
-  document.getElementById('deck').innerHTML = plates.map(p =>
-    `<div class='plate ${p.cls}'><div class='k'>${esc(p.k)}</div><div class='v'>${esc(p.v)}</div><div class='s'>${esc(p.s)}</div></div>`).join('');
+  document.getElementById('rail').innerHTML = plates.map(([k, v, s, cls]) =>
+    `<div class='met glass ${cls}'><div class='edge'></div><div class='micro'>${esc(k)}</div><div class='v num'>${esc(v)}</div><div class='s'>${esc(s)}</div></div>`).join('');
+
+  loadAccount();
+}
+
+const DEMO_LOGIN = 11581419;
+
+async function loadAccount() {
+  // Live from MT5, not from the hourly brief: the brief can be an hour old, and on an account switch that is exactly
+  // the number you must not trust. The terminal being on another login is what halted both strategies today.
+  const value = document.getElementById('equity'), sub = document.getElementById('equity-sub');
+  try {
+    const a = ((await (await fetch('/api/mt5/account')).json()) || {}).account || {};
+    if (!a.login) throw new Error('no account');
+    value.textContent = Number(a.equity).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + (a.currency || '');
+    const right = Number(a.login) === DEMO_LOGIN;
+    sub.innerHTML = right
+      ? `account ${esc(a.login)} · ${esc(a.server)} · balance ${Number(a.balance).toLocaleString('en-GB')}`
+      : `<span style='color:#fecdd3;font-weight:700'>terminal is on account ${esc(a.login)}, not the demo ${DEMO_LOGIN} — strategies refuse to trade</span>`;
+  } catch (e) { value.textContent = '—'; sub.textContent = 'MT5 is not readable right now'; }
 }
 
 function attention(a) {
   const box = document.getElementById('attention');
-  if (!a || !a.count) { box.innerHTML = "<p class='lead'>Nothing is stuck: no strategy halted, no task missing, no cycle late.</p>"; return; }
-  box.innerHTML = (a.items || []).map(i => `<div class='row'><div><div class='what'>${esc(i.what)}</div>
-    <div class='why'>${esc(i.why)} · <a href='${esc(i.where)}'>${esc(i.where)}</a></div></div>
+  if (!a || !a.count) { box.innerHTML = "<p class='lead' style='margin:0'>Nothing is stuck: no strategy halted, no task missing, no cycle late.</p>"; return; }
+  box.innerHTML = (a.items || []).map(i => `<div class='item'><div><div class='t'>${esc(i.what)}</div>
+    <div class='d'>${esc(i.why)} · <a href='${esc(i.where)}'>${esc(i.where)}</a></div></div>
     <span class='tag ${i.severity === 'bad' ? 'halt' : i.severity === 'warn' ? 'dry' : 'live'}'>${esc(i.severity)}</span></div>`).join('');
 }
 
 function strategies(c) {
   const box = document.getElementById('strategies');
   const entries = Object.entries((c || {}).strategies || {});
-  if (!entries.length) { box.innerHTML = "<p class='lead'>No strategy could be read.</p>"; return; }
+  if (!entries.length) { box.innerHTML = "<p class='lead' style='margin:0'>No strategy could be read.</p>"; return; }
   box.innerHTML = entries.map(([name, s]) => {
-    if (!s.available) return `<div class='row'><div class='what'>${esc(name)}</div><span class='tag halt'>unreadable</span></div>`;
-    const mode = s.halted ? "<span class='tag halt'>halted</span>" : s.sending_orders ? "<span class='tag live'>sending orders</span>" : "<span class='tag dry'>dry run</span>";
+    if (!s.available) return `<div class='item'><div class='t'>${esc(name)}</div><span class='tag halt'>unreadable</span></div>`;
+    const tag = s.halted ? "<span class='tag halt'>halted</span>" : s.sending_orders ? "<span class='tag live'>sending</span>" : "<span class='tag dry'>dry run</span>";
     const last = (s.recent_decisions || [])[0] || {};
-    return `<div class='row'><div><div class='what'>${esc(name)}</div>
-      <div class='why'>${esc(s.symbol)} · magic ${esc(s.magic)} · last: ${esc(last.event || '—')} ${esc(last.reason || '')}</div></div>${mode}</div>`;
+    return `<div class='item'><div><div class='t'>${esc(name)}</div>
+      <div class='d'>${esc(s.symbol)} · magic ${esc(s.magic)}<br>last: ${esc(last.event || '—')} ${esc(last.reason || '')}</div></div>${tag}</div>`;
   }).join('');
 }
 
 function activity(a) {
   const box = document.getElementById('activity');
-  if (!a || !(a.events || []).length) { box.innerHTML = "<p class='lead'>Nothing recorded yet.</p>"; return; }
+  if (!a || !(a.events || []).length) { box.innerHTML = "<p class='lead' style='margin:0'>Nothing recorded yet.</p>"; return; }
   document.getElementById('activity-note').textContent = a.note || '';
-  box.innerHTML = a.events.map(e => `<div class='ev'><time>${esc(String(e.at).slice(5, 16))} ${esc(e.source)}</time>
-    <div>${esc(e.what)} <span class='why'>${esc(e.detail || '')}</span></div></div>`).join('');
+  box.innerHTML = a.events.map(e => `<div class='ev'><time class='num'>${esc(String(e.at).slice(5, 16))}<br><span class='src'>${esc(e.source)}</span></time>
+    <div>${esc(e.what)}<div class='d'>${esc(e.detail || '')}</div></div></div>`).join('');
 }
 
 async function load() {
   let d;
   try { d = await (await fetch('/api/i40-pilot')).json(); }
-  catch (e) { document.getElementById('state-text').textContent = 'The system brief is unavailable: ' + e; return; }
-  const att = d.attention || {};
-  const state = document.getElementById('state');
-  state.className = 'stateline ' + (att.worst === 'bad' ? 's-bad' : (att.worst === 'warn' || att.worst === 'info') ? 's-warn' : 's-ok');
-  document.getElementById('state-text').textContent = (att.headline || 'Reading…') + (att.count ? ` — ${att.count} below` : '');
-  deck(d); attention(att); strategies(d.context); activity(d.activity);
+  catch (e) { document.getElementById('state-text').textContent = 'The system brief is unavailable'; return; }
+  const att = d.attention || {}, worst = att.worst || 'info';
+  document.getElementById('pulse').className = 'pulse ' + (worst === 'bad' ? 'bad' : worst === 'ok' ? 'ok' : 'warn');
+  document.getElementById('state-text').textContent = att.headline || 'Reading…';
+  if (att.count) {
+    const first = (att.items || [])[0] || {};
+    document.getElementById('state-sub').textContent = `${att.count} thing${att.count > 1 ? 's' : ''} below need you — starting with: ${first.what || ''}.`;
+  }
+  rail(d); attention(att); strategies(d.context); activity(d.activity); facts(d);
 }
-loadSpeaker(); load();
-setInterval(load, 120000);
+tickClock(); setInterval(tickClock, 1000);
+loadSpeaker(); loadMarkets(); load();
+setInterval(load, 120000); setInterval(loadMarkets, 120000);
 </script>
 </body>
 </html>
