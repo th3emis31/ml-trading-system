@@ -720,6 +720,7 @@ MAIN_NAV_GROUPS = [
     ('/performance', 'Performance'),
     ('/positioning', 'Positioning'),
     ('/i40-pilot', 'i40 Pilot'),
+    ('/gold-reaper', 'Gold Reaper'),
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
@@ -22129,6 +22130,182 @@ def demo_breakout_resume_api():
   with _demo_breakout_lock:
     event = demo_volatility_breakout.resume_breakout()
   return jsonify(event)
+
+
+@app.route('/api/mt5/deals')
+def mt5_deals_api():
+  """Closed deals from the connected MT5 account, read-only, optionally filtered by magic number or comment.
+
+  The app holds the only MT5 connection, so anything else that needs trade history (the Gold Reaper watch, a report)
+  asks here instead of opening a second terminal session."""
+  if MT5_ENGINE is None or not hasattr(MT5_ENGINE, 'deal_history'):
+    return jsonify({'ok': False, 'reason': 'MT5 engine unavailable', 'deals': []})
+  days = max(1, min(3650, int(request.args.get('days', 30) or 30)))
+  history = MT5_ENGINE.deal_history(days=days) or {}
+  deals = history.get('deals') or []
+  magic = request.args.get('magic')
+  if magic not in (None, ''):
+    deals = [d for d in deals if str(d.get('magic')) == str(magic)]
+  contains = (request.args.get('comment_contains') or '').strip().lower()
+  if contains:
+    deals = [d for d in deals if contains in str(d.get('comment') or '').lower()]
+  return jsonify({**history, 'deals': deals, 'days': days, 'filtered_by':
+                  {'magic': magic, 'comment_contains': contains or None}})
+
+
+@app.route('/api/gold-reaper')
+def gold_reaper_api():
+  """The Gold Reaper forward watch: the vendor backtest beside the trades the expert has actually taken here.
+
+  Read-only. ``?live=1`` rescans the account history now instead of serving the hourly file."""
+  from src import gold_reaper_watch
+  from src.runtime_paths import read_latest_json
+
+  if request.args.get('live') == '1':
+    return jsonify(gold_reaper_watch.build_status(days=int(request.args.get('days', 30) or 30)))
+  return jsonify(read_latest_json(gold_reaper_watch.watch_dir() / 'latest.json',
+                                  'the watch has not run yet (task SmartEntry Gold Reaper Watch)'))
+
+
+@app.route('/gold-reaper')
+def gold_reaper_page():
+  return render_template_string(GOLD_REAPER_TEMPLATE, theme_css=THEME_CSS)
+
+
+GOLD_REAPER_TEMPLATE = r"""
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Gold Reaper watch</title>
+  {{ theme_css | safe }}
+  <style>
+    html, body { max-width:100%; overflow-x:hidden; }
+    .wrap { max-width:1100px; margin:0 auto; box-sizing:border-box; }
+    @media (max-width: 720px) { .container.wrap { padding-left:14px; padding-right:14px; width:100%; min-width:0; } .nav { overflow-x:auto; } h1 { font-size:26px; } }
+    .wrap * { min-width:0; }
+    .stage { display:flex; align-items:center; gap:12px; border-radius:14px; padding:13px 16px; margin:14px 0;
+             border:1px solid rgba(251,191,36,.55); background:rgba(251,191,36,.10); color:#fde68a; font-weight:700; }
+    .stage.verdict { border-color:rgba(52,211,153,.55); background:rgba(16,185,129,.10); color:#d1fae5; }
+    .stage .dot { width:12px; height:12px; border-radius:50%; background:#fbbf24; flex:0 0 auto; }
+    .stage.verdict .dot { background:#34d399; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+    @media (max-width: 800px) { .two { grid-template-columns:1fr; } }
+    .panel { border-radius:14px; border:1px solid rgba(148,176,222,.22); background:rgba(15,23,42,.6); padding:14px 16px; margin-bottom:14px; }
+    .panel h2 { margin:0 0 4px; font-size:17px; }
+    .panel .lead { color:#8fa6c4; font-size:12.5px; margin:0 0 10px; }
+    dl.kv { display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:13.5px; margin:0; }
+    dl.kv dt { color:#9fb3d1; } dl.kv dd { margin:0; font-variant-numeric:tabular-nums; color:#f1f5f9; }
+    .caveat { font-size:12px; color:#fcd34d; margin:10px 0 0; padding-left:16px; }
+    .cmp { font-size:13px; color:#e2e8f0; padding:6px 0; border-bottom:1px solid rgba(148,176,222,.14); }
+    .cmp:last-child { border-bottom:0; }
+    td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    table { font-size:12.5px; }
+    .pos { color:#a7f3d0; } .neg { color:#fecdd3; }
+    .sub { color:#8fa6c4; font-size:12.5px; }
+  </style>
+</head>
+<body>
+  <div class='nav'>{{ main_nav }}</div>
+  <div class='container wrap'>
+    <h1>Gold Reaper watch</h1>
+    <p class='sub' id='intro'>Loading…</p>
+    <div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0'>
+      <button id='refresh-btn'>Rescan now</button><span class='sub' id='status-line'></span>
+    </div>
+    <div class='stage' id='stage'><span class='dot'></span><span id='stage-text'>Reading…</span></div>
+    <div class='two'>
+      <div class='panel'>
+        <h2>Forward, on this account</h2>
+        <p class='lead' id='forward-lead'>Trades the expert has actually taken since the watch started.</p>
+        <div id='forward'></div>
+      </div>
+      <div class='panel'>
+        <h2>The vendor's backtest</h2>
+        <p class='lead' id='backtest-lead'></p>
+        <div id='backtest'></div>
+      </div>
+    </div>
+    <div class='panel'><h2>Comparison</h2>
+      <p class='lead' id='cmp-reminder'></p><div id='comparison'></div></div>
+    <div class='panel'><h2>Recorded trades</h2>
+      <div class='table-wrap' id='trades'><p class='sub'>Loading…</p></div></div>
+  </div>
+<script>
+const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => (v === null || v === undefined) ? '—' : `<span class='${Number(v) >= 0 ? 'pos' : 'neg'}'>${Number(v).toFixed(2)}</span>`;
+
+function renderForward(f) {
+  const box = document.getElementById('forward');
+  if (!f || !f.trades) {
+    box.innerHTML = `<p class='sub'>${esc((f || {}).note || 'no trades recorded yet')}. Attach the expert to a chart on the demo account and its closed trades will appear here on the next hourly scan.</p>`;
+    return;
+  }
+  const ci = f.win_rate_95_ci ? `${f.win_rate_95_ci[0]}–${f.win_rate_95_ci[1]} %` : '—';
+  box.innerHTML = `<dl class='kv'>
+    <dt>Trades</dt><dd>${esc(f.trades)} (${esc(f.wins)} won)</dd>
+    <dt>Win rate</dt><dd>${esc(f.win_rate_pct)} % <span class='sub'>95 % range ${esc(ci)}</span></dd>
+    <dt>Net</dt><dd>${money(f.net)}</dd>
+    <dt>Profit factor</dt><dd>${esc(f.profit_factor)}</dd>
+    <dt>Average trade</dt><dd>${money(f.average_trade)}</dd>
+    <dt>Largest win / loss</dt><dd>${money(f.largest_win)} / ${money(f.largest_loss)}</dd>
+    <dt>Worst run down</dt><dd>${money(-Math.abs(f.max_drawdown_money || 0))}</dd>
+    <dt>First / last</dt><dd class='sub'>${esc(f.first_trade_utc)} → ${esc(f.last_trade_utc)}</dd></dl>`;
+}
+
+function renderBacktest(b) {
+  document.getElementById('backtest-lead').textContent = `${b.period} · ${b.source}`;
+  document.getElementById('backtest').innerHTML = `<dl class='kv'>
+    <dt>Trades</dt><dd>${esc(b.trades)} <span class='sub'>≈ ${esc(b.trades_per_year)} a year</span></dd>
+    <dt>Win rate</dt><dd>${esc(b.win_rate_pct)} %</dd>
+    <dt>Profit factor</dt><dd>${esc(b.profit_factor)}</dd>
+    <dt>Average trade</dt><dd>${esc(b.average_trade_usd)} USD</dd>
+    <dt>Max drawdown</dt><dd>${esc(b.max_equity_drawdown_pct)} % equity</dd>
+    <dt>Sharpe</dt><dd>${esc(b.annualised_sharpe)} <span class='sub'>annualised from monthly equity</span></dd></dl>
+    <ul class='caveat'>${(b.caveats || []).map(c => `<li>${esc(c)}</li>`).join('')}</ul>`;
+}
+
+function renderTrades(rows) {
+  const box = document.getElementById('trades');
+  if (!rows || !rows.length) { box.innerHTML = "<p class='sub'>No trade by this expert has been recorded on this account yet.</p>"; return; }
+  box.innerHTML = `<table><tr><th>Closed (UTC)</th><th>Symbol</th><th class='num'>Volume</th><th class='num'>Price</th>
+      <th class='num'>Profit</th><th class='num'>Swap</th><th class='num'>Commission</th><th class='num'>Net</th><th>Comment</th></tr>` +
+    rows.map(r => `<tr><td>${esc(r.closed_utc)}</td><td>${esc(r.symbol)}</td><td class='num'>${esc(r.volume)}</td>
+      <td class='num'>${esc(r.price)}</td><td class='num'>${esc(r.profit)}</td><td class='num'>${esc(r.swap)}</td>
+      <td class='num'>${esc(r.commission)}</td><td class='num'>${money(r.net)}</td><td class='sub'>${esc(r.comment)}</td></tr>`).join('') + '</table>';
+}
+
+async function load(live) {
+  const line = document.getElementById('status-line');
+  line.textContent = live ? 'rescanning…' : 'loading…';
+  let d;
+  try { d = await (await fetch('/api/gold-reaper' + (live ? '?live=1' : ''))).json(); }
+  catch (e) { line.textContent = 'unavailable: ' + e; return; }
+  if (d.available === false && d.reason) { line.textContent = d.reason; return; }
+  document.getElementById('intro').textContent = d.note || '';
+  const cmp = d.comparison || {};
+  const stage = document.getElementById('stage');
+  stage.className = 'stage' + (cmp.stage === 'verdict' ? ' verdict' : '');
+  document.getElementById('stage-text').textContent = cmp.verdict || '';
+  renderForward(d.forward);
+  renderBacktest(d.backtest || {});
+  document.getElementById('cmp-reminder').textContent = cmp.reminder || '';
+  document.getElementById('comparison').innerHTML = (cmp.comparisons || []).length
+    ? cmp.comparisons.map(c => `<div class='cmp'>${esc(c)}</div>`).join('')
+    : "<p class='sub'>Nothing to compare yet: the expert has taken no trades on this account.</p>";
+  renderTrades(d.recent_trades);
+  const collection = d.collection || {};
+  line.textContent = `checked ${esc(d.generated_at)} UTC` +
+    (collection.available ? ` · scanned ${collection.scanned} deals, ${collection.added} new` : ` · ${esc(collection.reason || '')}`);
+}
+document.getElementById('refresh-btn').addEventListener('click', () => load(true));
+load(false);
+setInterval(() => load(false), 300000);
+</script>
+</body>
+</html>
+"""
 
 
 @app.route('/api/i40-pilot')
