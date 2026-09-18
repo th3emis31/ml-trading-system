@@ -112,9 +112,24 @@ def test_app_error_log_window(tmp_path):
     assert result["status"] == "warn" and result["detail"]["count"] == 3
 
 
+TASKLIST = "\n".join(['"msedge.exe","6120","Console","1","1,806,912 K"',
+                      '"python.exe","43300","Console","1","521,216 K"',
+                      '"claude.exe","7788","Console","1","738,304 K"',
+                      '"broken row"', ""])
+PROCESSES = doc.process_memory(TASKLIST)
+
+
+def test_process_memory_names_who_holds_the_ram():
+    """A low-RAM line that does not name the processes reads as an accusation against the trading app."""
+    assert PROCESSES["available"] and PROCESSES["top"][0] == {"name": "msedge.exe", "mb": 1764}
+    assert PROCESSES["by_pid"]["43300"] == 509, "the app process's own working set, in MB"
+    assert doc.process_memory("")["available"] is False
+
+
 def test_resources_and_overall_status():
-    assert doc.check_resources(ram_mb=2000, disk_free_gb=50)["status"] == "ok"
-    assert doc.check_resources(ram_mb=300, disk_free_gb=50)["status"] == "warn"
+    assert doc.check_resources(ram_mb=2000, disk_free_gb=50, processes=PROCESSES)["status"] == "ok"
+    low = doc.check_resources(ram_mb=300, disk_free_gb=50, processes=PROCESSES)
+    assert low["status"] == "warn" and "msedge.exe 1764 MB" in low["summary"], "the warning says where the RAM went"
     checks = [{"status": "ok"}, {"status": "info"}]
     assert doc.overall_status(checks) == "healthy"
     assert doc.overall_status(checks + [{"status": "warn"}]) == "warnings"
@@ -127,15 +142,18 @@ def test_ram_trend_flags_a_sharp_drop_only_within_the_same_app_process():
                {"generated_at": "2026-09-14 11:30:00", "free_ram_mb": 1200, "app_pid": "43300"},
                {"generated_at": "2026-09-14 11:45:00", "free_ram_mb": 2500, "app_pid": "99999"},  # another app process
                {"generated_at": "2026-09-13 20:00:00", "free_ram_mb": 3000, "app_pid": "43300"}]  # outside the window
-    checks = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=800, disk_free_gb=50)]
+    checks = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=800, disk_free_gb=50, processes=PROCESSES)]
     doc.apply_ram_trend(checks, history, now)
     resources = checks[1]
     assert resources["status"] == "info" and resources["detail"]["ram_trend"]["drop_mb"] == 700
-    assert resources["detail"]["ram_trend"]["since"] == "2026-09-14 10:00:00" and "memory leak" in resources["summary"]
-    steady = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=1400, disk_free_gb=50)]
+    assert resources["detail"]["ram_trend"]["since"] == "2026-09-14 10:00:00"
+    # the drop is attributed, not blamed: the app's own working set and the biggest users are named
+    assert resources["detail"]["ram_trend"]["app_rss_mb"] == 509
+    assert "PID 43300) itself holds 509 MB" in resources["summary"] and "msedge.exe 1764 MB" in resources["summary"]
+    steady = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=1400, disk_free_gb=50, processes=PROCESSES)]
     doc.apply_ram_trend(steady, history, now)
     assert steady[1]["status"] == "ok" and steady[1]["detail"]["ram_trend"]["sharp_drop"] is False
-    low = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=300, disk_free_gb=50)]
+    low = [doc.check_app_process(NETSTAT), doc.check_resources(ram_mb=300, disk_free_gb=50, processes=PROCESSES)]
     doc.apply_ram_trend(low, history, now)
     assert low[1]["status"] == "warn"  # the existing low-RAM warning is unchanged
     assert doc.ram_trend([], 800, "43300", now) is None and doc.ram_trend(history, None, "43300", now) is None

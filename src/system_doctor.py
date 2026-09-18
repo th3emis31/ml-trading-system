@@ -474,17 +474,52 @@ def _available_ram_mb() -> Optional[int]:
     return int(status.ullAvailPhys // 2 ** 20)
 
 
-def check_resources(ram_mb: Optional[int] = None, disk_free_gb: Optional[float] = None) -> dict:
+def process_memory(csv_text: Optional[str] = None, limit: int = 4) -> dict:
+    """Which processes hold the RAM, from ``tasklist``.
+
+    Free memory is a whole-machine number: a browser or a second editor moves it as much as this system does. Without
+    naming the processes, a "low RAM" line reads like an accusation against the trading app, and on 17 Sep 2026 that
+    guess was wrong - the app held 509 MB while browser windows held about three times that.
+    """
+    if csv_text is None:
+        try:
+            csv_text = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True,
+                                      timeout=60).stdout
+        except Exception as exc:
+            return {"available": False, "reason": f"the process list could not be read: {exc}"}
+    rows = []
+    for row in csv.reader(io.StringIO(csv_text or "")):
+        if len(row) < 5:
+            continue
+        try:
+            rows.append({"name": row[0], "pid": row[1], "mb": int(row[4].replace(",", "").replace(" K", "").strip() or 0) // 1024})
+        except ValueError:
+            continue
+    rows.sort(key=lambda r: r["mb"], reverse=True)
+    by_name: dict[str, int] = {}
+    for row in rows:
+        by_name[row["name"]] = by_name.get(row["name"], 0) + row["mb"]
+    top = sorted(by_name.items(), key=lambda item: item[1], reverse=True)[:limit]
+    return {"available": bool(rows), "top": [{"name": name, "mb": mb} for name, mb in top],
+            "by_pid": {row["pid"]: row["mb"] for row in rows[:40]},
+            "reason": None if rows else "tasklist returned nothing"}
+
+
+def check_resources(ram_mb: Optional[int] = None, disk_free_gb: Optional[float] = None,
+                    processes: Optional[dict] = None) -> dict:
     ram_mb = _available_ram_mb() if ram_mb is None else ram_mb
     disk_free_gb = shutil.disk_usage(ROOT.anchor).free / 2 ** 30 if disk_free_gb is None else disk_free_gb
-    detail = {"free_ram_mb": ram_mb, "free_disk_gb": round(disk_free_gb, 1)}
+    processes = process_memory() if processes is None else processes
+    detail = {"free_ram_mb": ram_mb, "free_disk_gb": round(disk_free_gb, 1), "processes": processes}
     issues = []
     if ram_mb is not None and ram_mb < 500:
         issues.append(f"only {ram_mb} MB RAM free")
     if disk_free_gb < 5:
         issues.append(f"only {disk_free_gb:.1f} GB disk free")
     if issues:
-        return _result("PC resources", "pc", "warn", "; ".join(issues), **detail)
+        holders = ", ".join(f"{p['name']} {p['mb']} MB" for p in (processes.get("top") or [])[:3])
+        return _result("PC resources", "pc", "warn",
+                       "; ".join(issues) + (f". Largest users: {holders}." if holders else ""), **detail)
     return _result("PC resources", "pc", "ok", f"{ram_mb} MB RAM and {disk_free_gb:.0f} GB disk free.", **detail)
 
 
@@ -524,8 +559,17 @@ def apply_ram_trend(checks: list, history: list, now: datetime) -> None:
         return
     resources.setdefault("detail", {})["ram_trend"] = trend
     if trend["sharp_drop"]:
-        resources["summary"] += (f" Free RAM fell {trend['drop_mb']} MB since {trend['since']} UTC while the same app process"
-                                 f" (PID {trend['app_pid']}) kept running; watch for a memory leak.")
+        # Attribute the drop before implying the trading app leaked: the app's own working set is the only number
+        # that can say so, and a browser can move free RAM by a gigabyte without this system growing at all.
+        app_mb = ((resources.get("detail") or {}).get("processes") or {}).get("by_pid", {}).get(str(trend["app_pid"]))
+        trend["app_rss_mb"] = app_mb
+        resources["summary"] += f" Free RAM fell {trend['drop_mb']} MB since {trend['since']} UTC."
+        if app_mb is not None:
+            resources["summary"] += f" The app process (PID {trend['app_pid']}) itself holds {app_mb} MB."
+        holders = ", ".join(f"{p['name']} {p['mb']} MB"
+                            for p in (((resources.get("detail") or {}).get("processes") or {}).get("top") or [])[:3])
+        if holders:
+            resources["summary"] += f" Largest users now: {holders}."
         if resources["status"] == "ok":
             resources["status"] = "info"
 
