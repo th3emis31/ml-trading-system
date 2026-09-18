@@ -98,11 +98,22 @@ def market_heatmaps(hourly: pd.DataFrame, daily: Optional[pd.DataFrame] = None, 
     return out
 
 
-def trading_heatmaps(deals: Iterable[dict], magic: Optional[int] = None) -> dict:
-    """P/L patterns and equity curve from closed deals: dicts with time (UTC epoch or ISO), net or profit/swap/commission."""
+SYSTEM_MAGICS = (440502, 440603)   # this system's own strategies: gold session pullback, volatility trend breakout
+
+
+def trading_heatmaps(deals: Iterable[dict], magic=None) -> dict:
+    """P/L patterns and equity curve from closed deals: dicts with time (UTC epoch or ISO), net or profit/swap/commission.
+
+    ``magic`` may be one number, a list of numbers, or None for every expert on the account. The account holds other
+    people's experts as well, and mixing their trades with this system's makes it impossible to say what this system
+    earned - so the page asks for a list rather than showing the account total by default.
+    """
+    wanted = None
+    if magic is not None:
+        wanted = {int(m) for m in (magic if isinstance(magic, (list, tuple, set)) else [magic])}
     rows = []
     for deal in deals or []:
-        if magic is not None and int(deal.get("magic") or 0) != int(magic):
+        if wanted is not None and int(deal.get("magic") or 0) not in wanted:
             continue
         stamp = deal.get("time")
         ts = pd.to_datetime(stamp, unit="s", utc=True) if isinstance(stamp, (int, float)) else pd.to_datetime(stamp, utc=True)

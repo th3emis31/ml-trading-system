@@ -21580,8 +21580,18 @@ def performance_api():
   symbol = str(request.args.get('symbol') or 'XAUUSD').upper()
   if symbol not in {'XAUUSD', 'BTCUSD'}:
     return jsonify({'error': 'symbol must be XAUUSD or BTCUSD'}), 400
-  magic_arg = str(request.args.get('magic') or '').strip()
-  magic = int(magic_arg) if magic_arg.isdigit() else None
+  # 'system' keeps only this system's own strategies. The account also carries other people's experts, and mixing
+  # their trades with these makes the page unable to answer "what did this system earn?" - so the page asks for
+  # 'system' by default and 'all' has to be chosen deliberately.
+  magic_arg = str(request.args.get('magic') or '').strip().lower()
+  if magic_arg in ('system', 'mine'):
+    magic = list(pa.SYSTEM_MAGICS)
+  elif magic_arg.isdigit():
+    magic = int(magic_arg)
+  elif ',' in magic_arg and all(part.strip().isdigit() for part in magic_arg.split(',') if part.strip()):
+    magic = [int(part) for part in magic_arg.split(',') if part.strip()]
+  else:
+    magic = None
   if str(request.args.get('refresh') or '') == '1':
     _performance_cache.clear()
 
@@ -21600,7 +21610,7 @@ def performance_api():
   market = _performance_cached(('market', symbol), build_market)
   deal_data = _performance_cached(('deals',), build_deals)
   if deal_data.get('ok'):
-    trading = _performance_cached(('trading', magic), lambda: pa.trading_heatmaps(deal_data.get('deals') or [], magic=magic))
+    trading = _performance_cached(('trading', magic_arg or 'all'), lambda: pa.trading_heatmaps(deal_data.get('deals') or [], magic=magic))
   else:
     trading = {'available': False, 'reason': deal_data.get('reason')}
 
@@ -21719,10 +21729,13 @@ PERFORMANCE_TEMPLATE = r"""
 
     <div class='card'>
       <div class='pf-head'>
-        <h2 style='margin:0;'>Real trading (MT5 account <span id='account-login'>—</span>)</h2>
+        <h2 style='margin:0;'>Real trading (MT5 account <span id='account-login'>—</span>) <span id='scope-note' class='muted' style='font-size:13px;font-weight:500'></span></h2>
         <div class='toolbar'>
           <label class='muted' for='magic'>Expert (magic number)</label>
-          <select id='magic'><option value=''>All experts</option></select>
+          <select id='magic'>
+            <option value='system' selected>This system only (440502 + 440603)</option>
+            <option value=''>All experts on the account — includes experts that are not this system's</option>
+          </select>
           <button type='button' data-trade-metric='net' class='active'>Net P/L</button>
           <button type='button' data-trade-metric='win_rate'>Win rate</button>
         </div>
@@ -21846,7 +21859,12 @@ PERFORMANCE_TEMPLATE = r"""
       const t = data.trading || {};
       document.getElementById('account-login').textContent = (data.account || {}).login || '—';
       if (!t.available) {
-        document.getElementById('trade-tiles').innerHTML = `<p class='muted'>${esc(t.reason || 'No closed trades.')}</p>`;
+        const scoped = document.getElementById('magic').value === 'system';
+        document.getElementById('trade-tiles').innerHTML = scoped
+          ? `<p class='muted'>This system's own strategies have no closed trade on this account yet — the gold session pullback runs dry and the breakout has not filled.
+             That is the honest number: nothing to show, rather than someone else's trades.
+             Switch the selector to "All experts" to see the account total, which includes experts that are not this system's.</p>`
+          : `<p class='muted'>${esc(t.reason || 'No closed trades.')}</p>`;
         ['trade-heat', 'trade-year-month', 'best-hours', 'worst-hours', 'by-magic'].forEach(id => { document.getElementById(id).innerHTML = ''; });
         return;
       }
@@ -21871,7 +21889,7 @@ PERFORMANCE_TEMPLATE = r"""
       document.getElementById('by-magic').innerHTML = smallTable(['Magic number', 'Trades', 'Net', 'Win rate'],
         (t.by_magic || []).map(r => [r.magic || '0 (manual)', r.trades, `<span class='${r.net >= 0 ? 'positive' : 'negative'}'>${esc(num(r.net))} ${esc(currency)}</span>`, Math.round(r.win_rate * 100) + '%']));
       const select = document.getElementById('magic');
-      if (select.options.length <= 1 && !data.magic) {
+      if (select.options.length <= 2 && !data.magic) {
         (t.by_magic || []).forEach(r => { const o = document.createElement('option'); o.value = r.magic; o.textContent = `${r.magic || '0 (manual)'} · ${r.trades} trades`; select.appendChild(o); });
       }
     }
@@ -21918,6 +21936,9 @@ PERFORMANCE_TEMPLATE = r"""
       line.textContent = 'Loading… (the first load of a market reads years of candles)';
       const symbol = document.getElementById('symbol').value;
       const magic = document.getElementById('magic').value;
+      const scope = document.getElementById('scope-note');
+      if (scope) scope.textContent = magic === 'system' ? '— this system's own strategies only'
+        : magic ? `— expert ${magic} only` : '— every expert on the account, including ones that are not this system's';
       try {
         const response = await fetch(`/api/performance?symbol=${symbol}${magic ? `&magic=${magic}` : ''}${refresh ? '&refresh=1' : ''}`);
         state.data = await response.json();

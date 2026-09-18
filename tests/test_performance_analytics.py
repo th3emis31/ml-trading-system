@@ -74,3 +74,24 @@ def test_trackers():
     assert research[0]["evaluated"] == 15 and research[0]["validated"] == 4
     paper = pa.paper_tracker([{"exit_time": "a", "net_pct": 10}, {"exit_time": "b", "net_pct": -10}])
     assert paper[-1]["equity_pct"] == pytest.approx(-1.0)
+
+
+def test_trading_heatmaps_can_keep_only_this_systems_own_experts():
+    """The account carries other people's experts. Mixing their trades with these makes the page unable to answer
+    "what did this system earn?", so the filter takes a list and the page asks for it by default."""
+    deals = [
+        {"time": 1789000000, "net": 10.0, "symbol": "XAUUSD", "magic": 440502},   # gold session pullback
+        {"time": 1789003600, "net": -4.0, "symbol": "XAUUSD", "magic": 440603},   # volatility breakout
+        {"time": 1789007200, "net": 500.0, "symbol": "XAUUSD", "magic": 888888},  # someone else's expert
+        {"time": 1789010800, "net": 250.0, "symbol": "XAUUSD", "magic": 0},       # a manual trade
+    ]
+    mine = pa.trading_heatmaps(deals, magic=list(pa.SYSTEM_MAGICS))
+    assert mine["available"] and mine["trades"] == 2
+    assert round(mine["net"], 2) == 6.0, "only this system's two strategies count"
+
+    everything = pa.trading_heatmaps(deals)
+    assert everything["trades"] == 4 and round(everything["net"], 2) == 756.0, "no filter still means the whole account"
+
+    one = pa.trading_heatmaps(deals, magic=440502)
+    assert one["trades"] == 1 and round(one["net"], 2) == 10.0, "a single number still works"
+    assert pa.trading_heatmaps(deals, magic=[999999])["available"] is False, "an expert with no trades says so"
