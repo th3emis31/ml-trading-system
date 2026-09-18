@@ -2717,7 +2717,12 @@ def build_tradingview_plan(alert: dict, internal_signals: dict | None = None):
     else:
         plan['grade'] = 'D'
     internal_side = internal_signals.get(plan.get('symbol')) if internal_signals else None
-    if internal_side:
+    if plan.get('side') not in ('BUY', 'SELL'):
+        # An alert with no tradable side did not disagree with the model: there was nothing to compare. Calling that
+        # "Divergent" reads as a verdict the evidence does not support.
+        plan['alignment'] = 'No side to compare'
+        plan['notes'] = f"The alert carried no BUY or SELL side." + (f" System bias: {internal_side}." if internal_side else '')
+    elif internal_side:
         plan['alignment'] = 'Aligned' if internal_side == plan.get('side') else 'Divergent'
         plan['notes'] = f"System bias: {internal_side}."
     else:
@@ -17488,6 +17493,7 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
     .tile { border-radius:12px; padding:10px 12px; border:1px solid rgba(148,176,222,.3); background:rgba(15,23,42,.8); border-left:3px solid #38bdf8; }
     .tile .k { font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; }
     .tile .v { font-size:18px; font-weight:800; color:#f8fafc; word-break:break-all; }
+    .tile .s { font-size:12px; color:#94a3b8; margin-top:3px; }
     ol.steps li { margin:10px 0; color:#e2e8f0; line-height:1.55; }
     ol.steps li .muted { display:block; }
     pre.code { white-space:pre-wrap; word-break:break-all; background:rgba(2,6,23,.75); border:1px solid rgba(148,176,222,.25); border-radius:10px; padding:10px 12px; font-size:12.5px; color:#e2e8f0; margin:6px 0; }
@@ -17948,20 +17954,32 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
         const data = await (await fetch('/api/tradingview')).json();
         const alerts = (data.alerts || []).slice().reverse();
         const real = alerts.filter(a => a.source !== 'dashboard-test');
-        const aligned = real.filter(a => a.alignment === 'Aligned').length;
+        // Only alerts that carried a BUY or SELL can agree or disagree with the model; the rest had nothing to compare.
+        const comparable = real.filter(a => a.side === 'BUY' || a.side === 'SELL');
+        const aligned = comparable.filter(a => a.alignment === 'Aligned').length;
+        const noSide = real.length - comparable.length;
+        let ageText = 'none yet', ageNote = '';
+        if (alerts.length) {
+          const last = new Date((alerts[0].received_at || '').replace(' ', 'T') + 'Z');
+          const hours = (Date.now() - last.getTime()) / 3600000;
+          ageText = alerts[0].received_at + ' UTC';
+          ageNote = isFinite(hours) ? (hours < 1 ? 'minutes ago' : hours < 48 ? `${Math.round(hours)} h ago`
+                                                                             : `${Math.round(hours / 24)} days ago - the webhook is quiet`) : '';
+        }
         document.getElementById('alert-tiles').innerHTML = [
-          ['Alerts stored', alerts.length],
-          ['From TradingView', real.length],
-          ['Aligned with model', real.length ? `${aligned} of ${real.length}` : '—'],
-          ['Last alert', alerts.length ? `${alerts[0].received_at} UTC` : 'none yet'],
-        ].map(([k, v]) => `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${esc(v)}</div></div>`).join('');
+          ['Alerts stored', alerts.length, ''],
+          ['From TradingView', real.length, `${alerts.length - real.length} test`],
+          ['Aligned with model', comparable.length ? `${aligned} of ${comparable.length}` : '—',
+           noSide ? `${noSide} carried no side` : 'all had a side'],
+          ['Last alert', ageText, ageNote],
+        ].map(([k, v, s]) => `<div class='tile'><div class='k'>${esc(k)}</div><div class='v'>${esc(v)}</div>${s ? `<div class='s'>${esc(s)}</div>` : ''}</div>`).join('');
         document.getElementById('alerts').innerHTML = alerts.length ? `<table><thead><tr>
             <th>Received (UTC)</th><th>Symbol</th><th>Side</th><th class='num'>Entry</th><th class='num'>SL</th><th class='num'>TP1</th><th class='num'>TP2</th><th class='num'>TP3</th>
             <th class='num'>RR</th><th>Grade</th><th>Model</th><th class='num'>Confidence</th><th>Source</th></tr></thead><tbody>${alerts.map(a => `<tr>
             <td>${esc(a.received_at)}</td><td>${esc(a.symbol)}</td><td>${sideChip(a.side)}</td>
             <td class='num'>${esc(fmt(a.entry))}</td><td class='num'>${esc(fmt(a.stop_loss))}</td><td class='num'>${esc(fmt(a.take_profit_1 ?? a.take_profit))}</td>
             <td class='num'>${esc(fmt(a.take_profit_2))}</td><td class='num'>${esc(fmt(a.take_profit_3))}</td><td class='num'>${esc(fmt(a.risk_reward))}</td>
-            <td>${esc(a.grade)}</td><td><span class='chip ${a.alignment === 'Aligned' ? 'up' : a.alignment === 'Divergent' ? 'mixed' : 'off'}' title='${esc(a.notes || '')}'>${esc(a.alignment || '—')}</span></td>
+            <td>${esc(a.grade)}</td><td><span class='chip ${a.alignment === 'Aligned' ? 'up' : a.alignment === 'Divergent' ? 'down' : 'off'}' title='${esc(a.notes || '')}'>${esc(a.alignment || '—')}</span></td>
             <td class='num'>${a.confidence !== undefined ? esc(Math.round(Number(a.confidence) * 100)) + '%' : '—'}</td>
             <td>${a.source === 'dashboard-test' ? `<span class='chip off'>test</span>` : esc(a.source || 'tradingview')}</td></tr>`).join('')}</tbody></table>`
           : `<p class='muted'>No alerts received yet. Follow the steps below, or press “Send test alert”.</p>`;

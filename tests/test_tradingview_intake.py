@@ -74,3 +74,26 @@ def test_journal_keeps_the_newest_rows_and_lists_newest_first(tmp_path):
     assert [row["n"] for row in stored] == [2, 3, 4, 5, 6] and stored[-1]["recorded_at"] == "2026-09-14 10:00:06"
     assert [row["n"] for row in intake.load_intake_journal(path, limit=2)] == [6, 5]
     assert intake.load_intake_journal(tmp_path / "missing.json") == []
+
+
+def test_an_alert_without_a_side_is_not_called_divergent():
+    """An alert carrying no BUY or SELL did not disagree with the model - there was nothing to compare."""
+    import app as app_module
+
+    bias = {"XAUUSD": "BUY", "BTCUSD": "SELL"}
+    sideless = app_module.build_tradingview_plan({"symbol": "BTCUSD", "side": "UNKNOWN", "confidence": 0.7}, bias)
+    assert sideless["alignment"] == "No side to compare" and sideless["grade"] == "No side"
+    assert "no BUY or SELL" in sideless["notes"]
+
+    agrees = app_module.build_tradingview_plan({"symbol": "XAUUSD", "side": "BUY", "entry": 4300.0,
+                                                "stop_loss": 4280.0, "take_profit_1": 4340.0}, bias)
+    assert agrees["alignment"] == "Aligned"
+    disagrees = app_module.build_tradingview_plan({"symbol": "XAUUSD", "side": "SELL", "entry": 4300.0,
+                                                  "stop_loss": 4320.0, "take_profit_1": 4260.0}, bias)
+    assert disagrees["alignment"] == "Divergent"
+    unknown_model = app_module.build_tradingview_plan({"symbol": "XAUUSD", "side": "BUY"}, None)
+    assert unknown_model["alignment"] == "Unknown"
+
+    # the safety gate is unchanged: a sideless alert is still refused, by the side check rather than by alignment
+    decision = intake.evaluate_tradingview_alert(sideless, now=NOW)
+    assert decision["accepted"] is False and decision["checks"]["side"] is False
