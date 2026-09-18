@@ -26499,7 +26499,7 @@ function runMorningBriefing(options) {
     .then(function(data) {
       if (typeof showResponse === 'function') showResponse('MORNING BRIEFING\n\n' + (data.lines||[]).join('\n'), 'success');
       if (typeof updateStatus === 'function') updateStatus('Briefing complete', 'success');
-      if (typeof speakResponse === 'function') {
+      if (typeof speakResponse === 'function' && !data.spoken_by_server) {
         setTimeout(function() {
           speakResponse(data.briefing || 'Morning briefing complete.', true, { interrupt: false, onComplete: onComplete, source: 'startup' });
         }, 400);
@@ -27187,8 +27187,11 @@ def morning_briefing_api():
   # The browser speaks this briefing itself, in the voice the page picked. Speaking it here as well - through the PC's
   # own Windows voice - meant two different voices reading the same words a fraction of a second apart, which is what
   # the owner heard. The server now speaks only when a caller explicitly asks (?speak=1), for callers with no browser.
+  # One briefing, one voice. The PC's own voice speaks it by default because that is the one that reliably plays -
+  # a browser will not speak until the page has been interacted with. The page reads spoken_by_server and stays quiet
+  # when the PC has already said it, which is what stopped the two voices overlapping. ?speak=0 silences this side.
   spoken_here = False
-  if str(request.args.get('speak') or '').strip() in ('1', 'true', 'yes'):
+  if str(request.args.get('speak') or '1').strip() not in ('0', 'false', 'no'):
     try:
       voice_engine = get_voice_engine()
       if voice_engine and voice_engine.engine:
