@@ -388,7 +388,8 @@ def parse_task_csv(csv_text: str) -> dict[str, dict]:
         if not name or name == "TaskName":
             continue
         tasks[name.lstrip("\\")] = {"status": row.get("Status"), "last_result": (row.get("Last Result") or "").strip(),
-                                    "last_run": row.get("Last Run Time"), "next_run": row.get("Next Run Time")}
+                                    "last_run": row.get("Last Run Time"), "next_run": row.get("Next Run Time"),
+                                    "runs": (row.get("Task To Run") or "").strip()}
     return tasks
 
 
@@ -398,12 +399,20 @@ def check_scheduled_tasks(csv_text: Optional[str] = None) -> dict:
     found = parse_task_csv(csv_text)
     missing = [name for name in TASKS if name not in found]
     failing = {name: found[name]["last_result"] for name in TASKS if name in found and found[name]["last_result"] not in TASK_OK_RESULTS}
-    detail = {"tasks": {name: found.get(name) for name in TASKS}, "missing": missing, "failing": failing}
-    if missing or failing:
+    # A task can exist, report OK and still run the fallback copy of the system: on 16-18 Sep 2026 the Daily Agent
+    # did exactly that for two days, journalling into the fallback folder while the live pages read from here.
+    elsewhere = {name: row["runs"] for name, row in found.items()
+                 if name.startswith("SmartEntry") and row.get("runs")
+                 and str(ROOT).lower() not in row["runs"].lower()}
+    detail = {"tasks": {name: found.get(name) for name in TASKS}, "missing": missing, "failing": failing,
+              "running_from_elsewhere": elsewhere, "live_folder": str(ROOT)}
+    if missing or failing or elsewhere:
         parts = ([f"missing: {', '.join(missing)}"] if missing else []) + \
-                ([f"last result not OK: {', '.join(f'{k} ({v})' for k, v in failing.items())}"] if failing else [])
+                ([f"last result not OK: {', '.join(f'{k} ({v})' for k, v in failing.items())}"] if failing else []) + \
+                ([f"running from outside the live folder: {', '.join(elsewhere)}"] if elsewhere else [])
         return _result("Scheduled tasks", "schedule", "warn", "Scheduled tasks " + "; ".join(parts), **detail)
-    return _result("Scheduled tasks", "schedule", "ok", f"All {len(TASKS)} scheduled tasks exist and last ran OK.", **detail)
+    return _result("Scheduled tasks", "schedule", "ok",
+                   f"All {len(TASKS)} scheduled tasks exist, last ran OK and run from the live folder.", **detail)
 
 
 def check_data_freshness(get: GetJson = get_json) -> dict:

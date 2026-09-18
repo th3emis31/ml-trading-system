@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -173,3 +174,23 @@ def test_run_doctor_never_crashes_and_saves_history(tmp_path, monkeypatch):
     doc.store_health_report(report, health_dir=tmp_path)
     history = json.loads((tmp_path / "doctor_history.json").read_text(encoding="utf-8"))
     assert len(history) == 2 and (tmp_path / "doctor_latest.json").exists()
+
+
+def test_a_task_running_from_the_fallback_folder_is_a_warning():
+    """A task can exist, report result 0 and still run the other copy of the system - which is how the Daily Agent
+    journalled into the fallback folder for two days while the live pages showed nothing."""
+    header = ('"HostName","TaskName","Next Run Time","Status","Logon Mode","Last Run Time","Last Result","Author",'
+              '"Task To Run","Start In","Comment"')
+    live_script = str(doc.ROOT / "scripts" / "run_daily_learning.cmd")
+    away_script = str(Path("C:/Users/th_em/scripts/run_daily_agent.cmd"))
+    row = '"PC","{name}","2026-09-19 05:30:00","Ready","Interactive only","2026-09-18 05:30:00","0","me","{runs}","",""'
+    csv_text = os.linesep.join([header,
+                                row.format(name="SmartEntry Daily Learning", runs=live_script),
+                                row.format(name="SmartEntry Daily Agent", runs=away_script), ""])
+
+    result = doc.check_scheduled_tasks(csv_text)
+    assert result["status"] == "warn" and "outside the live folder" in result["summary"]
+    elsewhere = result["detail"]["running_from_elsewhere"]
+    assert list(elsewhere) == ["SmartEntry Daily Agent"], "only the task pointing away from the live folder"
+    assert "run_daily_agent.cmd" in elsewhere["SmartEntry Daily Agent"]
+    assert result["detail"]["live_folder"] == str(doc.ROOT)
