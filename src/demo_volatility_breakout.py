@@ -41,7 +41,11 @@ from .event_defence import breaker_status, tier1_window, utc_timestamp
 from .runtime_paths import smartentry_data_dir
 
 MAGIC = 440603                     # unused on the account (its 32 magics checked 2026-09-16; 440502 is the pullback)
-SYMBOL = "XAUUSD"
+SYMBOL = "XAUUSD"                 # the first market this strategy traded; kept for callers that ask for one symbol
+# Bitcoin was added on 2026-09-18 after an out-of-sample test of the owner's own settings on BTCUSD 4H broker candles:
+# 248 trades over 8.7 years, PF 1.232, +26.7 %, max drawdown 12.7 % - thinner than gold's recent window but positive on
+# a market these settings were never fitted to, and it fires 28.5 times a year against gold's 14.9 (BASELINE.md).
+SYMBOLS = ("XAUUSD", "BTCUSD")
 VOLUME_PER_LEG = 0.01
 STRATEGY = "volatility_trend_breakout"
 H4_BARS = 1500
@@ -167,7 +171,8 @@ def manage_breakout_trade(engine, state: dict, trade: dict, candles: list, confi
                      net_money=round(money, 2), exits=parts)
         state["closed_money"] = float(state.get("closed_money") or 0.0) + money
         shared._append_jsonl(breakout_paths()["trade_memory"], {
-            "strategy": STRATEGY, "magic": MAGIC, "account": shared.DEMO_ACCOUNT_LOGIN, "symbol": SYMBOL,
+            "strategy": STRATEGY, "magic": MAGIC, "account": shared.DEMO_ACCOUNT_LOGIN,
+            "symbol": trade.get("symbol", SYMBOL),
             "mode": "demo_broker_fill", "trade_id": trade["id"], "side": "BUY", "opened_at": trade["opened_at"],
             "closed_at": trade["closed_at"], "setup": trade["setup"], "session": trade["session"], "regime": trade["regime"],
             "next_event": trade["next_event"], "minutes_to_next_tier1_event": trade["minutes_to_next_tier1_event"],
@@ -188,7 +193,25 @@ def breakout_cycle(engine, bars_fn: Callable, calendar_events: list[dict], now=N
                "events": events}
     try:
         guarded = shared.DemoOnlyEngine(engine, magic=MAGIC, volume=VOLUME_PER_LEG)
-        return _breakout_cycle(guarded, bars_fn, calendar_events, now, config, state, events, summary)
+        # One pass per market. Each keeps its own decision so the page and the log say which market it was about;
+        # the kill switches and the halt state stay shared, because they protect the account, not one symbol.
+        wanted = tuple(config.get("symbols") or SYMBOLS)
+        per_symbol = {}
+        for market in wanted:
+            leg_events: list[dict] = []
+            leg_summary = {"at": demo_executor._stamp(now), "strategy": STRATEGY, "symbol": market,
+                           "dry_run": bool(config.get("dry_run", True)), "events": leg_events}
+            _breakout_cycle(guarded, bars_fn, calendar_events, now, config, state, leg_events, leg_summary, market)
+            events.extend(leg_events)
+            per_symbol[market] = {"decision": leg_summary.get("decision"), "reason": leg_summary.get("reason")}
+            if state.get("halted"):
+                break
+        summary["per_symbol"] = per_symbol
+        acted = next((m for m, r in per_symbol.items() if r.get("decision") not in (None, "no_setup", "hold")), None)
+        chosen = per_symbol.get(acted or wanted[0], {})
+        summary.update(decision=chosen.get("decision"), reason=chosen.get("reason"),
+                       symbol=acted or wanted[0])
+        return summary
     except shared.AccountRefused as exc:
         events.append(shared._halt(state, now, "account_refused", f"Refused: {exc}. Only demo account "
                                    f"{shared.DEMO_ACCOUNT_LOGIN} may trade.", sink=_sink()))
@@ -199,7 +222,7 @@ def breakout_cycle(engine, bars_fn: Callable, calendar_events: list[dict], now=N
         save_breakout_state(state)
 
 
-def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events, summary) -> dict:
+def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events, summary, symbol=SYMBOL) -> dict:
     sink = _sink()
 
     def decide(decision, reason, **details):
@@ -226,7 +249,7 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     if state.get("day") != today:
         state.update(day=today, day_stopped=None, day_start_equity=float(state.get("live_equity") or 1.0))
 
-    frame, source = bars_fn(SYMBOL, "4h", H4_BARS)
+    frame, source = bars_fn(symbol, "4h", H4_BARS)
     if frame is None or frame.empty or not str(source or "").startswith("mt5"):
         events.append(shared._mt5_error(state, now, f"no broker 4H bars (source {source})", sink=sink))
         return summary
@@ -241,7 +264,7 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
             return summary
     floating = 0.0
     if any(t["status"] == "open" for t in state["trades"].values()):
-        positions = engine.positions(symbol=SYMBOL, magic=MAGIC)
+        positions = engine.positions(symbol=symbol, magic=MAGIC)
         if positions is None:
             events.append(shared._mt5_error(state, now, "could not read open positions", sink=sink))
             return summary
@@ -250,8 +273,8 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     if state.get("halted"):
         return summary
 
-    if any(t["status"] == "open" for t in state["trades"].values()):
-        return decide("hold", "one position at a time: a breakout trade is open")
+    if any(t["status"] == "open" and t.get("symbol", SYMBOL) == symbol for t in state["trades"].values()):
+        return decide("hold", f"one position at a time: a breakout trade is open on {symbol}")
     if state.get("day_stopped"):
         return decide("no_entry", f"daily loss stop: {state['day_stopped']}")
     if len(candles) < 250:
@@ -262,16 +285,18 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     signals = {s.index: s for s in vtb.generate_signals(candles, RULES)}
     signal = signals.get(len(candles) - 1)
     if signal is None:
-        return decide("no_setup", f"no breakout on the 4H candle {last.ts} UTC")
-    base = {"trade_id": last.ts, "signal_bar": last.ts, "side": "BUY"}
-    if last.ts in state.get("attempted", []):
-        return decide("refused", f"signal candle {last.ts} was already handled", **base)
-    state.setdefault("attempted", []).append(last.ts)
+        return decide("no_setup", f"no breakout on the {symbol} 4H candle {last.ts} UTC")
+    # Two markets share the same 4H candle times, so the id and the "already handled" guard carry the symbol.
+    trade_key = f"{symbol} {last.ts}"
+    base = {"trade_id": trade_key, "signal_bar": last.ts, "symbol": symbol, "side": "BUY"}
+    if trade_key in state.get("attempted", []):
+        return decide("refused", f"signal candle {last.ts} on {symbol} was already handled", **base)
+    state.setdefault("attempted", []).append(trade_key)
     if age > float(config["max_signal_delay_minutes"]):
         return decide("refused", f"signal candle closed {age:.0f} min ago (limit {config['max_signal_delay_minutes']})", **base)
 
     tier1 = shared.all_tier1_events(calendar_events)
-    window = tier1_window(tier1, now.to_pydatetime(), SYMBOL)
+    window = tier1_window(tier1, now.to_pydatetime(), symbol)
     next_event = window.get("next_event")
     minutes_to_next = round((utc_timestamp(next_event["time_utc"]) - now).total_seconds() / 60) if next_event else None
     ind = indicator_values(candles)
@@ -283,7 +308,7 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     if window["entries_blocked"]:
         return decide("refused", "tier-1 event window: " + ", ".join(f"{e['event']} {e['time_utc']}" for e in window["blocking_events"]),
                       **base, **context)
-    h1, h1_source = bars_fn(SYMBOL, "1h", 60)
+    h1, h1_source = bars_fn(symbol, "1h", 60)
     if h1 is None or h1.empty or not str(h1_source or "").startswith("mt5"):
         events.append(shared._mt5_error(state, now, f"no broker H1 bars for the volatility breaker (source {h1_source})", sink=sink))
         return summary
@@ -295,12 +320,12 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
                                  f"{breaker['trigger']['bar_utc']}", **base, **context)
     if config.get("high_impact_news_window", True):
         from .economic_calendar import news_window
-        news = news_window(calendar_events or [], SYMBOL, now.to_pydatetime())
+        news = news_window(calendar_events or [], symbol, now.to_pydatetime())
         if news.get("in_window"):
             return decide("refused", "High-impact news window: " + ", ".join(str(e.get("title")) for e in news["events"]),
                           **base, **context)
 
-    quote = engine.quote(SYMBOL) or {}
+    quote = engine.quote(symbol) or {}
     if not quote.get("ok"):
         events.append(shared._mt5_error(state, now, f"no live quote ({quote.get('message')})", sink=sink, **base))
         return summary
@@ -319,7 +344,7 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     if not ask < signal.tp1:
         return decide("refused", f"ask {ask} is already at or above TP1 {signal.tp1:.2f}", **base, setup=setup, **context)
 
-    trade = {"id": last.ts, "side": "BUY", "status": "open", "dry_run": bool(config.get("dry_run", True)),
+    trade = {"id": trade_key, "symbol": symbol, "side": "BUY", "status": "open", "dry_run": bool(config.get("dry_run", True)),
              "opened_at": demo_executor._stamp(now), "signal_bar": last.ts, "entry": round(signal.entry, 2),
              "stop": setup["stop"], "r_price": setup["r_price"], "atr": signal.atr, "setup": setup, **context, "legs": []}
     if trade["dry_run"]:
@@ -329,7 +354,7 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
 
     placed = []
     for leg, target in (("A", setup["tp1"]), ("B", setup["tp2"])):
-        request = {"symbol": SYMBOL, "side": "BUY", "volume": VOLUME_PER_LEG, "stop_loss": setup["stop"], "take_profit": target,
+        request = {"symbol": symbol, "side": "BUY", "volume": VOLUME_PER_LEG, "stop_loss": setup["stop"], "take_profit": target,
                    "comment": f"VTB {last.ts[2:4]}{last.ts[5:7]}{last.ts[8:10]}{last.ts[11:13]} {leg}", "magic": MAGIC,
                    "allow_retry_without_stops": False}
         result = engine.place_market_order(**request) or {}
@@ -352,6 +377,19 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     return summary
 
 
+def _positions_all_markets(engine, markets=None) -> list[dict]:
+    """This strategy's open legs across every market it runs, one row per ticket.
+
+    A ticket is unique, so asking each market in turn and keying on the ticket is safe even when a bridge ignores the
+    symbol filter and answers with everything.
+    """
+    found: dict[int, dict] = {}
+    for market in (markets or SYMBOLS):
+        for position in engine.positions(symbol=market, magic=MAGIC) or []:
+            found[int(position.get("ticket") or 0)] = position
+    return list(found.values())
+
+
 # ----------------------------------------------------------------------------------------------- owner controls
 def stop_breakout(engine, now=None) -> dict:
     """STOP: halt and close this strategy's open legs (magic 440603 only)."""
@@ -359,7 +397,8 @@ def stop_breakout(engine, now=None) -> dict:
     state = load_breakout_state()
     closed, failures, positions = [], [], None
     if engine is not None and (engine.status() or {}).get("connected"):
-        positions = engine.positions(symbol=SYMBOL, magic=MAGIC)
+        # STOP must close this strategy's legs in every market it runs, not only the first
+        positions = _positions_all_markets(engine)
     guarded = shared.DemoOnlyEngine(engine, magic=MAGIC, volume=VOLUME_PER_LEG) if engine is not None else None
     for position in positions or []:
         try:
@@ -394,12 +433,15 @@ def breakout_status(engine=None, now=None) -> dict:
     r = [float(m["r_result"]) for m in memory if m.get("r_result") is not None]
     positions = account = None
     if engine is not None and (engine.status() or {}).get("connected"):
-        positions = engine.positions(symbol=SYMBOL, magic=MAGIC)
+        # every market this strategy runs, not just the first one
+        positions = _positions_all_markets(engine, config.get("symbols"))
         account = engine.account_snapshot()
     today = now.strftime("%Y-%m-%d")
     trades = state.get("trades") or {}
     return {
-        "strategy": STRATEGY, "magic": MAGIC, "demo_account": shared.DEMO_ACCOUNT_LOGIN, "symbol": SYMBOL, "timeframe": "4H",
+        "strategy": STRATEGY, "magic": MAGIC, "demo_account": shared.DEMO_ACCOUNT_LOGIN,
+        "symbol": ", ".join(config.get("symbols") or SYMBOLS), "symbols": list(config.get("symbols") or SYMBOLS),
+        "timeframe": "4H",
         "volume_per_leg": VOLUME_PER_LEG, "config": config,
         "sending_orders": bool(config.get("enabled")) and not config.get("dry_run", True),
         "halted": state.get("halted"), "day_stopped": state.get("day_stopped"),

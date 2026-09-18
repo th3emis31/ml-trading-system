@@ -14,7 +14,9 @@ from src import volatility_trend_breakout as vtb
 from test_demo_session_pullback import DEMO, PullbackEngine, fresh_files  # noqa: F401  (autouse fixture; tests/ is on sys.path)
 
 NOW = pd.Timestamp("2026-09-17 09:03", tz="UTC")               # the 05:00 4H candle closed at 09:00
-SENDING = {**dvb.DEFAULT_CONFIG, "enabled": True, "dry_run": False}
+# The mechanics tests below are about one market's behaviour, so they pin the strategy to gold. The strategy runs
+# gold and bitcoin together in production; that pairing has its own test at the end of this file.
+SENDING = {**dvb.DEFAULT_CONFIG, "enabled": True, "dry_run": False, "symbols": ["XAUUSD"]}
 
 
 def h4_frame(now=NOW, n=400, price=2000.0):
@@ -154,3 +156,31 @@ def test_breakout_endpoints_need_the_secret_and_the_page_has_its_stop_button():
     assert client.post("/api/demo-breakout/resume", headers={execution_guard.SECRET_HEADER: secret}).status_code == 200
     html = client.get("/demo-trading").get_data(as_text=True)
     assert "id='b-stop-btn'" in html and "/api/demo-breakout/stop" in html and "id='stop-btn'" in html
+
+
+def test_gold_and_bitcoin_are_traded_independently(monkeypatch):
+    """Bitcoin was added on 2026-09-18 after testing the owner's own settings on BTCUSD: positive over 248 trades and
+    8.7 years, and it fires roughly twice as often as gold. The two markets must not collide - same 4H candle times,
+    one shared magic number - so each keeps its own trade id, its own open position and its own decision."""
+    signal_on_last_closed(monkeypatch)
+    engine = PullbackEngine()
+    both = {**dvb.DEFAULT_CONFIG, "enabled": True, "dry_run": True, "symbols": ["XAUUSD", "BTCUSD"]}
+    asked = []
+
+    def bars(symbol, timeframe, count):
+        asked.append((symbol, timeframe))
+        return bars_for(h4_frame())(symbol, timeframe, count)
+
+    summary = dvb.breakout_cycle(engine, bars, [], now=NOW, config=both)
+    assert set(summary["per_symbol"]) == {"XAUUSD", "BTCUSD"}, "both markets get their own decision"
+    assert {s for s, tf in asked if tf == "4h"} == {"XAUUSD", "BTCUSD"}, "candles are fetched per market"
+
+    trades = dvb.load_breakout_state()["trades"]
+    assert len(trades) == 2, "the same candle time on two markets must not overwrite one trade"
+    assert {t["symbol"] for t in trades.values()} == {"XAUUSD", "BTCUSD"}
+    assert all(key.startswith(t["symbol"]) for key, t in trades.items()), "the trade id carries its market"
+
+    # a second pass takes nothing new: each market has its own position and its own "already handled" guard
+    again = dvb.breakout_cycle(engine, bars, [], now=NOW + pd.Timedelta(minutes=5), config=both)
+    assert all(r["decision"] in ("hold", "refused") for r in again["per_symbol"].values())
+    assert len(dvb.load_breakout_state()["trades"]) == 2
