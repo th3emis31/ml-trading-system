@@ -52,6 +52,9 @@ showSwings = input.bool(true, "Swing support / resistance", group=grpL)
 pivotLen = input.int(10, "Swing strength (bars each side)", minval=2, group=grpL)
 pivotKeep = input.int(3, "Swing levels kept per side", minval=1, maxval=8, group=grpL)
 tablePosIn = input.string("Top right", "Table position", options=["Top right", "Top left", "Bottom right", "Bottom left"], group=grpL)
+tableCompact = input.bool(false, "Compact table (tiny text)", tooltip="Smaller text so the table covers less price action.", group=grpL)
+tableFade = input.int(25, "Table background transparency", minval=0, maxval=90, tooltip="Higher lets the candles show through.", group=grpL)
+showCountdown = input.bool(true, "Show time to the next 4H close", group=grpL)
 
 // ---------------------------------------------------------------- closed-candle offset
 // 1 while the last candle is still forming (use the previous, closed one), 0 once it has closed.
@@ -182,13 +185,15 @@ addLevel(float price, color col, string caption, string style, int width) =>
         array.push(tags, label.new(bar_index + 15, price, caption + "  " + str.tostring(price, format.mintick), style=label.style_label_left, color=color.new(col, 20), textcolor=color.white, size=size.small))
 
 tPos = tablePosIn == "Top left" ? position.top_left : tablePosIn == "Bottom right" ? position.bottom_right : tablePosIn == "Bottom left" ? position.bottom_left : position.top_right
-var table mm = table.new(tPos, 3, 24, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+tTxt = tableCompact ? size.tiny : size.small
+var table mm = table.new(tPos, 3, 25, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+table.set_bgcolor(mm, color.new(#0b1220, tableFade))
 row(int r, string k, string a, color ca, string b, color cb) =>
-    table.cell(mm, 0, r, k, text_color=color.new(#94a3b8, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(mm, 1, r, a, text_color=ca, text_size=size.small, text_halign=text.align_left)
-    table.cell(mm, 2, r, b, text_color=cb, text_size=size.small, text_halign=text.align_left)
+    table.cell(mm, 0, r, k, text_color=color.new(#94a3b8, 0), text_size=tTxt, text_halign=text.align_left)
+    table.cell(mm, 1, r, a, text_color=ca, text_size=tTxt, text_halign=text.align_left)
+    table.cell(mm, 2, r, b, text_color=cb, text_size=tTxt, text_halign=text.align_left)
 header(int r, string title) =>
-    table.cell(mm, 0, r, title, text_color=color.white, text_size=size.small, bgcolor=color.new(#0369a1, 25), text_halign=text.align_left)
+    table.cell(mm, 0, r, title, text_color=color.white, text_size=tTxt, bgcolor=color.new(#0369a1, 25), text_halign=text.align_left)
     table.cell(mm, 1, r, "", bgcolor=color.new(#0369a1, 25))
     table.cell(mm, 2, r, "", bgcolor=color.new(#0369a1, 25))
 
@@ -287,7 +292,9 @@ if barstate.islast
     table.cell(mm, 0, 0, "SmartEntry Market Map", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10), text_halign=text.align_left)
     table.cell(mm, 1, 0, "XAUUSD", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10))
     table.cell(mm, 2, 0, "BTCUSD", text_color=color.white, text_size=size.normal, bgcolor=color.new(#0c4a6e, 10))
-    row(1, "Updated (UTC)", str.format_time(timenow, "MM-dd HH:mm", "UTC"), color.white, "closed candles only", color.new(#94a3b8, 0))
+    secsTo4H = math.max(0, math.floor((time_close("240") - timenow) / 1000))
+    nextClose = showCountdown ? str.tostring(math.floor(secsTo4H / 3600)) + "h " + str.tostring(math.floor(math.max(0, secsTo4H % 3600) / 60)) + "m" : "closed candles only"
+    row(1, "Updated (UTC)", str.format_time(timenow, "MM-dd HH:mm", "UTC"), color.white, nextClose + " to the 4H close", color.new(#fbbf24, 0))
     row(2, "Daily trend (EMA50/200)", gBiasD, biasColor(gBiasD), xBiasD, biasColor(xBiasD))
     row(3, "4H vs EMA50", gBias4, gBias4 == "Above EMA50" ? color.lime : color.red, xBias4, xBias4 == "Above EMA50" ? color.lime : color.red)
     row(4, "RSI daily / 4H", fmtN(gDrsi, "#.0") + " / " + fmtN(gH4rsi, "#.0"), color.white, fmtN(xDrsi, "#.0") + " / " + fmtN(xH4rsi, "#.0"), color.white)
