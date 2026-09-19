@@ -28,7 +28,9 @@ def test_crypto_calendar_charges_every_night_and_btc_uses_it():
     price = 90000 + np.cumsum(np.random.default_rng(2).normal(0, 300, len(btc_times)))
     bars = pd.DataFrame({"datetime": btc_times, "open": price, "high": price + 500, "low": price - 500, "close": price})
     market = lab.Market("BTCUSD", "4h", bars, now=btc_times[-1] + pd.Timedelta(hours=8))
-    assert market.holding["long"] == 0.0560 and market.info["cost_model"].endswith("percent")
+    # The tag names the swap mode AND the round trip it used (v3, 19 Sep 2026), so correcting a cost
+    # invalidates the stored results computed with the old one. It no longer ends with the mode.
+    assert market.holding["long"] == 0.0560 and "-percent-" in market.info["cost_model"]
     assert market.holding["roll"][-1] - market.holding["roll"][0] >= 199   # 200 days of 4h bars: a night every day
 
 
@@ -72,8 +74,11 @@ def test_market_swap_modes(monkeypatch):
     percent = lab.Market("XAUUSD", "4h", bars, now=now)
     price_market = lab.Market("XAUUSD", "4h", bars, now=now, swap_mode="price")
     none = lab.Market("XAUUSD", "4h", bars, now=now, swap=False)
-    assert percent.info["cost_model"].endswith("percent") and percent.holding["long"] == 0.0190
-    assert price_market.holding["long"] == 0.8276 and none.holding is None and none.info["cost_model"] == "spread-only"
+    assert "-percent-" in percent.info["cost_model"] and percent.holding["long"] == 0.0190
+    assert "-price-" in price_market.info["cost_model"], "the two swap modes must stay distinguishable"
+    assert price_market.holding["long"] == 0.8276 and none.holding is None
+    # A spread-only result carries the round trip too: a corrected spread must invalidate it as well.
+    assert none.info["cost_model"].startswith("spread-only-rt")
 
 
 def test_fast_deflated_sharpe_matches_the_scipy_formula():

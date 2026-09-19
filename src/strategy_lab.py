@@ -899,11 +899,43 @@ def write_status(status: dict, path: Optional[Path] = None) -> None:
     os.replace(tmp, path)
 
 
+def _process_is_alive(pid) -> Optional[bool]:
+    """True/False if it can be determined, None if not. Windows only; any doubt returns None.
+
+    Used to free a lock whose owner is already gone. A run killed by the OS - this machine has 7.4 GB and
+    routinely sits at 86 % used, so a long re-score can be killed outright - leaves "state": "running"
+    behind, and the heartbeat alone keeps that lock for up to HEARTBEAT_STALE_SECONDS afterwards, blocking
+    the next scheduled run for no reason. Never the other way round: an unknown answer keeps the lock.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0 or os.name != "nt":
+        return None
+    try:
+        import ctypes
+        SYNCHRONIZE = 0x00100000
+        handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            return False            # ERROR_INVALID_PARAMETER for a pid that no longer exists
+        # WaitForSingleObject returns WAIT_OBJECT_0 (0) for a process handle that has already exited.
+        signalled = ctypes.windll.kernel32.WaitForSingleObject(handle, 0) == 0
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return not signalled
+    except Exception:
+        return None                 # cannot tell, so assume the lock is still someone's
+
+
 def _run_is_active(status: dict) -> bool:
     if status.get("state") != "running" or not status.get("heartbeat"):
         return False
     age = (pd.Timestamp.now(tz="UTC") - pd.Timestamp(status["heartbeat"], tz="UTC")).total_seconds()
-    return age < HEARTBEAT_STALE_SECONDS
+    if age >= HEARTBEAT_STALE_SECONDS:
+        return False
+    # The heartbeat is fresh enough, but if the process that wrote it is demonstrably gone the lock is
+    # not protecting anything. Only a definite False frees it.
+    return _process_is_alive(status.get("pid")) is not False
 
 
 def _default_loader(symbol: str, timeframe: str) -> pd.DataFrame:
