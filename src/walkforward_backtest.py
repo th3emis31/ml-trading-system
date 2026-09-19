@@ -45,9 +45,26 @@ SIGNAL_MODES = {"live_engine", "rf_proba"}
 
 # Round-trip cost per trade as a fraction of price: spread + commission + slippage.
 BACKTEST_COSTS = {
-    "XAUUSD": {"round_trip_pct": 0.0004, "note": "about 0.30 spread plus slippage on a 4,400 price"},
-    "BTCUSD": {"round_trip_pct": 0.0012, "note": "about 40 spread plus slippage on a 77,000 price"},
-    "default": {"round_trip_pct": 0.0010, "note": "generic assumption"},
+    # Corrected 19 Sep 2026 from MEASURED broker spreads, after the owner pushed back that every
+    # strategy could not be losing. The old constants contradicted their own notes: the note said
+    # "about 0.30 spread on a 4,400 price", which is 0.0068 %, while the constant 0.0004 is read as a
+    # FRACTION and charges 0.04 % - $1.76 on that price, roughly six times the real cost.
+    #
+    # Measured over 132,000 broker bars through /api/data/bars, which now serves MT5's per-bar spread:
+    #   XAUUSD 4h/1h  median spread 0.16 (0.0062-0.0069 %), 90th percentile 0.20, 99th 0.23
+    #   BTCUSD 4h/1h  median spread ~16 (0.0295-0.0394 %), 90th percentile ~36, 99th ~55
+    # Confirmed live on 19 Sep by the owner's own terminal: BTCUSD bid 81683.64 / ask 81700.60.
+    #
+    # These figures are the 90th-percentile spread DOUBLED, so half the charge is spread at a bad
+    # moment and the other half is a slippage allowance. That is still well under the old constants
+    # and it is deliberately conservative rather than optimistic.
+    "XAUUSD": {"round_trip_pct": 0.00009,
+               "note": "0.20 spread at the 90th percentile on a 4,400 price, doubled for slippage; "
+                       "measured 2026-09-19 over 66,000 bars (was 0.0004, about 6x too high)"},
+    "BTCUSD": {"round_trip_pct": 0.0009,
+               "note": "36 spread at the 90th percentile on an 80,000 price, doubled for slippage; "
+                       "measured 2026-09-19 over 66,000 bars (was 0.0012)"},
+    "default": {"round_trip_pct": 0.001, "note": "generic assumption for an unmeasured symbol"},
 }
 
 # Yahoo serves at most ~730 days of hourly bars, so the long ranges use daily bars.

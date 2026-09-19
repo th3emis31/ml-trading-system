@@ -20435,7 +20435,12 @@ def data_bars_api():
   frame, source = get_bars(symbol, timeframe, count)
   if frame is None or frame.empty:
     return jsonify({'available': False, 'symbol': symbol, 'timeframe': timeframe, 'reason': 'No bars from MT5 or Yahoo.'})
-  records = frame[['datetime', 'open', 'high', 'low', 'close', 'volume']].copy()
+  # MT5 reports the spread on every bar and it was being dropped here. Research needs it: the
+  # backtest cost model was set from a note rather than from data, and only the bars can settle it.
+  columns = ['datetime', 'open', 'high', 'low', 'close', 'volume']
+  if 'spread' in frame.columns:
+    columns.append('spread')
+  records = frame[columns].copy()
   records['datetime'] = records['datetime'].map(lambda value: value.isoformat())
   return jsonify({'available': True, 'symbol': symbol, 'timeframe': timeframe, 'source': source,
                   'count': int(len(records)), 'bars': records.to_dict(orient='records')})
