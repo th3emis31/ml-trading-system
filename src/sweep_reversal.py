@@ -66,6 +66,15 @@ def sweep_orders(ind: lab.Indicators, spec: dict):
     if str(p.get("mode", "reject")) == "continue":
         short = swept_low & (ind.c < prior_low) & (bearish_body if require_body else True)
         long = swept_high & (ind.c > prior_high) & (bullish_body if require_body else True)
+        # A close beyond the range is a breakout, and a breakout needs a trend to continue into.
+        # Without this the rule made +40 % on gold's 2024-2026 run and lost 50 % over the fifteen
+        # ranging years before it, which is a regime result rather than an edge.
+        trend_ema = int(p.get("trend_ema") or 0)
+        if trend_ema:
+            ema = ind.ema(trend_ema)
+            with np.errstate(invalid="ignore"):
+                long = long & (ind.c > ema)
+                short = short & (ind.c < ema)
     else:
         short = swept_high & closed_back_below & (bearish_body if require_body else True)
         long = swept_low & closed_back_above & (bullish_body if require_body else True)
@@ -105,18 +114,24 @@ lab.ORDER_BUILDERS["sweep_reversal"] = sweep_orders
 
 
 def sweep_variants(symbol: str, timeframe: str) -> list:
-    """18 per market: 3 lookbacks x 2 body filters x 3 reward ratios, as declared."""
+    """36 per market: 2 modes x 3 lookbacks x 2 body filters x 3 reward ratios.
+
+    Both readings of the owner's pictures are in the grid, because the first version tested only the
+    fade and the owner's own wording turned out to describe the continuation.
+    """
     out = []
-    for lookback, require_body, rr in product(LOOKBACKS, BODY_FILTERS, REWARD_RATIOS):
-        name = f"lb{lookback}|{'body' if require_body else 'nobody'}|rr{rr:.0f}"
+    for mode, lookback, require_body, rr in product(MODES, LOOKBACKS, BODY_FILTERS, REWARD_RATIOS):
+        name = f"{mode}|lb{lookback}|{'body' if require_body else 'nobody'}|rr{rr:.0f}"
         out.append({
             "family": "sweep_reversal",
             "params": {"symbol": symbol, "timeframe": timeframe, "lookback": lookback,
-                       "require_body": require_body, "rr": rr},
+                       "require_body": require_body, "rr": rr, "mode": mode},
             "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
                       "max_bars": MAX_BARS, "swing_lookback": 0},
-            "description": f"4H sweep of the {lookback}-candle extreme, closed back inside"
-                           f"{', body confirms' if require_body else ''}, {rr:.0f}R",
+            "description": (f"4H sweep of the {lookback}-candle extreme, "
+                            + ("closed BEYOND it, trade with it" if mode == "continue"
+                               else "closed back inside, fade it")
+                            + f"{', body confirms' if require_body else ''}, {rr:.0f}R"),
             "variant": name,
         })
     return out
@@ -126,7 +141,8 @@ def run(symbols=("XAUUSD", "BTCUSD"), timeframes=("4h",)) -> dict:
     from .mtf_data import load_bars
 
     registry = lab.load_registry()
-    n_trials = len(LOOKBACKS) * len(BODY_FILTERS) * len(REWARD_RATIOS) * len(symbols) * len(timeframes)
+    n_trials = (len(MODES) * len(LOOKBACKS) * len(BODY_FILTERS) * len(REWARD_RATIOS)
+                * len(symbols) * len(timeframes))
     report = {"generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
               "rule": "a 4H candle sweeps the prior N-candle extreme and closes back inside; trade the reversal",
               "n_trials_total": n_trials, "places_orders": False, "markets": {}}

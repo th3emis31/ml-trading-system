@@ -125,10 +125,35 @@ def test_no_look_ahead():
     np.testing.assert_allclose(a[1][:cut], b[1], equal_nan=True)
 
 
-def test_the_declared_grid_is_eighteen_variants():
+def test_the_declared_grid_covers_both_readings_of_the_pictures():
+    """The owner corrected my reading; both the fade and the continuation are now tested, not one."""
     specs = sr.sweep_variants("XAUUSD", "4h")
-    assert len(specs) == 18
-    assert len({s["variant"] for s in specs}) == 18
+    assert len(specs) == 36
+    assert len({s["variant"] for s in specs}) == 36
+    modes = {s["params"]["mode"] for s in specs}
+    assert modes == {"reject", "continue"}
+
+
+def test_the_continuation_mode_trades_the_way_the_close_points():
+    """'If the close above the previous high buy, if the close below sell' - the owner's own words."""
+    rows = _flat_bars(30)
+    rows.append((4000.0, 4050.0, 3998.0, 4045.0))      # closed BEYOND the prior high
+    ind = lab.Indicators(_bars_from_rows(rows))
+    assert sr.sweep_orders(ind, _sweep_spec(mode="continue", require_body=False))[0][-1] == 1
+    assert sr.sweep_orders(ind, _sweep_spec(mode="reject", require_body=False))[0][-1] == 0
+
+
+def test_the_trend_filter_only_applies_to_the_continuation():
+    """A breakout needs a trend; without the filter the rule lost 50 % over the ranging years."""
+    rng = np.random.default_rng(3)
+    close = 4000 - np.cumsum(np.abs(rng.normal(2, 1, 400)))     # a steady downtrend
+    rows = [(c, c + 12, c - 12, c - 1) for c in close]
+    ind = lab.Indicators(_bars_from_rows(rows))
+    unfiltered = np.count_nonzero(sr.sweep_orders(ind, _sweep_spec(mode="continue", lookback=20,
+                                                                   require_body=False))[0] == 1)
+    filtered = np.count_nonzero(sr.sweep_orders(ind, _sweep_spec(mode="continue", lookback=20,
+                                                                 require_body=False, trend_ema=200))[0] == 1)
+    assert filtered <= unfiltered, "the filter must remove longs made below the trend line"
 
 
 def test_the_module_cannot_trade():
