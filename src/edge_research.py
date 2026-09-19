@@ -319,6 +319,7 @@ def simulate(df: pd.DataFrame, outcomes: dict, p_buy: np.ndarray, p_sell: np.nda
             "gross_pct": round(gross * 100, 4),
             "net_pct": round((gross - cost_pct) * 100, 4),
             "r_multiple": round(gross * entry / risk_price, 3),
+            "net_r": round((gross - cost_pct) * entry / risk_price, 4),   # R after costs; r_multiple is gross
         })
         busy_until = exit_at
     return trades

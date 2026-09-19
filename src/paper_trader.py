@@ -151,6 +151,9 @@ def _settle_open_trade(state: dict, df: pd.DataFrame, last: int, cfg: dict, cost
         "target": trade["target"], "exit_time": _iso(times.iloc[result["exit_at"]]), "outcome": result["hit"],
         "bars_held": int(result["exit_at"] - t), "gross_pct": round(gross * 100, 4),
         "net_pct": round((gross - cost_pct) * 100, 4), "r_multiple": round(gross * entry / risk_price, 3),
+        # R after the round-trip cost. src/forward_evidence.py reads whichever R field a strategy writes, so a
+        # gross-only figure here would have let the confidence ladder count costs it never paid.
+        "net_r": round((gross - cost_pct) * entry / risk_price, 4),
         "settled_at": state["last_run"],
     })
     state["open_trade"] = None

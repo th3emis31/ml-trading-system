@@ -58,7 +58,10 @@ SEARCH_FRACTION, VALIDATION_FRACTION = 0.6, 0.2
 GATES = {"search_min_trades": 30, "validation_min_trades": 15, "min_profit_factor": 1.1, "min_year_share": 0.6,
          "min_trades_per_counted_year": 5}
 HOLDOUT_CRITERIA = {"min_profit_factor": 1.2, "min_trades": 30, "max_drawdown_pct": 20.0, "min_deflated_sharpe": 0.95}
-SUMMARY_KEYS = ("trades", "long_trades", "short_trades", "win_rate_pct", "profit_factor", "expectancy_pct", "avg_r",
+# expectancy_r is the after-cost R; avg_r beside it is the gross one, kept so the cost of a strategy in R is
+# visible rather than hidden. Read expectancy_r when judging a candidate.
+SUMMARY_KEYS = ("trades", "long_trades", "short_trades", "win_rate_pct", "profit_factor", "expectancy_pct",
+                "expectancy_r", "expectancy_r_bound", "ambiguous_exits", "avg_r",
                 "total_return_pct", "max_drawdown_pct", "sharpe", "years", "trades_per_year")
 HEARTBEAT_STALE_SECONDS = 300
 MAX_SRS_KEPT = 5000
@@ -365,6 +368,7 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
             continue
         current_stop, extreme = stop0, (h[t] if s == 1 else l[t])
         best, risk0 = entry, abs(entry - stop0)
+        ambiguous = False
         exit_price = outcome = None
         j = entry_i
         while j < n:
@@ -401,6 +405,14 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
                     exit_price, outcome = o[j], "STOP"
                     break
             if (s == 1 and l[j] <= current_stop) or (s == -1 and h[j] >= current_stop):
+                # This bar touched the stop. If it ALSO reached the target, a single bar cannot say which came
+                # first, and booking the stop is a choice, not a measurement. The choice stays (pessimism is the
+                # safe default) but it is now counted, because a strategy whose result rests on many such bars
+                # has not been measured at all - the weekly-structure test moved two of four variants from
+                # losing to winning once the order of touches was resolved on finer bars.
+                if np.isfinite(tgt) and not (limit_fill and j == entry_i) and (
+                        (s == 1 and h[j] >= tgt) or (s == -1 and l[j] <= tgt)):
+                    ambiguous = True
                 exit_price, outcome = current_stop, "STOP"
                 break
             if np.isfinite(tgt) and not (limit_fill and j == entry_i) and ((s == 1 and h[j] >= tgt) or (s == -1 and l[j] <= tgt)):
@@ -425,6 +437,18 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
             "net_pct": round((gross - cost_pct - swap_frac) * 100, 4),
             "nights": nights, "swap_pct": round(swap_frac * 100, 4),
             "r_multiple": round(gross * entry / abs(entry - stop0), 3),
+            # R AFTER costs. r_multiple above is gross, which flattered every expectancy this lab has ever
+            # reported: spread and swap are a fixed slice of the entry price, so on a tight stop they eat a
+            # large fraction of one R. summarize_trades reports expectancy_r from this field, never from the
+            # gross one. Same convention as walkforward_backtest, which had it from the start.
+            "net_r": round((gross - cost_pct - swap_frac) * entry / abs(entry - stop0), 4),
+            # True when the exit bar reached both the stop and the target, so this trade's outcome was assigned
+            # by the engine's pessimism rather than read off the data.
+            "ambiguous_exit": bool(ambiguous),
+            # The R this trade would have returned at its target, net of costs: what an ambiguous exit is worth
+            # if the target came first. Read by summarize_trades for the pessimism bound.
+            "target_r": (round((s * (tgt - entry) / entry - cost_pct - swap_frac) * entry / abs(entry - stop0), 4)
+                         if np.isfinite(tgt) else None),
         })
         free_from = j
     return trades
@@ -666,7 +690,25 @@ def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional
             "per_trade_sharpe": achieved, "per_trade_sharpe_needed": target,
             "shortfall": (round(target - achieved, 4) if achieved is not None and target is not None else None),
             "deflation_note": _deflation_note(achieved, target, dsr),
+            # Informational, never a blocker: whether this holdout's sign survives the engine's own pessimism about
+            # bars that touched the stop and the target together. If the measured expectancy and its bound sit on
+            # opposite sides of zero, the candidate has not been measured and needs finer bars before it is judged.
+            "outcome_is_resolved": _outcome_is_resolved(holdout),
             "beats_buy_and_hold": bool((holdout.get("total_return_pct") or -999) > (holdout.get("buy_and_hold_pct") or 0))}
+
+
+def _outcome_is_resolved(summary: dict) -> Optional[bool]:
+    """False when the engine's stop-before-target choice, not the data, decides whether this split made money.
+
+    ``expectancy_r_bound`` is what the split would have returned had every bar that touched both levels resolved
+    in the strategy's favour instead. None (no ambiguous exits) means nothing was assumed, so it is resolved.
+    """
+    measured, bound = summary.get("expectancy_r"), summary.get("expectancy_r_bound")
+    if measured is None:
+        return None
+    if bound is None:
+        return True
+    return bool((measured > 0) == (bound > 0))
 
 
 def per_trade_sharpe(returns_pct) -> Optional[float]:

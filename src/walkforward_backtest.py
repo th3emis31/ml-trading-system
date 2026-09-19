@@ -225,6 +225,18 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
         streak = streak + 1 if r <= 0 else 0
         longest_losing_streak = max(longest_losing_streak, streak)
     net_r = [t["net_r"] for t in trades if t.get("net_r") is not None]
+    # Trades whose exit bar reached BOTH the stop and the target. A single bar cannot say which came first, so the
+    # engine books the stop; that is the safe choice but it is a choice. Reported here with the expectancy the
+    # strategy would have if every one of them had gone the other way instead - not a result, a bound. When the
+    # bound and the measured expectancy sit on opposite sides of zero, the candidate has not been measured and
+    # needs finer bars before it is judged. Measured 2026-09-19: about 2 % of trades at a 1R target, under 1 % at
+    # 2R and above, on both gold and bitcoin at 15m/1h/4h.
+    ambiguous = [t for t in trades if t.get("ambiguous_exit")]
+    expectancy_r_bound = None
+    if net_r and ambiguous:
+        flipped = sum((t.get("target_r") or 0.0) - t["net_r"] for t in ambiguous
+                      if t.get("net_r") is not None)
+        expectancy_r_bound = round((float(np.sum(net_r)) + flipped) / len(net_r), 4)
     sharpe = sortino = None
     if count >= 2 and trades_per_year:
         std = float(np.std(net, ddof=1))
@@ -257,6 +269,13 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
         "years": round(years, 2),
         "trades_per_year": round(trades_per_year, 1) if trades_per_year else None,
         "sharpe_basis": "per-trade net returns annualised by trade frequency",
+        # Spelled out because reading avg_r as an after-cost number overstated every strategy in this system
+        # until 2026-09-19: it is the GROSS R. expectancy_r is the one to judge a candidate on.
+        "ambiguous_exits": len(ambiguous),
+        "ambiguous_exit_pct": round(len(ambiguous) / count * 100, 2) if count else None,
+        "expectancy_r_bound": expectancy_r_bound,
+        "avg_r_basis": "gross R, before spread and swap",
+        "expectancy_r_basis": "R after spread and swap (None when trades carry no net_r)",
     }
 
 
