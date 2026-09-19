@@ -1,0 +1,25 @@
+{
+  "scanned_at": "2026-09-18 18:22:55 ET",
+  "candidates_checked": 0,
+  "hits": [],
+  "all_results": [],
+  "error": "did not run",
+  "blockers": [
+    {
+      "check": "prerequisite tv_health_check",
+      "status": "unavailable",
+      "detail": "The TradingView CDP tools this scan requires - tv_health_check, chart_set_symbol, chart_set_timeframe, data_get_ohlcv, quote_get - are not present in this session. The only TradingView tools installed are an OAuth connector to mcp.tradingview.com (authenticate / complete_authentication), which cannot drive a desktop chart over CDP."
+    },
+    {
+      "check": "time gate 10:00-15:30 America/New_York",
+      "status": "failed",
+      "detail": "New York time was 18:22, after the 15:30 cutoff."
+    },
+    {
+      "check": "launch command platform",
+      "status": "mismatch",
+      "detail": "The supplied command `open -a TradingView --args --remote-debugging-port=9222` is macOS. This machine is Windows 11, where the equivalent is launching TradingView.exe with --remote-debugging-port=9222."
+    }
+  ],
+  "note": "No ticker was scanned and no market data was read. Nothing was inferred or filled in."
+}

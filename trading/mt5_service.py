@@ -517,7 +517,8 @@ class MT5Service:
         self._utc_offset_cache = (hours, monotonic())
         return hours
 
-    _TIMEFRAME_NAMES = {"15m": "TIMEFRAME_M15", "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
+    _TIMEFRAME_NAMES = {"1m": "TIMEFRAME_M1", "5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15",
+                        "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
     MAX_RATES = 50000
 
     def copy_rates(self, symbol: str, timeframe: str, count: int = 600) -> dict:

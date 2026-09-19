@@ -20348,8 +20348,12 @@ def training_pipeline_page():
 # MetaTrader5 client). Indicators use src.mtf_data.htf_context, the same function the
 # multi-timeframe research uses, so the page shows exactly what the models would see.
 DATA_FEED_TIMEFRAMES = ("15m", "1h", "4h", "1d")
+# /api/data/bars serves two finer timeframes than the Data Feed page shows. Intraday scanners
+# (premarket high, today's high of day) need minute bars, and putting 1m/5m on the page itself
+# would add rows nobody reads and a slower render. The page keeps DATA_FEED_TIMEFRAMES.
+BARS_API_TIMEFRAMES = ("1m", "5m") + DATA_FEED_TIMEFRAMES
 DATA_FEED_CACHE_TTL_SECONDS = 30
-BARS_CACHE_TTL_SECONDS = {"15m": 60, "1h": 300, "4h": 900, "1d": 1800}
+BARS_CACHE_TTL_SECONDS = {"1m": 20, "5m": 40, "15m": 60, "1h": 300, "4h": 900, "1d": 1800}
 _bars_cache: dict = {}
 _bars_cache_lock = threading.Lock()
 _data_feed_cache = {"value": None, "expires_at": 0.0}
@@ -20389,8 +20393,8 @@ def get_bars(symbol: str, timeframe: str, count: int = 600):
 def data_bars_api():
   symbol = str(request.args.get('symbol') or '').upper()
   timeframe = str(request.args.get('timeframe') or '1h')
-  if symbol not in {'XAUUSD', 'BTCUSD'} or timeframe not in DATA_FEED_TIMEFRAMES:
-    return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD and timeframe one of ' + ', '.join(DATA_FEED_TIMEFRAMES)}), 400
+  if symbol not in {'XAUUSD', 'BTCUSD'} or timeframe not in BARS_API_TIMEFRAMES:
+    return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD and timeframe one of ' + ', '.join(BARS_API_TIMEFRAMES)}), 400
   count = _clamp_int_arg(request.args.get('count'), 600, 50, 50000)
   frame, source = get_bars(symbol, timeframe, count)
   if frame is None or frame.empty:

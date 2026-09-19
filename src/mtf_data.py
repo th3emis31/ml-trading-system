@@ -32,6 +32,7 @@ import pandas as pd
 from .data import fetch_yahoo_history
 
 TIMEFRAMES = {
+    "1m": {"minutes": 1, "mt5": "TIMEFRAME_M1", "yahoo": ("7d", "1m"), "resample": None},
     "5m": {"minutes": 5, "mt5": "TIMEFRAME_M5", "yahoo": ("60d", "5m"), "resample": None},
     "15m": {"minutes": 15, "mt5": "TIMEFRAME_M15", "yahoo": ("60d", "15m"), "resample": None},
     "1h": {"minutes": 60, "mt5": "TIMEFRAME_H1", "yahoo": ("729d", "1h"), "resample": None},

@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src import model_promotion as mp
@@ -71,10 +73,18 @@ def test_archive_and_restore_round_trip(tmp_path, monkeypatch):
 
 
 def test_learner_refuses_synthetic_data(tmp_path, monkeypatch):
+    """The guard has to survive the whole fallback chain: broker candles, then Yahoo, then generated prices.
+
+    ``training_bars`` asks the app for broker candles before it ever calls ``fetch_real_data``, so
+    patching only the Yahoo entry point leaves the learner training on whatever the live app happens
+    to be serving and never reaches the guard at all. Both steps are blocked here.
+    """
     import src.daily_learning as dl
+    import src.mtf_data as mtf
 
     synthetic = generate_synthetic_data("BTCUSD", n=300)
     synthetic.attrs["source"] = "synthetic"
+    monkeypatch.setattr(mtf, "fetch_app_bars", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(dl, "fetch_real_data", lambda *a, **k: synthetic)
     calls = []
     monkeypatch.setattr(dl, "train_model", lambda *a, **k: calls.append("trained"))
