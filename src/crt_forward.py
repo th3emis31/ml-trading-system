@@ -25,6 +25,8 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
+from . import aurum_flow_lab          # registers the trendline-break order builder
+from . import candle_pattern_lab      # registers the candlestick order builder
 from . import crt_lab
 from . import crt_mss_lab
 from . import paper_trader
@@ -45,6 +47,30 @@ CANDIDATES = {
                       "timeframe": "5m", "bars": 4000, "htf_bars": 0, "source": "mt5",
                       "state": lab.LAB_DIR / "crt_forward_mss_d1_5m.json"},
 }
+# Added 19 Sep 2026: the two candidates the research left at the 0.95 bar's doorstep. Their backtest
+# holdouts are spent, so the only honest way for either to clear the bar is forward trades that nobody
+# fitted anything to. Both place NOTHING - this module never sends an order - and both are declared
+# once here so no trial-counting penalty applies, which is what killed them in the search.
+_SCALED_BTC = next(v for v in aurum_flow_lab.scaled_variants("BTCUSD", "4h", 30)
+                   if v["variant"] == "atr4.45/8.9|ma600")
+_MORNING_STAR = next(v for v in candle_pattern_lab.pattern_variants("XAUUSD", "4h")
+                     if v["variant"] == "morning_star|rr1")
+CANDIDATES["trendline_break_btc_4h"] = {
+    "spec": {**_SCALED_BTC,
+             "description": "Trendline break (two closed bars beyond the ray through the two extreme swings of "
+                            "200 bars), SMA600 filter, stop 4.45 ATR / target 8.90 ATR, BTCUSD 4h "
+                            "(paper forward test; BASELINE 19 Sep: all three splits positive, PF 1.474, "
+                            "deflated Sharpe 0.7504 against the 0.95 bar)"},
+    "symbol": "BTCUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_trendline_break_btc_4h.json"}
+CANDIDATES["morning_star_xau_4h"] = {
+    "spec": {**_MORNING_STAR,
+             "description": "Morning star, entry at the next open, stop 1.0 ATR and target 1 R, XAUUSD 4h "
+                            "(paper forward test; BASELINE 19 Sep: all three splits positive, PF 1.386, "
+                            "60.4 % win rate, beats its own inverse at PF 0.555)"},
+    "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_morning_star_xau_4h.json"}
+
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 
 Fetch = Callable[[str, str, int], pd.DataFrame]
@@ -71,16 +97,18 @@ def progress_verdict(summary: dict) -> dict:
 def run_once(fetch: Optional[Fetch] = None, now=None, path: Optional[Path] = None, key: str = "crt_ea_ema50_15m") -> dict:
     candidate = CANDIDATES[key]
     spec, timeframe = candidate["spec"], candidate["timeframe"]
+    # Candidates may name their own market; the two CRT ones predate this and stay on XAUUSD.
+    symbol = candidate.get("symbol", SYMBOL)
     path = Path(path or candidate["state"])
     fetch = fetch or _fetch(candidate["source"])
     now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
     if now.tzinfo is None:
         now = now.tz_localize("UTC")
     state = paper_trader.load_state(path) if path.exists() else {}
-    state.update({"candidate": spec["description"], "candidate_key": key, "symbol": SYMBOL, "timeframe": timeframe,
+    state.update({"candidate": spec["description"], "candidate_key": key, "symbol": symbol, "timeframe": timeframe,
                   "places_orders": False, "last_run": _iso(now)})
-    bars = fetch(SYMBOL, timeframe, candidate["bars"])
-    bars4h = fetch(SYMBOL, "4h", candidate["htf_bars"]) if candidate["htf_bars"] else None
+    bars = fetch(symbol, timeframe, candidate["bars"])
+    bars4h = fetch(symbol, "4h", candidate["htf_bars"]) if candidate["htf_bars"] else None
     missing_htf = candidate["htf_bars"] and (bars4h is None or bars4h.empty)
     if bars is None or bars.empty or missing_htf or len(bars) < lab.WARMUP_BARS + 500:
         state.update({"available": False, "reason": f"no or too few broker bars ({candidate['source']})"})
@@ -89,7 +117,7 @@ def run_once(fetch: Optional[Fetch] = None, now=None, path: Optional[Path] = Non
 
     start_at = pd.Timestamp(state.get("start_at") or _iso(now), tz="UTC")
     state["start_at"] = _iso(start_at)
-    market = lab.Market(SYMBOL, timeframe, bars, now=now, swap=True)
+    market = lab.Market(symbol, timeframe, bars, now=now, swap=True)
     ind = market.ind
     if bars4h is not None:
         ind.htf_bars = bars4h

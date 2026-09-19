@@ -159,12 +159,14 @@ def test_every_watchlist_candidate_cites_the_evidence_row_that_justifies_it():
         assert candidate["key"] and candidate["label"]
 
 
-def test_a_watchlist_candidate_starts_with_no_forward_evidence_and_says_so():
+def test_a_running_forward_test_places_nothing_and_has_no_verdict_yet():
+    """Against the real data directory: the paper tests are live, and must still place nothing."""
     report = fe.collect()
     for candidate in report["watchlist"]:
-        assert candidate["forward_test_running"] is False
         assert candidate["verdict"]["status"] == "collecting"
-        assert "owner's decision" in candidate["note"]
+        if candidate["forward_test_running"]:
+            assert candidate["places_orders"] is False, "a paper forward test must never place orders"
+            assert "places nothing" in candidate["note"]
 
 
 def test_the_thresholds_are_stricter_than_the_confirm_level_is_generous():
@@ -178,3 +180,53 @@ def test_the_module_cannot_trade_or_open_its_own_broker_connection():
     for forbidden in ("order_send", "OrderSend", "place_order", "auto_execute",
                       "MetaTrader5", "initialize()", "demo_executor"):
         assert forbidden not in text, f"{forbidden} must not appear in a read-only record"
+
+
+# --- the watchlist reads the running paper forward tests --------------------------
+
+def test_the_watchlist_reads_the_forward_test_state_and_counts_only_closed_trades(tmp_path):
+    """src/crt_forward.py writes closed_trades with a net_r each; that is the evidence."""
+    folder = tmp_path / "strategy_lab"
+    folder.mkdir(parents=True)
+    (folder / "forward_trendline_break_btc_4h.json").write_text(json.dumps({
+        "places_orders": False, "start_at": "2026-09-19 10:30",
+        "closed_trades": [{"entry_time": "2026-09-19 12:00", "net_r": 1.4},
+                          {"entry_time": "2026-09-19 16:00", "net_r": -1.0}],
+        "open_position": {"side": "BUY"},
+    }), encoding="utf-8")
+    report = fe.collect(tmp_path)
+    btc = next(c for c in report["watchlist"] if c["key"] == "aurum_mechanism_btc_4h")
+    assert btc["forward_test_running"] is True
+    assert btc["places_orders"] is False
+    assert btc["stats"]["trades"] == 2
+    assert btc["stats"]["total_r"] == 0.4
+    assert btc["collecting_since"] == "2026-09-19 10:30"
+    assert btc["verdict"]["status"] == "collecting"
+
+
+def test_a_watchlist_candidate_with_no_state_file_says_no_test_is_running(tmp_path):
+    report = fe.collect(tmp_path)
+    for candidate in report["watchlist"]:
+        assert candidate["forward_test_running"] is False
+        assert "no forward test is running" in candidate["note"]
+
+
+def test_a_forward_test_that_claimed_to_place_orders_would_be_visible(tmp_path):
+    """places_orders is surfaced, not assumed: a paper test that started trading must be obvious."""
+    folder = tmp_path / "strategy_lab"
+    folder.mkdir(parents=True)
+    (folder / "forward_morning_star_xau_4h.json").write_text(json.dumps({
+        "places_orders": True, "start_at": "2026-09-19 10:30", "closed_trades": [],
+    }), encoding="utf-8")
+    report = fe.collect(tmp_path)
+    star = next(c for c in report["watchlist"] if c["key"] == "morning_star_xauusd_4h")
+    assert star["places_orders"] is True
+
+
+def test_every_watchlist_candidate_names_a_state_file_the_forward_tester_writes():
+    from src import crt_forward as cf
+
+    written = {str(c["state"]).replace("\\", "/").split("strategy_lab/")[-1] for c in cf.CANDIDATES.values()}
+    for candidate in fe.WATCHLIST:
+        name = candidate["state"].split("/")[-1]
+        assert name in written, f"{name} is not written by any crt_forward candidate"

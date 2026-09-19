@@ -54,13 +54,16 @@ def _trade_rows(container) -> list:
     return [r for r in rows if isinstance(r, dict) and str(r.get("status")) == "closed"]
 
 
+# The realised-R field is spelled differently by the two producers: the demo strategies write
+# ``r_result`` on close, src/crt_forward.py writes ``net_r`` per closed trade. Both are R multiples.
+R_FIELDS = ("r_result", "net_r", "r_multiple")
+
+
 def _r_values(rows: list) -> list:
-    """Realised R per trade. Both demo strategies write ``r_result`` when a trade closes."""
+    """Realised R per trade, whichever of the known field names carries it."""
     out = []
     for row in rows:
-        value = row.get("r_result")
-        if value is None:
-            value = row.get("r_multiple")
+        value = next((row[name] for name in R_FIELDS if row.get(name) is not None), None)
         try:
             if value is not None and math.isfinite(float(value)):
                 out.append(float(value))
@@ -143,12 +146,14 @@ SOURCES = (
 # .claude/memory/BASELINE.md that justifies watching it, so the claim is always traceable.
 WATCHLIST = (
     {"key": "aurum_mechanism_btc_4h",
+     "state": "strategy_lab/forward_trendline_break_btc_4h.json",
      "label": "Trendline break, BTCUSD 4H, ATR exits 4.45/8.90, SMA600 filter",
      "evidence": "2026-09-19 BASELINE: positive on all three splits (+506 % / +22.9 % / +26.1 %), "
                  "73 holdout trades, PF 1.474, deflated Sharpe 0.7504 against the 0.95 bar",
      "why_watch": "the closest candidate of about 400 tested for that mechanism; 0.75 is not 0.95, "
                   "and only forward trades can close the gap without lowering the bar"},
     {"key": "morning_star_xauusd_4h",
+     "state": "strategy_lab/forward_morning_star_xau_4h.json",
      "label": "Morning star, XAUUSD 4H, 1 R target",
      "evidence": "2026-09-19 BASELINE: positive on all three splits, 53 holdout trades, PF 1.386, "
                  "60.4 % win rate, beats its own inverse (inverse PF 0.555)",
@@ -183,10 +188,22 @@ def collect(data_dir: Optional[Path] = None) -> dict:
                                   "stats": stats, "verdict": verdict(stats)})
 
     for candidate in WATCHLIST:
-        report["watchlist"].append({**candidate, "stats": score([]), "verdict": verdict(score([])),
-                                    "forward_test_running": False,
-                                    "note": "no forward test is running for this candidate yet; "
-                                            "starting one is the owner's decision"})
+        # src/crt_forward.py runs these hourly as PAPER forward tests and places nothing. Its state
+        # file carries closed_trades with a net_r each, which is the same currency this scores in.
+        state = _read_json_or_none(root / candidate["state"]) or {}
+        closed = state.get("closed_trades") or []
+        values = _r_values(closed)
+        stats = score(values)
+        total += stats["trades"]
+        report["watchlist"].append({
+            **candidate, "stats": stats, "verdict": verdict(stats),
+            "forward_test_running": bool(state),
+            "places_orders": bool(state.get("places_orders")),
+            "collecting_since": state.get("start_at"),
+            "open_position": state.get("open_position"),
+            "note": ("a paper forward test is running hourly and places nothing; only bars after "
+                     f"{state.get('start_at')} count") if state else
+                    "no forward test is running for this candidate yet"})
 
     report["totals"] = {"closed_forward_trades": total,
                         "sources_with_any_evidence": sum(1 for s in report["sources"] if s["stats"]["trades"]),
