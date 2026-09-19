@@ -30,6 +30,7 @@ CSV columns (header required, case-insensitive): datetime, open, high, low, clos
 from __future__ import annotations
 
 import csv
+import statistics
 import math
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence
@@ -73,6 +74,13 @@ class Config:
     max_leverage: float = 5.0       # 0 disables the cap (Pine v1 behaviour)
     tp1_model: str = "limit"        # "limit" (v2, realistic) or "close" (v1 parity)
     inverse: bool = False           # direction baseline: take the opposite side
+
+    # Volatility regime filter (strategies/volatility_breakout_compression.md). "all" is the
+    # shipped behaviour and the demo strategy's default, so leaving this alone changes nothing.
+    # "compression" takes only breakouts where ATR is below its own rolling median, "expansion"
+    # only those above it. Read at the signal bar, so it sees nothing the strategy could not.
+    atr_regime: str = "all"         # "all" | "expansion" | "compression"
+    atr_median_len: int = 200
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +209,19 @@ def rsi(values: Sequence[float], length: int) -> List[Optional[float]]:
     return out
 
 
+def rolling_median(values: Sequence[Optional[float]], length: int) -> List[Optional[float]]:
+    """Median of the last ``length`` values, None until there are that many. Causal by construction."""
+    out: List[Optional[float]] = []
+    window: List[float] = []
+    for value in values:
+        if value is not None:
+            window.append(float(value))
+            if len(window) > length:
+                window.pop(0)
+        out.append(statistics.median(window) if len(window) == length else None)
+    return out
+
+
 def rolling_max(values: Sequence[float], length: int) -> List[Optional[float]]:
     out: List[Optional[float]] = [None] * len(values)
     for i in range(len(values)):
@@ -249,6 +270,7 @@ def generate_signals(candles: Sequence[Candle], cfg: Config = Config()) -> List[
     rsi_v = rsi(closes, cfg.rsi_len)
     vma_v = sma(vols, cfg.vol_ma_len)
     upper_v = rolling_max(highs, cfg.donchian_len)
+    atr_median_v = rolling_median(atr_v, cfg.atr_median_len) if cfg.atr_regime != "all" else [None] * len(candles)
 
     signals: List[Signal] = []
     for i in range(1, len(candles)):
@@ -266,7 +288,12 @@ def generate_signals(candles: Sequence[Candle], cfg: Config = Config()) -> List[
         rsi_ok = (not cfg.use_rsi) or (r is not None and r > cfg.rsi_min)
         vol_ok = (not cfg.use_volume) or (vma_v[i] is not None and c.volume > vma_v[i])
 
-        if not (breakout and trend_ok and rsi_ok and vol_ok):
+        regime_ok = True
+        if cfg.atr_regime != "all":
+            median = atr_median_v[i]
+            regime_ok = median is not None and ((a > median) if cfg.atr_regime == "expansion" else (a < median))
+
+        if not (breakout and trend_ok and rsi_ok and vol_ok and regime_ok):
             continue
 
         risk_dist = cfg.sl_atr_mult * a
