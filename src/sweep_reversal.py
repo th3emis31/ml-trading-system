@@ -112,6 +112,26 @@ def sweep_orders(ind: lab.Indicators, spec: dict):
 
 lab.ORDER_BUILDERS["sweep_reversal"] = sweep_orders
 
+# The one variant that earned a forward test, declared here ONCE so the forward test carries no trial-counting
+# penalty. It is the owner's own rule read the way the owner stated it - "if the close above the previous high buy,
+# if the close below sell" - with the trend filter that stopped it being a bet on gold's 2024-26 run.
+# BASELINE 2026-09-19, XAUUSD 4h under the corrected cost model: positive in all three windows (search +6.33 %,
+# validation +11.42 %, holdout +26.69 % over 118 trades at PF 1.378, max drawdown 6.76 %), beating its own inverse
+# by 62 points, after-cost expectancy +0.2193 R on the holdout with no ambiguous exits at all. Deflated Sharpe
+# 0.181 against the 0.95 bar, because 36 declared variants plus the cumulative registry count are charged against
+# it - which is exactly what a single pre-declared forward test does not incur.
+FORWARD_VARIANT = "continue|lb40|nobody|rr2|ema400"
+FORWARD_CANDIDATE = {
+    "family": "sweep_reversal",
+    "params": {"symbol": "XAUUSD", "timeframe": "4h", "lookback": 40, "require_body": False,
+               "rr": 2.0, "mode": "continue", "trend_ema": 400},
+    "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
+              "max_bars": MAX_BARS, "swing_lookback": 0},
+    "description": ("4H candle closes BEYOND the 40-candle extreme in the direction of the EMA400, stop beyond the "
+                    "candle's own far side, target 2 R, gold 4H (the owner's manipulation-candle rule)"),
+    "variant": FORWARD_VARIANT,
+}
+
 
 def sweep_variants(symbol: str, timeframe: str) -> list:
     """36 per market: 2 modes x 3 lookbacks x 2 body filters x 3 reward ratios.

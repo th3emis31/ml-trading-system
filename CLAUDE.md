@@ -13,8 +13,13 @@ across by `scripts\switch_live_to_ml_trading_system.ps1`.
 
 `C:\Users\th_em\` is now the **fallback copy only**. Nothing there runs unless
 `scripts\rollback_live_to_home.ps1` switches back to it. Edit here, not there.
-Two tasks still point at the fallback and were never part of the switch script's
-list: **SmartEntry CRT Forward** and **SmartEntry Daily Agent**.
+
+**All SmartEntry scheduled tasks now run from this folder**, verified 19 Sep 2026
+against Task Scheduler itself. **SmartEntry CRT Forward** and **SmartEntry Daily
+Agent** were missed by the switch script and pointed at the fallback for a while,
+which is why earlier notes said so; they were moved and no longer do. Check the
+task rather than trusting any note, including this one:
+`(Get-ScheduledTask -TaskName '<name>').Actions[0].Execute`.
 
 `SESSION_STATE.md` in this directory carries the most recent handoff notes —
 current runtime state, what was recently fixed, and what is still outstanding.

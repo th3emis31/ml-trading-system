@@ -27,6 +27,7 @@ import pandas as pd
 
 from . import aurum_flow_lab          # registers the trendline-break order builder
 from . import candle_pattern_lab      # registers the candlestick order builder
+from . import sweep_reversal          # registers the sweep/manipulation-candle order builder
 from . import crt_lab
 from . import crt_mss_lab
 from . import paper_trader
@@ -70,6 +71,18 @@ CANDIDATES["morning_star_xau_4h"] = {
                             "60.4 % win rate, beats its own inverse at PF 0.555)"},
     "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
     "state": lab.LAB_DIR / "forward_morning_star_xau_4h.json"}
+
+# Added 19 Sep 2026, after the owner corrected my reading of their own photographs: the manipulation-candle rule
+# is a CONTINUATION, not a fade, and read that way it is the first candidate to come out positive in all three
+# windows. Declared once in src/sweep_reversal.py, paper only, places nothing.
+CANDIDATES["sweep_continue_xau_4h"] = {
+    "spec": {**sweep_reversal.FORWARD_CANDIDATE,
+             "description": sweep_reversal.FORWARD_CANDIDATE["description"]
+                            + " (paper forward test; BASELINE 19 Sep: all three splits positive, holdout PF 1.378 "
+                              "over 118 trades, +0.2193 R after costs, beats its own inverse by 62 points, "
+                              "deflated Sharpe 0.181 against the 0.95 bar)"},
+    "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_sweep_continue_xau_4h.json"}
 
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 

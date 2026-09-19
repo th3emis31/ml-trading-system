@@ -289,6 +289,21 @@ WATCHLIST = (
      "why_watch": "the only candlestick pattern of 96 tested with the right shape on gold; its "
                   "deflated Sharpe is killed by the dispersion across the 24 variants tried, which "
                   "a single pre-declared forward test would not incur"},
+    {"key": "sweep_continue_xauusd_4h",
+     "state": "strategy_lab/forward_sweep_continue_xau_4h.json",
+     # Measured, not derived from the profit factor: since 19 Sep 2026 the engine records net_r on every
+     # trade, so this is the holdout's actual after-cost expectancy rather than an inference from PF.
+     # It enters discounted to a quarter, like the others, because it was selected out of 36 variants.
+     "backtest_expectancy_r": 0.2193,
+     "splits_positive": True, "beats_inverse": True, "deflated_sharpe": 0.181,
+     "label": "Manipulation candle, continuation, XAUUSD 4H, EMA400 filter, 2 R target",
+     "evidence": "2026-09-19 BASELINE: positive on all three splits (+6.33 % / +11.42 % / +26.69 %), "
+                 "118 holdout trades, PF 1.378, max drawdown 6.76 %, +0.2193 R after costs with zero "
+                 "ambiguous exits, beating its own inverse by 62.3 points (inverse PF 0.628)",
+     "why_watch": "the owner's own rule, and the first candidate of any family to come out positive in all "
+                  "three windows AND beat its inverse AND have its sign independent of the engine's "
+                  "stop-before-target assumption; 0.181 is far from 0.95, and the gap is a trial-count "
+                  "penalty that only unfitted forward trades can pay off"},
 )
 
 

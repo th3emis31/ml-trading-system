@@ -68,3 +68,59 @@ Sharpe ≥ 0.95. Plus the two conditions that have caught every candidate so far
 three splits** and **beating its own inverse**. Nothing here lowers anything.
 
 If it fails, that is recorded as plainly as a pass would be.
+
+---
+
+## Correction, 19 September 2026: the owner's reading, and the one that earned a forward test
+
+Everything above describes the **fade**. That was my reading of the photographs, and it was wrong.
+The owner stated the rule in words: *"Wait for 4h candle manipulation — if the close above the
+previous high buy, if the close below sell. 4h is very powerful."* That is the **continuation**: the
+candle sweeps the level and **closes beyond** it, and you trade **with** the close. The first version
+of `src/sweep_reversal.py` not only failed to test this, it carried a test asserting that exactly this
+case was *not* a signal.
+
+Both readings are now in the grid as `mode`, so the document's own record of my error stands. The grid
+is 2 modes × 3 lookbacks × 2 body filters × 3 reward ratios = **36 variants per market**, all counted.
+
+One addition, declared before it was run and for a stated reason: a close beyond a range is a
+breakout, and a breakout needs a trend to run into. Without a filter the continuation made about
++40 % on gold's 2024-26 run and lost roughly half over the fifteen ranging years before it — a regime
+result, not an edge. An **EMA400** filter on the 4H (about eleven weeks of trend) was added for that
+reason and no other.
+
+### What it measured
+
+`continue | lb40 | nobody | rr2 | ema400` on **XAUUSD 4H**, under the cost model corrected the same day
+from measured broker spreads:
+
+| Window | Net | Trades | PF | After-cost expectancy |
+|---|---|---|---|---|
+| search | +6.33 % | 270 | 1.060 | +0.0518 R |
+| validation | +11.42 % | 85 | 1.312 | +0.0546 R |
+| **holdout** | **+26.69 %** | **118** | **1.378** | **+0.2193 R** |
+
+Max drawdown 6.76 %. Its own inverse returns −35.60 % at PF 0.628, so it beats the mirror by 62.3
+points. **Zero ambiguous exits** — no trade's outcome rests on the engine's stop-before-target
+assumption, so the sign of every window is read off the data rather than assigned. It does not beat
+buy-and-hold over the holdout (+74.0 %), at a small fraction of the drawdown.
+
+**Deflated Sharpe 0.181 against the 0.95 bar, so it is not promoted and nothing about it is called
+profitable.** The bar is not moved. What the number mostly reflects is the trial count charged against
+it — 36 declared variants on top of a cumulative registry count in the tens of thousands.
+
+### What was done about that
+
+A **single pre-declared paper forward test**, which incurs no trial-count penalty because there is one
+hypothesis and it is fixed in advance:
+
+* the spec is frozen as `sweep_reversal.FORWARD_CANDIDATE` and pinned by tests;
+* it runs hourly as `sweep_continue_xau_4h` in `src/crt_forward.py`, on broker bars, state in
+  `data/strategy_lab/forward_sweep_continue_xau_4h.json`, from `start_at` **2026-09-19 16:11 UTC**;
+* nothing before that instant counts, and the module has no order path at all — it **places nothing**;
+* it sits at tier 1 (shadow) on the ladder in `src/forward_evidence.py`, and a verdict needs 30
+  closed forward trades.
+
+The owner's rule is the first candidate of any family to be positive in all three windows, beat its
+own inverse, and have its sign independent of an engine assumption. That earned it a forward test. It
+has not earned money, and will not be given any until the evidence is its own.
