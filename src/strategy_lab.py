@@ -147,7 +147,13 @@ HOLDING_COSTS = {
 SWAP_MODES = ("percent", "price")
 ROLLOVER_WEIGHTS = (1, 1, 3, 1, 1, 0, 0)  # rollovers Monday..Sunday; Wednesday's carries the weekend
 ROLLOVER_CALENDARS = {"forex": ROLLOVER_WEIGHTS, "crypto": (1, 1, 1, 1, 1, 1, 1)}  # crypto CFDs are financed every night
-COST_MODEL = "spread+swap-v2"
+# v3 from 19 Sep 2026: the round-trip spread was corrected from measured broker quotes (6x too harsh on gold).
+# The ROUND TRIP IS NOW PART OF THE TAG. strategy_book.rescore_market re-evaluates any stored candidate whose
+# cost_model differs from its market's, and that safety net was silently disarmed by the correction itself:
+# changing the constant while leaving the tag at "v2" left 9,880 of 9,884 stored results priced under the old
+# model, indistinguishable from corrected ones and not queued for a re-score. Deriving the tag from the number
+# means a future change to a cost can no longer fail to invalidate the results that used the old one.
+COST_MODEL = "spread+swap-v3"
 
 
 def rollover_counts(times, weekday_weights=ROLLOVER_WEIGHTS) -> np.ndarray:
@@ -500,7 +506,8 @@ class Market:
                             "long": holding_spec["long" + suffix], "short": holding_spec["short" + suffix]}
         self.info = {"symbol": self.symbol, "timeframe": timeframe, "bars": n, "data_start": _iso(times.iloc[0]),
                      "data_end": _iso(times.iloc[-1]), "boundaries": self.boundaries, "cost_round_trip_pct": self.cost_pct,
-                     "cost_model": f"{COST_MODEL}-{swap_mode}" if self.holding else "spread-only", "holding_costs": holding_spec,
+                     "cost_model": (f"{COST_MODEL}-{swap_mode}-rt{self.cost_pct * 100:.5g}" if self.holding
+                                    else f"spread-only-rt{self.cost_pct * 100:.5g}"), "holding_costs": holding_spec,
                      "periods": {name: f"{_iso(times.iloc[int(r[0])])} to {_iso(times.iloc[int(r[-1])])}"
                                  for name, r in self.rows.items() if len(r)}}
 
