@@ -180,11 +180,30 @@ def fetch_yahoo_bars(symbol: str, timeframe: str) -> pd.DataFrame:
     return frame
 
 
+def cache_stamp(timeframe: str, now: Optional[datetime] = None) -> str:
+    """The cache bucket for ``timeframe``: the start of the bar interval that ``now`` falls in.
+
+    This used to be the calendar date alone, which meant the first call of a UTC day wrote a cache that
+    every later call that day re-read. Measured 19 Sep 2026: the hourly Strategy Lab ran at 01:20 UTC and
+    wrote btcusd_15m_app_20260919.csv, so every strategy reading bars through load_bars for the next 23
+    hours saw prices frozen at 01:20 - while fetch_app_bars, which does not use this cache, returned bars
+    36 minutes old. It stopped the shadow book dead: its bars ended BEFORE the instant it started
+    watching from, so none of its 56 strategies could ever count a bar. Bucketing by the timeframe's own
+    interval caps staleness at one bar and still fetches at most once per bar.
+    """
+    now = now or datetime.now(timezone.utc)
+    minutes = int(TIMEFRAMES[timeframe]["minutes"])
+    seconds = minutes * 60
+    floored = datetime.fromtimestamp((int(now.timestamp()) // seconds) * seconds, timezone.utc)
+    # A daily bucket keeps the old "%Y%m%d" shape, so nothing about 1d caching changes.
+    return floored.strftime("%Y%m%d") if minutes >= 1440 else floored.strftime("%Y%m%d_%H%M")
+
+
 def load_bars(symbol: str, timeframe: str, source: str = "auto", use_cache: bool = True) -> pd.DataFrame:
     """Bars for one symbol/timeframe from ``source`` = ``app`` | ``yahoo`` | ``mt5`` | ``auto`` (app, then Yahoo)."""
     symbol = symbol.upper()
     order = {"auto": ["app", "yahoo"], "app": ["app"], "mt5": ["mt5"], "yahoo": ["yahoo"]}[source]
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    stamp = cache_stamp(timeframe)
     for provider in order:
         cache = CACHE_DIR / f"{symbol.lower()}_{timeframe}_{provider}_{stamp}.csv"
         if use_cache and cache.exists():
