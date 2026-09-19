@@ -20395,6 +20395,42 @@ def data_bars_api():
   timeframe = str(request.args.get('timeframe') or '1h')
   if symbol not in {'XAUUSD', 'BTCUSD'} or timeframe not in BARS_API_TIMEFRAMES:
     return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD and timeframe one of ' + ', '.join(BARS_API_TIMEFRAMES)}), 400
+  # A start/end window (ISO date or datetime, UTC) reads a slice of deep history instead of the
+  # newest `count` bars. get_bars can only walk back from the latest bar and stops at 50,000, which
+  # on a one-minute chart is about 35 trading days; research pages through with this instead of
+  # asking for one enormous response. Without the window the behaviour is exactly as before.
+  window_start, window_end = request.args.get('start'), request.args.get('end')
+  if window_start or window_end:
+    import pandas as pd   # app.py imports pandas inside functions, not at module level
+
+    if MT5_ENGINE is None:
+      return jsonify({'available': False, 'symbol': symbol, 'timeframe': timeframe,
+                      'reason': 'A start/end window needs the MT5 connection; Yahoo is not paged.'}), 503
+    try:
+      start_at = pd.Timestamp(window_start, tz='UTC') if window_start else pd.Timestamp('2000-01-01', tz='UTC')
+      end_at = pd.Timestamp(window_end, tz='UTC') if window_end else pd.Timestamp.now(tz='UTC')
+    except (TypeError, ValueError) as exc:
+      return jsonify({'available': False, 'reason': f'start/end must be ISO dates: {exc}'}), 400
+    if end_at <= start_at:
+      return jsonify({'available': False, 'reason': 'end must be after start'}), 400
+    rates = MT5_ENGINE.copy_rates_range(symbol, timeframe, start_at.to_pydatetime(), end_at.to_pydatetime())
+    if not rates.get('ok'):
+      return jsonify({'available': False, 'symbol': symbol, 'timeframe': timeframe,
+                      'reason': rates.get('reason') or 'MT5 refused the range request.'})
+    window = pd.DataFrame(rates['bars'])
+    if window.empty:
+      return jsonify({'available': True, 'symbol': symbol, 'timeframe': timeframe,
+                      'source': f"mt5:{rates.get('symbol')}", 'count': 0, 'bars': [],
+                      'window': {'start': start_at.isoformat(), 'end': end_at.isoformat()},
+                      'reason': rates.get('reason') or 'The broker holds no bars in that window.'})
+    window['datetime'] = pd.to_datetime(window['time'], unit='s', utc=True)
+    records = window[['datetime', 'open', 'high', 'low', 'close', 'volume']].copy()
+    records['datetime'] = records['datetime'].map(lambda value: value.isoformat())
+    return jsonify({'available': True, 'symbol': symbol, 'timeframe': timeframe,
+                    'source': f"mt5:{rates.get('symbol')}", 'count': int(len(records)),
+                    'window': {'start': start_at.isoformat(), 'end': end_at.isoformat()},
+                    'bars': records.to_dict(orient='records')})
+
   count = _clamp_int_arg(request.args.get('count'), 600, 50, 50000)
   frame, source = get_bars(symbol, timeframe, count)
   if frame is None or frame.empty:

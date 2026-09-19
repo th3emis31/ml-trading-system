@@ -47,7 +47,10 @@ from .walkforward_backtest import BACKTEST_COSTS, _iso, summarize_trades
 LAB_DIR = Path("data") / "strategy_lab"
 REGISTRY_PATH = LAB_DIR / "registry.json"
 STATUS_PATH = LAB_DIR / "status.json"
-TIMEFRAME_MINUTES = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+# 1m is here for research on minute strategies (the Aurum Flow replica runs on it). It is
+# deliberately NOT in DEFAULT_MARKETS: the hourly Strategy Lab search does not scan it, because
+# the app serves at most 50,000 bars and 50,000 minutes is only about 35 trading days.
+TIMEFRAME_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 DEFAULT_MARKETS = ("XAUUSD:4h", "XAUUSD:1h", "BTCUSD:4h", "BTCUSD:1h",
                    "XAUUSD:1d", "BTCUSD:1d", "XAUUSD:15m", "BTCUSD:15m")  # every symbol/timeframe the app's data feed serves
 WARMUP_BARS = 300

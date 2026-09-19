@@ -235,8 +235,21 @@ def search_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
     return out
 
 
+# The broker's one-minute history for XAUUSD begins here (measured 19 Sep 2026 by probing
+# /api/data/bars with a start/end window; every earlier window comes back empty). load_bars stops
+# at APP_MAX_BARS = 50,000 bars, which is only half of it, so 1m is paged instead.
+M1_HISTORY_START = "2026-06-08"
+
+
+def _bars_for(symbol: str, timeframe: str):
+    from .mtf_data import fetch_app_history, load_bars
+
+    if timeframe == "1m":
+        return fetch_app_history(symbol, timeframe, M1_HISTORY_START)
+    return load_bars(symbol, timeframe, source="app")
+
+
 def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") -> dict:
-    from .mtf_data import load_bars
 
     registry = lab.load_registry()
     report = {"generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -247,7 +260,7 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") ->
               "markets": {}}
     for symbol, timeframe in product(symbols, timeframes):
         key = f"{symbol}:{timeframe}"
-        bars = load_bars(symbol, timeframe, source="app")
+        bars = _bars_for(symbol, timeframe)
         if bars is None or bars.empty:
             report["markets"][key] = {"error": "no broker bars"}
             continue

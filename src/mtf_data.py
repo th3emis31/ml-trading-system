@@ -117,6 +117,56 @@ def fetch_app_bars(symbol: str, timeframe: str, count: int = APP_MAX_BARS) -> pd
     return frame
 
 
+def fetch_app_history(symbol: str, timeframe: str, start, end=None, chunk_days: int = 15,
+                      use_cache: bool = True) -> pd.DataFrame:
+    """Every broker bar between ``start`` and ``end``, paged through the app in date windows.
+
+    ``fetch_app_bars`` can only walk back from the newest bar and stops at ``APP_MAX_BARS``, which
+    on a one-minute chart is about 35 trading days. This asks ``/api/data/bars`` for one window at a
+    time instead, so deep minute history arrives in pieces small enough not to strain the running
+    app. Windows with no bars (weekends, or before the broker's history begins) are simply empty.
+
+    The result is cached per symbol/timeframe/range under ``data/research/cache``, because paging
+    a few months of minute bars takes a while and research re-runs it often.
+    """
+    start_ts = pd.Timestamp(start, tz="UTC")
+    end_ts = pd.Timestamp(end, tz="UTC") if end is not None else pd.Timestamp.now(tz="UTC")
+    cache = CACHE_DIR / f"{symbol.lower()}_{timeframe}_app_{start_ts:%Y%m%d}_{end_ts:%Y%m%d}.csv"
+    if use_cache and cache.exists():
+        frame = pd.read_csv(cache, parse_dates=["datetime"])
+        frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
+        frame.attrs["source"] = f"app:mt5:{symbol.upper()}:paged"
+        return frame
+
+    pieces = []
+    window_start = start_ts
+    while window_start < end_ts:
+        window_end = min(window_start + pd.Timedelta(days=chunk_days), end_ts)
+        query = urllib.parse.urlencode({"symbol": symbol.upper(), "timeframe": timeframe,
+                                        "start": window_start.isoformat(), "end": window_end.isoformat()})
+        try:
+            with urllib.request.urlopen(f"{APP_BARS_URL}?{query}", timeout=600) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            payload = {}
+        if payload.get("available") and payload.get("bars"):
+            pieces.append(pd.DataFrame(payload["bars"]))
+        window_start = window_end
+
+    if not pieces:
+        return pd.DataFrame(columns=OHLCV)
+    frame = pd.concat(pieces, ignore_index=True)
+    frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
+    frame = (frame.drop_duplicates(subset=["datetime"])     # chunk edges overlap by a bar
+             .sort_values("datetime").reset_index(drop=True))
+    frame["symbol"] = symbol.upper()
+    frame.attrs["source"] = f"app:mt5:{symbol.upper()}:paged"
+    if use_cache:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(cache, index=False)
+    return frame
+
+
 def fetch_yahoo_bars(symbol: str, timeframe: str) -> pd.DataFrame:
     spec = TIMEFRAMES[timeframe]
     period, interval = spec["yahoo"]

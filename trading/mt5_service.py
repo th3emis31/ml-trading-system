@@ -561,6 +561,67 @@ class MT5Service:
         except Exception as exc:
             return {"ok": False, "symbol": normalized_symbol, "reason": str(exc), "bars": []}
 
+    def copy_rates_range(self, symbol: str, timeframe: str, start, end) -> dict:
+        """Read-only bars between two UTC instants, so research can page through deep history.
+
+        ``copy_rates`` can only walk back from the newest bar and stops at ``MAX_RATES``, which on
+        a one-minute chart is about 35 trading days. Minute strategies need more than that, and one
+        enormous response would strain the running app, so this takes a window instead and the
+        caller asks for several.
+
+        ``start`` and ``end`` are UTC (datetime or epoch seconds). MT5 wants the broker's server
+        clock, so the offset is added going in and taken off the bar times coming out, exactly as
+        ``copy_rates`` does.
+        """
+        status = self.status()
+        normalized_symbol = str(symbol or "").upper().strip()
+        if not status["connected"] or self._mt5 is None:
+            return {"ok": False, "symbol": normalized_symbol, "reason": "MT5 not connected", "bars": []}
+        constant = self._TIMEFRAME_NAMES.get(str(timeframe))
+        if constant is None:
+            return {"ok": False, "symbol": normalized_symbol, "reason": f"unsupported timeframe {timeframe}", "bars": []}
+
+        def as_epoch(value) -> int:
+            if isinstance(value, (int, float)):
+                return int(value)
+            if isinstance(value, datetime):
+                moment = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+                return int(moment.timestamp())
+            raise ValueError(f"start/end must be a datetime or epoch seconds, got {type(value).__name__}")
+
+        try:
+            start_utc, end_utc = as_epoch(start), as_epoch(end)
+            if end_utc <= start_utc:
+                return {"ok": False, "symbol": normalized_symbol, "reason": "end must be after start", "bars": []}
+            info = self._mt5.symbol_info(normalized_symbol)
+            if info is None:
+                return {"ok": False, "symbol": normalized_symbol, "reason": "Symbol not found on broker", "bars": []}
+            if not getattr(info, "visible", False):
+                self._mt5.symbol_select(normalized_symbol, True)
+            offset_hours = self.server_utc_offset_hours()
+            shift = offset_hours * 3600
+            rates = self._mt5.copy_rates_range(
+                normalized_symbol, getattr(self._mt5, constant),
+                datetime.fromtimestamp(start_utc + shift, timezone.utc).replace(tzinfo=None),
+                datetime.fromtimestamp(end_utc + shift, timezone.utc).replace(tzinfo=None))
+            if rates is None or len(rates) == 0:
+                return {"ok": True, "symbol": normalized_symbol, "timeframe": timeframe, "bars": [],
+                        "clock": "UTC", "server_utc_offset_hours": offset_hours,
+                        "reason": f"no bars in that window: {self._mt5.last_error()}"}
+            bars = [{
+                "time": int(row["time"]) - shift,   # converted to UTC
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["tick_volume"]),
+                "spread": int(row["spread"]),
+            } for row in rates]
+            return {"ok": True, "symbol": normalized_symbol, "timeframe": timeframe, "bars": bars,
+                    "clock": "UTC", "server_utc_offset_hours": offset_hours}
+        except Exception as exc:
+            return {"ok": False, "symbol": normalized_symbol, "reason": str(exc), "bars": []}
+
     def place_market_order(
         self,
         symbol: str,
