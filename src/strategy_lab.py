@@ -587,6 +587,59 @@ def _variance(values: list) -> float:
     return max(observed - mean_noise, 0.25 * mean_noise)
 
 
+def near_misses(registry: Optional[dict] = None, limit: int = 12) -> list:
+    """Candidates that fail exactly one holdout check, and by how much.
+
+    Added 19 Sep 2026. "9,500 candidates, none passed" was true and useless: it hid the fact that on
+    XAUUSD:1d a Donchian breakout reaches a deflated Sharpe of 0.963, clearing the 0.95 bar, and fails
+    only because its holdout has 19 trades against the 30 minimum - a number that grows on its own as
+    the holdout does. Naming what each candidate still needs is the difference between a wall and a
+    target, and needs no threshold to move.
+    """
+    registry = registry if registry is not None else load_registry()
+    records = registry.get("candidates") or registry.get("records") or {}
+    rows = list(records.values()) if isinstance(records, dict) else list(records)
+    out = []
+    for record in rows:
+        if not isinstance(record, dict):
+            continue
+        verdict = record.get("holdout_verdict") or {}
+        checks = verdict.get("checks") or {}
+        if not checks or verdict.get("passed"):
+            continue
+        failing = [name for name, ok in checks.items() if not ok]
+        if len(failing) != 1:
+            continue
+        holdout = record.get("holdout") or {}
+        missing = failing[0]
+        if missing == "trades":
+            short = f"{HOLDOUT_CRITERIA['min_trades'] - (holdout.get('trades') or 0)} more holdout trades"
+        elif missing == "deflated_sharpe":
+            dsr = verdict.get("deflated_sharpe")
+            short = (f"deflated Sharpe {dsr} against {HOLDOUT_CRITERIA['min_deflated_sharpe']}"
+                     if dsr is not None else "a measurable deflated Sharpe")
+        elif missing == "max_drawdown":
+            short = (f"drawdown {holdout.get('max_drawdown_pct')}% against "
+                     f"{HOLDOUT_CRITERIA['max_drawdown_pct']}%")
+        elif missing == "profit_factor":
+            short = (f"profit factor {holdout.get('profit_factor')} against "
+                     f"{HOLDOUT_CRITERIA['min_profit_factor']}")
+        else:
+            short = f"a positive holdout return (it is {holdout.get('total_return_pct')}%)"
+        out.append({"id": record.get("id"), "market": record.get("market"),
+                    "description": record.get("description"),
+                    "only_missing": missing, "needs": short,
+                    "deflated_sharpe": verdict.get("deflated_sharpe"),
+                    "per_trade_sharpe": verdict.get("per_trade_sharpe"),
+                    "per_trade_sharpe_needed": verdict.get("per_trade_sharpe_needed"),
+                    "holdout": {k: holdout.get(k) for k in
+                                ("trades", "profit_factor", "total_return_pct", "max_drawdown_pct")}})
+    # closest first: a candidate needing a few more trades is nearer than one needing a better Sharpe
+    order = {"trades": 0, "deflated_sharpe": 1, "max_drawdown": 2, "profit_factor": 3, "positive_return": 4}
+    out.sort(key=lambda r: (order.get(r["only_missing"], 9), -(r["deflated_sharpe"] or 0)))
+    return out[:limit]
+
+
 def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional[dict]:
     holdout = record.get("holdout")
     if not holdout:
@@ -602,8 +655,50 @@ def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional
     }
     # summarize_trades returns numpy floats, so comparisons give numpy bools that JSON cannot encode.
     checks = {name: bool(value) for name, value in checks.items()}
+    # "failed the deflated Sharpe" on its own tells a reader nothing they can act on. These two numbers
+    # turn the bar into a target: what per-trade Sharpe this holdout achieved, and what it would have
+    # needed against this many trials. Measured 19 Sep 2026 on XAUUSD:4h, the requirement is about 0.41
+    # per-trade Sharpe at 18,230 cumulative trials, which a real strategy can reach - nothing in 18,000
+    # candidates has, and that is a finding about the families rather than about the bar.
+    target = sharpe_target(n_trials, sr_variance)
+    achieved = per_trade_sharpe(record.get("holdout_returns") or [])
     return {"passed": all(checks.values()), "checks": checks, "deflated_sharpe": dsr, "n_trials": int(n_trials),
+            "per_trade_sharpe": achieved, "per_trade_sharpe_needed": target,
+            "shortfall": (round(target - achieved, 4) if achieved is not None and target is not None else None),
+            "deflation_note": _deflation_note(achieved, target, dsr),
             "beats_buy_and_hold": bool((holdout.get("total_return_pct") or -999) > (holdout.get("buy_and_hold_pct") or 0))}
+
+
+def per_trade_sharpe(returns_pct) -> Optional[float]:
+    """Mean over standard deviation of the holdout's per-trade returns. The quantity the bar is about."""
+    values = np.asarray(returns_pct or [], dtype=float)
+    if len(values) < 2:
+        return None
+    spread = float(values.std(ddof=1))
+    if spread <= 0:
+        return None
+    return round(float(values.mean()) / spread, 4)
+
+
+def sharpe_target(n_trials: int, sr_variance: float) -> Optional[float]:
+    """The per-trade Sharpe a candidate must beat to start clearing the deflation, at this trial count.
+
+    This is sr0 from the deflated Sharpe: sqrt(variance of true Sharpes across trials) times the
+    expected maximum of that many draws. Reporting it does not change the bar; it names it.
+    """
+    try:
+        return round(math.sqrt(max(float(sr_variance), 1e-6)) * _expected_max_factor(max(int(n_trials), 2)), 4)
+    except Exception:
+        return None
+
+
+def _deflation_note(achieved: Optional[float], target: Optional[float], dsr: Optional[float]) -> str:
+    if achieved is None or target is None:
+        return "too few holdout trades to measure a per-trade Sharpe"
+    if dsr is not None and dsr >= HOLDOUT_CRITERIA["min_deflated_sharpe"]:
+        return f"per-trade Sharpe {achieved} clears the {target} needed against this many trials"
+    return (f"per-trade Sharpe {achieved} against the {target} needed at this trial count; "
+            f"short by {round(target - achieved, 4)}")
 
 
 def evaluate_candidate(market: Market, spec: dict, with_holdout: bool = False) -> dict:

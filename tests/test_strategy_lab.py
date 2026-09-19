@@ -198,3 +198,61 @@ def test_deflation_toll_shows_what_the_bar_rejected():
     assert best["sharpe"] == 2.362 and best["deflated_sharpe"] == 0.5606 and best["n_trials"] == 6382
     assert "chance" in toll["note"], "the card has to say why, not only how many"
     assert deflation_toll({"candidates": {}})["best_rejected"] is None
+
+
+def test_the_verdict_names_the_per_trade_sharpe_target(bars):
+    """'failed the deflated Sharpe' is useless on its own; the verdict must say what was needed."""
+    market = lab.Market("XAUUSD", "4h", bars, now=bars["datetime"].iloc[-1] + pd.Timedelta(days=1))
+    record = lab.evaluate_candidate(market, lab.SWING_TREND_PULLBACK_SPEC, with_holdout=True)
+    verdict = lab.holdout_verdict(record, 18230, 0.010637)
+    assert verdict["per_trade_sharpe_needed"] == pytest.approx(0.4131, abs=1e-3)
+    assert "per-trade Sharpe" in verdict["deflation_note"]
+
+
+def test_the_sharpe_target_rises_with_the_trial_count_but_stays_reachable():
+    """Measured 19 Sep 2026: the bar needs about 0.41 per-trade Sharpe, which real strategies reach."""
+    var = 0.010637
+    assert lab.sharpe_target(100, var) < lab.sharpe_target(1000, var) < lab.sharpe_target(18230, var)
+    assert lab.sharpe_target(18230, var) < 0.5, "the requirement must stay inside what a strategy can do"
+
+
+def test_per_trade_sharpe_needs_at_least_two_trades():
+    assert lab.per_trade_sharpe([]) is None
+    assert lab.per_trade_sharpe([1.0]) is None
+    assert lab.per_trade_sharpe([1.0, 1.0]) is None          # no spread, so no ratio
+    assert lab.per_trade_sharpe([2.0, -1.0, 1.0]) is not None
+
+
+def test_near_misses_lists_only_candidates_failing_exactly_one_check():
+    registry = {"candidates": {
+        "a": {"id": "a", "market": "XAUUSD:1d", "description": "one short",
+              "holdout": {"trades": 19, "profit_factor": 7.5, "total_return_pct": 107.0, "max_drawdown_pct": 8.4},
+              "holdout_verdict": {"passed": False, "deflated_sharpe": 0.963,
+                                  "checks": {"trades": False, "profit_factor": True, "max_drawdown": True,
+                                             "positive_return": True, "deflated_sharpe": True}}},
+        "b": {"id": "b", "market": "XAUUSD:4h", "description": "two short",
+              "holdout": {"trades": 10, "profit_factor": 0.9, "total_return_pct": -2.0, "max_drawdown_pct": 5.0},
+              "holdout_verdict": {"passed": False, "deflated_sharpe": 0.1,
+                                  "checks": {"trades": False, "profit_factor": False, "max_drawdown": True,
+                                             "positive_return": True, "deflated_sharpe": True}}},
+        "c": {"id": "c", "market": "XAUUSD:4h", "description": "passed",
+              "holdout": {"trades": 40, "profit_factor": 2.0, "total_return_pct": 20.0, "max_drawdown_pct": 5.0},
+              "holdout_verdict": {"passed": True, "checks": {"trades": True, "profit_factor": True,
+                                                             "max_drawdown": True, "positive_return": True,
+                                                             "deflated_sharpe": True}}}}}
+    rows = lab.near_misses(registry)
+    assert [r["id"] for r in rows] == ["a"], "only the candidate short by one thing"
+    assert rows[0]["only_missing"] == "trades"
+    assert "11 more holdout trades" in rows[0]["needs"]
+
+
+def test_near_misses_puts_the_closest_first():
+    """A candidate needing more trades is nearer than one needing a better Sharpe: trades arrive on their own."""
+    registry = {"candidates": {
+        "sharpe": {"id": "sharpe", "market": "m", "description": "d", "holdout": {"trades": 50},
+                   "holdout_verdict": {"passed": False, "deflated_sharpe": 0.9,
+                                       "checks": {"trades": True, "deflated_sharpe": False}}},
+        "trades": {"id": "trades", "market": "m", "description": "d", "holdout": {"trades": 25},
+                   "holdout_verdict": {"passed": False, "deflated_sharpe": 0.96,
+                                       "checks": {"trades": False, "deflated_sharpe": True}}}}}
+    assert [r["id"] for r in lab.near_misses(registry)] == ["trades", "sharpe"]
