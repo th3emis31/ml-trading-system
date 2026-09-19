@@ -145,3 +145,44 @@ drawdown within limits, and **deflated Sharpe ≥ 0.95** counting all trials. Th
 lowered for this candidate. A failure is recorded in `.claude/memory/BASELINE.md` exactly as a
 pass would be, and the honest conclusion on failure is that this mechanism does not survive on
 gold at these costs — not that it needs more tuning.
+
+## The MT5 port
+
+`strategies/mt5/AurumFlow_MT5.mq5` is a faithful translation of the owner's MQL4 source,
+requested on 19 September 2026. It compiles clean (**0 errors, 0 warnings**, MetaEditor build in
+`C:\Users\th_em\MT5_SwingTrend_Tester`, which is the separate Strategy Tester install — no
+running terminal was touched).
+
+Fidelity: all 37 inputs and all 8 section separators carry over with identical names and
+defaults, and the variables the original deliberately left non-input (`Recovery2TriggerPips`,
+`Recovery2CloseProfit`, `Recovery2MaxTrades`, `Recovery2SingleCloseProfit`, `MAMethod`,
+`EnableSizeAdjustment`, `SizeAdjustmentStep`, `RecoveryConfirmations`, `ZoneLookbackBars`) are
+non-input there too. `EnableRecoveryMode2` is left **on**, as shipped: changing a default
+silently would be worse than porting the risk faithfully, because the owner would believe they
+were running the same thing.
+
+**The licence check is intact and unchanged.** It still calls
+`tradesmartfxtools.in/LicenseKey/aurum-flow-lite.php` on init and every 60 seconds, still refuses
+to initialise unless that server answers `OK` or a success is cached within `GraceHours`, and
+still sends the same query string. Nothing was removed or weakened; the vendor keeps full control
+of which accounts can run it. `tests/test_aurum_flow_mt5_port.py` fails if that ever changes.
+
+The places MQL5 forced a different API are each marked `PORT:` in the file (19 of them). The
+substantial ones:
+
+| MQL4 | MQL5 | Why it mattered |
+|---|---|---|
+| `OrdersTotal()` covers trades **and** pendings | `PositionsTotal()` and `OrdersTotal()` are separate lists | every enumeration loop had to be split; the original's "skip pending orders" branches become unnecessary |
+| `OrdersHistoryTotal()` + `MODE_HISTORY` | `HistorySelect()` + deals, filtered to `DEAL_ENTRY_OUT` | closed-trade P&L is now profit + swap + commission per closing deal |
+| `OrderProfit()+OrderSwap()+OrderCommission()` on an open trade | `POSITION_PROFIT` + `POSITION_SWAP`, commission fetched via `HistorySelectByPosition` | positions carry no commission field, and the breakeven logic fires at **$0.01**, so omitting commission would close baskets early |
+| `iMA(...)` returns a value | indicator handle + `CopyBuffer` | and MQL5's applied-price constants are all shifted by one, so `MAPrice = 0` is mapped explicitly to `PRICE_CLOSE` |
+| `iHigh/iLow/iHighest/iLowest/iBarShift` | written out with `CopyHigh`/`CopyLow` | avoids depending on which MT5 build exposes which timeseries built-in |
+| `TimeMonth/TimeYear/TimeDayOfWeek/...` | `MqlDateTime` via `TimeToStruct` | those functions no longer exist |
+| `ArrayRemove` (their own helper) | renamed `RemovePendingExpiryAt` | `ArrayRemove` is a built-in name in MQL5 |
+| `MagicNumber = 060701111` | `12812873` | the leading zero made it an **octal** literal, so MT4 was really using 12812873; the port uses that number so both platforms share one magic |
+| `OrderSend(..., expiry, colour)` | `CTrade.BuyStop/SellStop` with `ORDER_TIME_GTC` | the original tracked expiry itself, which is kept, so brokers that reject `ORDER_TIME_SPECIFIED` still work |
+
+**It cannot be backtested in MT5's Strategy Tester either**, for the same reason as the MT4
+build: `WebRequest` is not permitted there, so the licence call fails and `OnInit` returns
+`INIT_FAILED`. That is the vendor's design, not a porting defect. The entry rules were therefore
+tested through the system instead, and those results are in the rows above.
