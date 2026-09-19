@@ -230,3 +230,98 @@ def test_every_watchlist_candidate_names_a_state_file_the_forward_tester_writes(
     for candidate in fe.WATCHLIST:
         name = candidate["state"].split("/")[-1]
         assert name in written, f"{name} is not written by any crt_forward candidate"
+
+
+# --- the ladder: nothing is blocked from learning ---------------------------------
+
+def test_confidence_moves_from_the_very_first_trade():
+    """The old design said nothing until 30 trades, which threw away the first 29."""
+    readings = [fe.confidence(fe.score([0.5] * n), 0.20)["expectancy_r_estimate"] for n in range(0, 6)]
+    assert readings[0] == pytest.approx(0.05)          # the discounted prior alone
+    assert all(b >= a for a, b in zip(readings, readings[1:]))
+    assert readings[-1] > readings[0]
+
+
+def test_the_backtest_prior_is_discounted_not_trusted():
+    """A candidate selected out of many is flattered, so its backtest enters at a quarter weight."""
+    c = fe.confidence(fe.score([]), 0.40)
+    assert c["prior_used_r"] == pytest.approx(0.40 * fe.BACKTEST_DISCOUNT)
+    assert "starting guess" in c["reading"]
+
+
+def test_forward_evidence_overtakes_the_prior_as_trades_accumulate():
+    few = fe.confidence(fe.score([1.0] * 2), 0.40)["forward_weight"]
+    many = fe.confidence(fe.score([1.0] * 60), 0.40)["forward_weight"]
+    assert few < 0.3 < many
+    assert many > 0.85
+
+
+def test_an_interval_that_spans_zero_is_reported_as_not_yet_known():
+    c = fe.confidence(fe.score([2.0, -1.0, 2.0, -1.0, -1.0]), 0.2)
+    assert c["interval_spans_zero"] is True
+    assert "rather than a finding" in c["reading"]
+
+
+def test_no_tier_ever_blocks_learning():
+    for values in ([], [1.0], [-1.0] * 40, [1.0, -0.5] * 40):
+        t = fe.tier(fe.score(values), splits_positive=True)
+        assert t["blocked_from_learning"] is False
+        assert t["learning"], "every rung must say what it is still learning from"
+
+
+def test_a_candidate_with_nothing_still_has_somewhere_to_stand_and_a_way_up():
+    t = fe.tier(fe.score([]))
+    assert t["tier"] == 0
+    assert t["to_advance"], "a candidate must always be told what would move it up"
+
+
+def test_five_good_forward_trades_reach_demo_minimum_size():
+    t = fe.tier(fe.score([1.0, -0.5, 1.0, -0.5, 1.0]), splits_positive=True)
+    assert t["tier"] == 2
+    assert "minimum size" in t["name"]
+
+
+def test_the_deflated_sharpe_bar_still_blocks_real_money_and_only_that():
+    """0.7504 is the bitcoin candidate's real number. It reaches full-size demo, never real money."""
+    stats = fe.score([1.0, -0.5] * 40)
+    near_miss = fe.tier(stats, splits_positive=True, deflated_sharpe=0.7504, owner_approved=True)
+    assert near_miss["tier"] == 3
+    assert near_miss["name"] == "demo, full size"
+    cleared = fe.tier(stats, splits_positive=True, deflated_sharpe=0.96, owner_approved=True)
+    assert cleared["tier"] == 4
+    assert cleared["risk"] == "REAL"
+
+
+def test_real_money_also_needs_the_owner_even_with_the_bar_cleared():
+    stats = fe.score([1.0, -0.5] * 40)
+    without = fe.tier(stats, splits_positive=True, deflated_sharpe=0.99, owner_approved=False)
+    assert without["tier"] == 3
+
+
+def test_the_top_rung_is_the_only_one_carrying_real_risk():
+    risky = [t for t in fe.TIERS if t["risk"] == "REAL"]
+    assert len(risky) == 1
+    assert risky[0]["tier"] == 4
+    assert "0.95" in risky[0]["needs"]
+
+
+# --- what a strategy is actually doing, versus what its evidence supports ---------
+
+def test_the_running_mode_is_read_not_assumed():
+    assert fe._running_state({"sending_orders": True})["mode"] == "demo"
+    assert fe._running_state({"dry_run": True})["mode"] == "dry run"
+    assert fe._running_state({"dry_run": False})["mode"] == "demo"
+    assert fe._running_state({"halted": True})["mode"] == "halted"
+    assert fe._running_state({})["mode"] == "unknown"
+
+
+def test_a_strategy_trading_ahead_of_its_evidence_is_not_described_as_placing_nothing(tmp_path):
+    """The breakout sends orders on demo while its evidence supports only shadow. Both must show."""
+    folder = tmp_path / "paper_trading"
+    folder.mkdir(parents=True)
+    (folder / "demo_volatility_breakout_state.json").write_text(json.dumps(_state_file({})), encoding="utf-8")
+    (folder / "demo_volatility_breakout.json").write_text(json.dumps({"dry_run": False}), encoding="utf-8")
+    report = fe.collect(tmp_path)
+    breakout = next(s for s in report["sources"] if s["magic"] == 440603)
+    assert breakout["currently"]["mode"] == "demo"
+    assert breakout["tier"]["tier"] < 2, "with no closed trades its evidence cannot support demo"
