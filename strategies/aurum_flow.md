@@ -186,3 +186,36 @@ substantial ones:
 build: `WebRequest` is not permitted there, so the licence call fails and `OnInit` returns
 `INIT_FAILED`. That is the vendor's design, not a porting defect. The entry rules were therefore
 tested through the system instead, and those results are in the rows above.
+
+## Second, wider grid: is the MECHANISM worth having, licence aside?
+
+Declared on 19 September 2026, **before the run**, after the owner asked whether the logic
+could be used in the system without the vendor's licence. A trading rule cannot be licensed;
+only their code can, and `src/aurum_flow_lab.py` contains none of it. So the open question is
+not legal but empirical: does *any* version of this mechanism clear the bar, or only the
+vendor's settings fail?
+
+The first grid tested the EA **as shipped**. This one varies the things that could plausibly
+matter, and in particular fixes the geometry problem — the shipped target is smaller than the
+shipped stop, so every variant below includes reward:risk of 1 or better:
+
+| Knob | Values | Why |
+|---|---|---|
+| `structure_depth` | 100, 200, 400 | how far back the two anchor swings are drawn from |
+| `ma_period` | 0 (off), 200, 600 | trend filter strength |
+| `sl_points` / `tp_points` | 2100/1800 (shipped, 0.86 R), 2100/4200 (2 R), 1400/2800 (2 R tighter), 1000/3000 (3 R) | the shipped pair needs a 53.8 % win rate; the rest do not |
+| `entry_points` | 0, 130 | enter at the signal bar's extreme, or 130 points beyond it as shipped |
+
+Fixed: `spacing` 100, `refresh_bars` 40, `expiry_minutes` 60, both directions,
+`block_nov_dec` **False** — November and December are included, because excluding two months
+with no mechanism reason is the curve-fitting move this grid is meant to avoid.
+
+3 × 3 × 4 × 2 = **72 variants per timeframe**, run on XAUUSD 15m and 1h, so **144 trials**.
+Every one is counted in the deflated Sharpe ratio. Searching harder raises the bar rather than
+lowering it, which is the whole point of counting trials: a grid this size needs a much better
+raw result to clear 0.95 than a single candidate would.
+
+The verdict rule does not move. After costs, ≥ 30 holdout trades, drawdown within limits,
+deflated Sharpe ≥ 0.95, and the inverse baseline reported beside the best candidate. If nothing
+clears it, the conclusion recorded is that this mechanism has no edge on gold at these costs —
+not that the grid needs widening again.

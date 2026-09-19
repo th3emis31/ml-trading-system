@@ -5,6 +5,7 @@ honest about where it is not. Every test builds its own bars; none needs the bro
 """
 import numpy as np
 import pandas as pd
+import pytest
 
 from src import aurum_flow_lab as af
 from src import strategy_lab as lab
@@ -185,3 +186,25 @@ def test_the_recovery_cascade_is_not_replicated_and_says_so():
     text = open(af.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
     assert "NOT replicated" in text
     assert "RecoveryMode2" in text
+
+
+def test_the_wider_search_grid_is_seventy_two_variants():
+    """strategies/aurum_flow.md declares 72 per timeframe; the deflated Sharpe counts all of them."""
+    specs = af.search_variants("XAUUSD", "15m", 480)
+    assert len(specs) == 72
+    assert len({s["variant"] for s in specs}) == 72
+
+
+def test_every_searched_variant_includes_november_and_december():
+    """Excluding two months with no mechanism reason is the curve-fitting move this grid avoids."""
+    assert all(s["params"]["block_nov_dec"] is False for s in af.search_variants("XAUUSD", "15m", 480))
+
+
+def test_the_search_grid_never_risks_more_than_it_targets_except_the_shipped_pair():
+    """The shipped 2100/1800 is kept as the reference point; everything else is 1 R or better."""
+    ratios = sorted({s["params"]["tp_points"] / s["params"]["sl_points"]
+                     for s in af.search_variants("XAUUSD", "15m", 480)})
+    assert ratios[0] == pytest.approx(1800 / 2100)   # the shipped pair, kept as the reference
+    assert ratios[1:] == [2.0, 3.0]                  # 1400/2800 and 2100/4200 both give 2 R
+    assert sum(1 for s in af.search_variants("XAUUSD", "15m", 480)
+               if s["params"]["tp_points"] < s["params"]["sl_points"]) == 18

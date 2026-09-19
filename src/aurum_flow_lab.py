@@ -206,11 +206,41 @@ def aurum_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
     return out
 
 
-def run(symbols=("XAUUSD",), timeframes=("15m", "1h")) -> dict:
+# The second, wider grid declared in strategies/aurum_flow.md: does ANY version of the mechanism
+# clear the bar, or only the vendor's settings fail? Every pair here has reward:risk of 1 or
+# better, because the shipped 2100/1800 needs a 53.8 % win rate before costs.
+SEARCH_DEPTHS = (100, 200, 400)
+SEARCH_MA = (0, 200, 600)
+SEARCH_EXITS = ((2100, 1800), (2100, 4200), (1400, 2800), (1000, 3000))
+SEARCH_ENTRY = (0, ENTRY_POINTS)
+
+
+def search_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
+    """72 per market and timeframe. November and December are included on purpose."""
+    out = []
+    for depth, ma_period, (sl_points, tp_points), entry_points in product(
+            SEARCH_DEPTHS, SEARCH_MA, SEARCH_EXITS, SEARCH_ENTRY):
+        name = f"d{depth}|ma{ma_period or 'off'}|{sl_points}/{tp_points}|e{entry_points}"
+        out.append({
+            "family": "aurum_flow",
+            "params": {"symbol": symbol, "timeframe": timeframe, "structure_depth": depth,
+                       "spacing": SPACING, "refresh_bars": REFRESH_BARS, "ma_period": ma_period,
+                       "entry_points": entry_points, "expiry_minutes": EXPIRY_MINUTES,
+                       "sl_points": sl_points, "tp_points": tp_points, "block_nov_dec": False},
+            "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
+                      "max_bars": max_bars, "swing_lookback": 0},
+            "description": f"Aurum Flow mechanism {name}",
+            "variant": name,
+        })
+    return out
+
+
+def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") -> dict:
     from .mtf_data import load_bars
 
     registry = lab.load_registry()
     report = {"generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              "grid": grid,
               "source": "Aurum Flow.mq4 v7.05 (Trade Smart FX Tools), entry rules only",
               "not_replicated": "EnableRecoveryMode2 cascade (up to 60 same-direction positions, no stop loss) "
                                 "and CheckMultiDealBreakeven; the engine holds one position at a time",
@@ -225,7 +255,7 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h")) -> dict:
         max_bars = max(8, int(MAX_TRADE_DAYS * 24 * 60 // max(minutes, 1)))
         market = lab.Market(symbol, timeframe, bars,
                             boundaries=(registry["markets"].get(key) or {}).get("boundaries"), swap=True)
-        specs = aurum_variants(symbol, timeframe, max_bars)
+        specs = (search_variants if grid == "search" else aurum_variants)(symbol, timeframe, max_bars)
         records = []
         for spec in specs:
             record = lab.evaluate_candidate(market, spec, with_holdout=True)
@@ -246,7 +276,7 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h")) -> dict:
                                  "passed_holdout": [r["variant"] for r in records
                                                     if (r.get("holdout_verdict") or {}).get("passed")]}
     lab.LAB_DIR.mkdir(parents=True, exist_ok=True)
-    path = lab.LAB_DIR / f"aurum_flow_backtest_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+    path = lab.LAB_DIR / f"aurum_flow_{grid}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
     path.write_text(json.dumps(report, indent=1, default=lambda v: v.item() if hasattr(v, "item") else str(v)),
                     encoding="utf-8")
     report["path"] = str(path)
@@ -258,8 +288,10 @@ def main(argv=None) -> int:
     parser.add_argument("command", choices=["run"])
     parser.add_argument("--symbols", nargs="+", default=["XAUUSD"])
     parser.add_argument("--timeframes", nargs="+", default=["15m", "1h"])
+    parser.add_argument("--grid", choices=["shipped", "search"], default="shipped",
+                        help="shipped = the EA's own 8 variants; search = the wider 72-variant grid")
     args = parser.parse_args(argv)
-    report = run(tuple(args.symbols), tuple(args.timeframes))
+    report = run(tuple(args.symbols), tuple(args.timeframes), grid=args.grid)
     print(f"saved {report['path']}")
     for key, market in report["markets"].items():
         if market.get("error"):
