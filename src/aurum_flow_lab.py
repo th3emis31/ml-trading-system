@@ -276,7 +276,10 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") ->
                                  "passed_holdout": [r["variant"] for r in records
                                                     if (r.get("holdout_verdict") or {}).get("passed")]}
     lab.LAB_DIR.mkdir(parents=True, exist_ok=True)
-    path = lab.LAB_DIR / f"aurum_flow_{grid}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+    # The markets are in the name: two runs on the same day for different timeframes used to
+    # overwrite each other, which silently destroyed the first run's evidence.
+    scope = "-".join(sorted(symbols)) + "_" + "-".join(timeframes)
+    path = lab.LAB_DIR / f"aurum_flow_{grid}_{scope}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
     path.write_text(json.dumps(report, indent=1, default=lambda v: v.item() if hasattr(v, "item") else str(v)),
                     encoding="utf-8")
     report["path"] = str(path)
