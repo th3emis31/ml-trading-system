@@ -65,6 +65,12 @@ MAX_SRS_KEPT = 5000
 RECENT_REJECTED_KEPT = 300  # rejected candidates keep only their id (never re-tested) plus this short list for the page
 
 SIDES = ["long", "short", "both"]
+# Named here rather than imported, because src/candle_patterns.py imports src/features.py and a
+# circular import at module load would break every consumer of the lab.
+_CANDLE_PATTERNS = ("marubozu", "hammer", "shooting_star", "pin_bar", "bullish_engulfing",
+                    "bearish_engulfing", "piercing_line", "dark_cloud_cover", "morning_star",
+                    "evening_star", "three_white_soldiers", "three_black_crows")
+
 FAMILIES = {
     "ema_pullback": {"side": SIDES, "ema_fast": [13, 21, 34], "ema_slow": [50, 89, 100], "slope_lookback": [1, 3],
                      "push_lookback": [10, 15, 20], "push_atr": [0.4, 0.6, 0.8, 1.0], "pullback_tol": [0.3, 0.6, 0.9],
@@ -74,6 +80,24 @@ FAMILIES = {
                       "trend_ema": [0, 200]},
     "ema_cross": {"side": SIDES, "fast": [10, 20, 50], "slow": [50, 100, 200]},
     "bollinger_reversion": {"side": SIDES, "length": [20, 50], "k": [2.0, 2.5, 3.0], "trend_ema": [0, 200]},
+    # Added 19 Sep 2026 so the hourly search explores new ground instead of re-testing five exhausted
+    # families. Both were built and measured first, and both carry their own order builder rather than
+    # a SIGNALS entry, so the exit grid does not apply to them - they set their own stop and target.
+    #
+    # candle_pattern: the 12 signed candlestick detectors (src/candle_patterns.py). Measured alone they
+    # are worth about 2 points of win rate at best, but the three-candle reversals were consistently
+    # positive across markets, and the search can look for combinations of pattern, risk and reward
+    # that a single pre-declared grid could not.
+    #
+    # trendline_break: the mechanism read out of the owner's Aurum Flow expert, with exits scaled to
+    # ATR rather than the fixed point distances that made it meaningless on bitcoin. Its best variant
+    # was the closest thing to a pass found all day (deflated Sharpe 0.7504 on BTCUSD 4h).
+    "candle_pattern": {"pattern": sorted(_CANDLE_PATTERNS), "rr": [1.0, 1.5, 2.0, 3.0],
+                       "sl_atr": [0.75, 1.0, 1.5, 2.0]},
+    "trendline_break": {"structure_depth": [100, 200, 400], "spacing": [50, 100],
+                        "refresh_bars": [20, 40], "ma_period": [0, 200, 600],
+                        "entry_points": [0, 130], "sl_atr_mult": [1.5, 2.5, 4.45],
+                        "tp_atr_mult_ratio": [1.0, 1.5, 2.0, 3.0]},
 }
 EXIT_GRID = {"stop": ["atr", "swing"], "sl_atr": [1.0, 1.5, 2.0, 3.0], "rr": [1.0, 1.5, 2.0, 3.0, 0.0],
              "trail_atr": [0.0, 2.0, 3.5], "max_bars": [12, 24, 50, 150], "swing_lookback": [5]}
@@ -632,12 +656,24 @@ def describe_spec(spec: dict) -> str:
         entry = f"RSI{p['rsi_len']} below {p['lower']} / above {p['upper']}" + (f", EMA{p['trend_ema']} trend filter" if p["trend_ema"] else "")
     elif family == "ema_cross":
         entry = f"EMA{p['fast']} crosses EMA{p['slow']}"
-    else:
+    elif family == "bollinger_reversion":
         entry = f"close outside {p['length']}-bar Bollinger {p['k']} SD" + (f", EMA{p['trend_ema']} trend filter" if p["trend_ema"] else "")
+    elif family == "candle_pattern":
+        # These families set their own stop and target, so the exit grid below does not describe them.
+        return (f"{p['pattern'].replace('_', ' ')} at {p.get('rr', 1)}R, "
+                f"stop {p.get('sl_atr', 1.0)} ATR, entry at the next open")
+    elif family == "trendline_break":
+        ma = f"SMA{p['ma_period']} filter" if p.get("ma_period") else "no trend filter"
+        offset = f"{p.get('entry_points', 0)} point offset" if p.get("entry_points") else "at the bar's extreme"
+        return (f"trendline break, {p.get('structure_depth')} bars / {p.get('spacing')} spacing, {ma}, "
+                f"{offset}, stop {p.get('sl_atr_mult')} ATR, target "
+                f"{p.get('tp_atr_mult_ratio')}R")
+    else:
+        entry = f"{family} with {sorted(p)}"
     stop = f"swing({x['swing_lookback']}) - {x['sl_atr']} ATR" if x["stop"] == "swing" else f"{x['sl_atr']} ATR"
     target = f"{x['rr']}R target" if x["rr"] else "no fixed target"
     trail = f", trail {x['trail_atr']} ATR" if x["trail_atr"] else ""
-    return f"{p['side']} · {entry} | stop {stop}, {target}{trail}, max {x['max_bars']} bars"
+    return f"{p.get('side', 'both')} · {entry} | stop {stop}, {target}{trail}, max {x['max_bars']} bars"
 
 
 # --------------------------------------------------------------------------- search
@@ -650,7 +686,27 @@ def _valid_spec(spec: dict) -> bool:
     return True
 
 
+def _register_extra_builders() -> None:
+    """Import the modules that own the newer families, so their order builders exist.
+
+    Imported lazily and tolerantly: if either module is unavailable the lab still runs on the five
+    original families rather than failing to start, which matters because it runs hourly.
+    """
+    for module in ("candle_pattern_lab", "aurum_flow_lab"):
+        if module in _EXTRA_LOADED:
+            continue
+        try:
+            __import__(f"{__package__}.{module}")
+            _EXTRA_LOADED.add(module)
+        except Exception:
+            continue
+
+
+_EXTRA_LOADED: set = set()
+
+
 def random_spec(rng: random.Random, families: Optional[list] = None) -> dict:
+    _register_extra_builders()
     while True:
         family = rng.choice(sorted(families or FAMILIES))
         spec = {"family": family, "params": {k: rng.choice(v) for k, v in FAMILIES[family].items()},

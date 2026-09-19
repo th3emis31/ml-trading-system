@@ -133,15 +133,16 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
     target = np.full(n, np.nan)
     entry = np.full(n, np.nan)
 
-    upper, lower = trendlines(ind, p["structure_depth"], p["spacing"], p["refresh_bars"])
-    ma = ind.sma(p["ma_period"]) if p["ma_period"] else None
+    upper, lower = trendlines(ind, int(p.get("structure_depth", STRUCTURE_DEPTH)),
+                              int(p.get("spacing", SPACING)), int(p.get("refresh_bars", REFRESH_BARS)))
+    ma = ind.sma(int(p["ma_period"])) if p.get("ma_period") else None
     stamps = pd.DatetimeIndex(ind.times)
     months = stamps.month.to_numpy()
     hours = stamps.hour.to_numpy()
     atr = ind.atr(14)
     atr_median = pd.Series(atr).rolling(200).median().to_numpy()
     step = max(1, int(round((ind.times.iloc[1] - ind.times.iloc[0]).total_seconds() / 60))) if n > 1 else 1
-    fill_window = max(1, int(p["expiry_minutes"] // step))
+    fill_window = max(1, int(int(p.get("expiry_minutes", EXPIRY_MINUTES)) // step))
     # Fixed point distances are what the EA uses, and they only make sense on gold: $21 is 4.45x
     # gold's hourly ATR but 0.056x bitcoin's, so on BTC every position is stopped at once. ATR
     # multiples let the same mechanism be tested on another instrument (strategies/aurum_flow.md).
@@ -161,7 +162,7 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
         sell = ind.l[one] <= lower[one] and ind.l[two] <= lower[two]
         if buy == sell:               # neither, or both at once: the EA skips
             continue
-        if p["block_nov_dec"] and months[t] in BLOCKED_MONTHS:
+        if p.get("block_nov_dec") and months[t] in BLOCKED_MONTHS:
             continue
         # Third grid: filters that add information the entry does not carry. Both are read on the
         # decision bar, so neither can see anything the EA could not have seen.
@@ -189,7 +190,8 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
                 continue
 
         direction = 1 if buy else -1
-        level = (ind.h[one] + p["entry_points"] * POINT_VALUE) if buy else (ind.l[one] - p["entry_points"] * POINT_VALUE)
+        offset = float(p.get("entry_points", 0)) * POINT_VALUE
+        level = (ind.h[one] + offset) if buy else (ind.l[one] - offset)
         # The inverse baseline trades the identical signal bars and the identical levels the other
         # way round, with the stop and target mirrored. It answers "is this edge, or is it just
         # gold's direction?", because a long-biased breakout in a rising market flatters itself.
@@ -218,7 +220,21 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
     return side, stop, target, entry
 
 
+def trendline_break_orders(ind: lab.Indicators, spec: dict):
+    """The Strategy Lab's view of the same mechanism, with ATR-scaled exits only.
+
+    The lab's grid gives a target as a RATIO of the stop (so reward:risk is what is searched, not two
+    unrelated multiples), and never uses the EA's fixed point distances, which only make sense on gold.
+    """
+    p = dict(spec["params"])
+    sl_mult = float(p.get("sl_atr_mult") or 2.5)
+    p["sl_atr_mult"] = sl_mult
+    p["tp_atr_mult"] = sl_mult * float(p.get("tp_atr_mult_ratio") or 2.0)
+    return aurum_orders(ind, {**spec, "params": p})
+
+
 lab.ORDER_BUILDERS["aurum_flow"] = aurum_orders
+lab.ORDER_BUILDERS["trendline_break"] = trendline_break_orders
 
 
 def aurum_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:

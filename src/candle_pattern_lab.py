@@ -39,13 +39,14 @@ def pattern_orders(ind: lab.Indicators, spec: dict):
     n = len(ind.c)
     atr = ind.atr(14)
 
-    signals = ind._cached(("candle_patterns", p["symbol"], p["timeframe"]),
-                          lambda: pattern_frame(ind.df))
+    # The Strategy Lab's random search builds specs from the FAMILIES grid alone, so symbol and
+    # timeframe may be absent. The cache key does not need them: the frame is already this market's.
+    signals = ind._cached(("candle_patterns",), lambda: pattern_frame(ind.df))
     side = signals[p["pattern"]].to_numpy().astype(int)
     if p.get("inverse"):
         side = -side
 
-    risk = SL_ATR * atr
+    risk = float(p.get("sl_atr") or SL_ATR) * atr
     with np.errstate(invalid="ignore"):
         stop = np.where(side == 1, ind.c - risk, np.where(side == -1, ind.c + risk, np.nan))
         target = np.where(side == 1, ind.c + p["rr"] * risk,

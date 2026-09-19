@@ -82,11 +82,20 @@ def test_signals_never_use_future_bars(bars):
             spec = lab.random_spec(rng)
             while spec["family"] != family:
                 spec = lab.random_spec(rng)
-            side_full, stop_full, target_full = lab.strategy_orders(full, spec)
-            side_part, stop_part, target_part = lab.strategy_orders(part, spec)
-            np.testing.assert_array_equal(side_full[:cut], side_part)
-            np.testing.assert_allclose(stop_full[:cut], stop_part, equal_nan=True)
-            np.testing.assert_allclose(target_full[:cut], target_part, equal_nan=True)
+            # Builders return (side, stop, target) or, when the entry is a resting order,
+            # (side, stop, target, entry_price). trendline_break is the second kind, and the entry
+            # prices must be free of look-ahead exactly like the rest.
+            orders_full = lab.strategy_orders(full, spec)
+            orders_part = lab.strategy_orders(part, spec)
+            assert len(orders_full) == len(orders_part) and len(orders_full) in (3, 4)
+            np.testing.assert_array_equal(orders_full[0][:cut], orders_part[0],
+                                          err_msg=f"{family}: side depends on future bars")
+            for index, name in ((1, "stop"), (2, "target")):
+                np.testing.assert_allclose(orders_full[index][:cut], orders_part[index], equal_nan=True,
+                                           err_msg=f"{family}: {name} depends on future bars")
+            if len(orders_full) == 4:
+                np.testing.assert_allclose(orders_full[3][:cut], orders_part[3], equal_nan=True,
+                                           err_msg=f"{family}: entry price depends on future bars")
 
 
 def test_holdout_is_only_simulated_for_validated_candidates(bars):
