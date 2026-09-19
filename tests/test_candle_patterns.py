@@ -171,3 +171,55 @@ def test_the_module_cannot_trade():
     text = open(cp.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
     for forbidden in ("order_send", "OrderSend", "place_order", "auto_execute", "MetaTrader5", "demo_executor"):
         assert forbidden not in text, f"{forbidden} must not appear in a measurement module"
+
+
+# --- the backtest stage (src/candle_pattern_lab.py) -------------------------------
+
+def test_the_backtest_grid_excludes_doji_and_is_twenty_four_variants():
+    """Doji has no direction; giving it one would test a different hypothesis than was measured."""
+    from src import candle_pattern_lab as cpl
+
+    specs = cpl.pattern_variants("XAUUSD", "4h")
+    assert len(specs) == 24
+    assert len(cpl.TRADED_PATTERNS) == 12
+    assert "doji" not in cpl.TRADED_PATTERNS
+    assert {s["params"]["rr"] for s in specs} == {1.0, 2.0}
+
+
+def test_the_backtest_stop_matches_the_measurement_barrier():
+    """sl_atr is fixed at 1.0 so the backtest reproduces the barrier the measurement used."""
+    from src import candle_pattern_lab as cpl
+
+    assert cpl.SL_ATR == 1.0
+
+
+def test_the_pattern_builder_signs_the_trade_the_way_the_pattern_points():
+    from src import candle_pattern_lab as cpl
+    from src import strategy_lab as lab
+
+    rows = [(115, 115.2, 109.8, 110), (110, 110.2, 104.8, 105), (105, 105.2, 99.8, 100)]
+    frame = _frame(rows * 40)
+    ind = lab.Indicators(frame)
+    spec = {"family": "candle_pattern",
+            "params": {"symbol": "XAUUSD", "timeframe": "4h", "pattern": "three_black_crows", "rr": 2.0},
+            "exits": {}}
+    side, stop, target = cpl.pattern_orders(ind, spec)
+    rows_hit = np.flatnonzero(side)
+    assert len(rows_hit) > 0
+    row = rows_hit[0]
+    assert side[row] == -1                       # three black crows is bearish
+    assert stop[row] > ind.c[row]                # a short's stop sits above the close
+    assert target[row] < ind.c[row]
+
+
+def test_the_inverse_flag_flips_the_backtest_side():
+    from src import candle_pattern_lab as cpl
+    from src import strategy_lab as lab
+
+    rows = [(115, 115.2, 109.8, 110), (110, 110.2, 104.8, 105), (105, 105.2, 99.8, 100)]
+    ind = lab.Indicators(_frame(rows * 40))
+    base = {"symbol": "XAUUSD", "timeframe": "4h", "pattern": "three_black_crows", "rr": 2.0}
+    plain = cpl.pattern_orders(ind, {"family": "candle_pattern", "params": base, "exits": {}})[0]
+    flipped = cpl.pattern_orders(ind, {"family": "candle_pattern",
+                                       "params": {**base, "inverse": True}, "exits": {}})[0]
+    assert (plain == -flipped).all()

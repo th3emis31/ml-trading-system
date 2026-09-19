@@ -90,3 +90,37 @@ model only when it beats the old one on unseen bars. **Nothing in this document 
 list, model, strategy or EA.** If nothing survives, that is recorded and the feature work is
 dropped, because adding features that carry no information to a learner with no edge would be
 theatre.
+
+## Second stage: backtest the patterns as strategies, with costs, on both assets
+
+Declared 19 September 2026 **before the run**, after the owner pointed out that both assets need
+backtesting and not only measuring.
+
+**The gap this closes.** The measurement above is **gross**. It counts how often a symmetric
+1 ATR barrier resolves in the pattern's favour and charges nothing for the spread or the overnight
+swap. On a 1:1 barrier a +2 percentage-point win-rate edge is worth roughly **+0.04 R per trade**
+before costs, and the system's cost model on these markets is a real fraction of that. So a pattern
+can be genuinely predictive and still lose money, and the measurement alone cannot tell the
+difference. This stage puts each pattern through the same engine every other strategy in this log
+uses, with the same costs.
+
+**The rule under test.** For each of the 13 patterns: enter in the pattern's own direction at the
+**next bar's open** (market order, exactly as the measurement assumed), stop `sl_atr` × ATR(14) from
+the signal bar's close, target `rr` × that risk, one position at a time, time exit after 48 bars.
+Doji is the exception — it has no direction, so it is skipped here rather than given one.
+
+| Knob | Values | Why |
+|---|---|---|
+| `pattern` | the 12 signed patterns (doji excluded) | one variant each, no combinations |
+| `sl_atr` | 1.0 | fixed, to match the measurement's barrier |
+| `rr` | 1.0, 2.0 | 1.0 reproduces the measured barrier under costs; 2.0 asks whether a wider target helps |
+
+12 × 2 = **24 variants per market**, on **XAUUSD and BTCUSD** at **1h and 4h** — the two timeframes
+where the measurement found its largest effects. **96 trials**, every one counted in the deflated
+Sharpe.
+
+**The bar does not move.** After costs, ≥ 30 holdout trades, drawdown within limits, deflated
+Sharpe ≥ 0.95, plus the two conditions that caught the Aurum Flow filters: positive on **all three
+splits**, and beating its **own inverse**. The prediction on record before running is that nothing
+passes, because a +0.04 R gross edge is smaller than the cost of trading it — and if that is what
+happens, it is the answer, not a reason for a wider grid.

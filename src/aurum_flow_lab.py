@@ -142,8 +142,15 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
     atr_median = pd.Series(atr).rolling(200).median().to_numpy()
     step = max(1, int(round((ind.times.iloc[1] - ind.times.iloc[0]).total_seconds() / 60))) if n > 1 else 1
     fill_window = max(1, int(p["expiry_minutes"] // step))
-    sl_dist = p["sl_points"] * POINT_VALUE
-    tp_dist = p["tp_points"] * POINT_VALUE
+    # Fixed point distances are what the EA uses, and they only make sense on gold: $21 is 4.45x
+    # gold's hourly ATR but 0.056x bitcoin's, so on BTC every position is stopped at once. ATR
+    # multiples let the same mechanism be tested on another instrument (strategies/aurum_flow.md).
+    if p.get("sl_atr_mult"):
+        sl_dist = p["sl_atr_mult"] * atr
+        tp_dist = p["tp_atr_mult"] * atr
+    else:
+        sl_dist = np.full(n, p["sl_points"] * POINT_VALUE)
+        tp_dist = np.full(n, p["tp_points"] * POINT_VALUE)
 
     # Decision at the open of bar t, from the two bars closed before it (the EA's candle 1 and 2).
     for t in range(2, n - 1):
@@ -202,8 +209,12 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
             continue
         side[row] = direction
         entry[row] = level
-        stop[row] = level - direction * sl_dist
-        target[row] = level + direction * tp_dist
+        risk, reward = sl_dist[one], tp_dist[one]
+        if not (np.isfinite(risk) and risk > 0 and np.isfinite(reward)):
+            side[row] = 0
+            continue
+        stop[row] = level - direction * risk
+        target[row] = level + direction * reward
     return side, stop, target, entry
 
 
@@ -309,6 +320,32 @@ def _bars_for(symbol: str, timeframe: str):
     return load_bars(symbol, timeframe, source="app")
 
 
+# Bitcoin cannot use the EA's fixed point distances (strategies/aurum_flow.md), so the mechanism is
+# tested on both markets with the ATR multiples that reproduce gold's own effective stop and target.
+SCALED_EXITS = ((4.45, 3.81), (4.45, 8.90))   # 0.857 R, the EA's own geometry, and 2 R
+
+
+def scaled_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
+    """8 per market and timeframe: 2 exit pairs x ma600/off, exits scaled by ATR not points."""
+    out = []
+    for (sl_mult, tp_mult), ma_period in product(SCALED_EXITS, (600, 0)):
+        name = f"atr{sl_mult:g}/{tp_mult:g}|ma{ma_period or 'off'}"
+        out.append({
+            "family": "aurum_flow",
+            "params": {"symbol": symbol, "timeframe": timeframe, "structure_depth": STRUCTURE_DEPTH,
+                       "spacing": SPACING, "refresh_bars": REFRESH_BARS, "ma_period": ma_period,
+                       "entry_points": 0, "expiry_minutes": EXPIRY_MINUTES,
+                       "sl_points": SL_POINTS, "tp_points": TP_POINTS,
+                       "sl_atr_mult": sl_mult, "tp_atr_mult": tp_mult,
+                       "block_nov_dec": False},
+            "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
+                      "max_bars": max_bars, "swing_lookback": 0},
+            "description": f"Aurum Flow mechanism, ATR-scaled {name}",
+            "variant": name,
+        })
+    return out
+
+
 def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") -> dict:
 
     registry = lab.load_registry()
@@ -328,7 +365,8 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") ->
         max_bars = max(8, int(MAX_TRADE_DAYS * 24 * 60 // max(minutes, 1)))
         market = lab.Market(symbol, timeframe, bars,
                             boundaries=(registry["markets"].get(key) or {}).get("boundaries"), swap=True)
-        builder = {"search": search_variants, "improve": improve_variants}.get(grid, aurum_variants)
+        builder = {"search": search_variants, "improve": improve_variants,
+                   "scaled": scaled_variants}.get(grid, aurum_variants)
         specs = builder(symbol, timeframe, max_bars)
         records = []
         for spec in specs:
@@ -365,7 +403,7 @@ def main(argv=None) -> int:
     parser.add_argument("command", choices=["run"])
     parser.add_argument("--symbols", nargs="+", default=["XAUUSD"])
     parser.add_argument("--timeframes", nargs="+", default=["15m", "1h"])
-    parser.add_argument("--grid", choices=["shipped", "search", "improve"], default="shipped",
+    parser.add_argument("--grid", choices=["shipped", "search", "improve", "scaled"], default="shipped",
                         help="shipped = the EA's own 8; search = the wider 72; improve = 36 with session, volatility and exit filters")
     args = parser.parse_args(argv)
     report = run(tuple(args.symbols), tuple(args.timeframes), grid=args.grid)

@@ -273,3 +273,41 @@ Plus two conditions this grid adds, because a filter is so easy to overfit:
 If nothing satisfies those, the recorded conclusion is that this mechanism cannot be made
 profitable by session, volatility or exit selection, and the next honest step is a different entry
 rather than a fourth grid on this one.
+
+## Testing the mechanism on bitcoin: why fixed points cannot be used
+
+Declared 19 September 2026 after the owner asked for both assets to be tested.
+
+Running the EA's own settings on BTCUSD produces profit factor **0.000** and net **−68 % to −96 %**
+over 789 to 2,212 trades. **That is not a result about the mechanism, it is the wrong units**, and it
+is recorded here so nobody later mistakes it for evidence:
+
+| | Stop as a share of one bar's ATR(14) | Stop as a share of price |
+|---|---|---|
+| XAUUSD 1h | **4.45 ×** ATR | 0.48 % |
+| XAUUSD 4h | 1.92 × ATR | 0.48 % |
+| BTCUSD 1h | **0.056 ×** ATR | 0.026 % |
+| BTCUSD 4h | 0.035 × ATR | 0.026 % |
+
+Aurum Flow's stop and target are **fixed point distances** — `SL = 2100`, `TP = 1800`, and `P()`
+gives $0.01 per point on both symbols, so the stop is always $21 and the target always $18. On gold
+that is a wide stop at four and a half times the hourly ATR. On bitcoin at $81,000 it is five per
+cent of a single bar's average range, so every position is stopped within moments of opening and the
+target is unreachable. Zero winners is the arithmetic working correctly.
+
+This is also a real observation about the EA: **it cannot be run on any instrument whose price scale
+differs much from gold's** without changing `SL` and `TP`, because nothing in it scales to the
+symbol.
+
+So the mechanism is tested on bitcoin with **ATR-scaled exits** instead, at the multiples that
+reproduce what the EA actually does on gold:
+
+* `sl_atr_mult = 4.45`, `tp_atr_mult = 3.81` — gold's own effective distances, preserving the EA's
+  0.857 reward:risk exactly.
+* plus `sl_atr_mult = 4.45`, `tp_atr_mult = 8.90` (2 R), since the fixed-point work already showed
+  the shipped sub-1 R geometry needs a 53.8 % win rate.
+
+2 exit pairs × 2 timeframes (1h, 4h) × `ma_period` 600 and off = **8 variants on BTCUSD**, and the
+same 8 on XAUUSD so the two markets are compared on identical terms. 16 trials, counted. Same bar as
+always: after costs, ≥ 30 holdout trades, positive on all three splits, beating its own inverse,
+deflated Sharpe ≥ 0.95.
