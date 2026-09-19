@@ -45,6 +45,10 @@ EXPIRY_MINUTES = 60        # PendingExpiryMinutes
 SL_POINTS, TP_POINTS = 2100, 1800   # SL, TP
 MAX_TRADE_DAYS = 5         # MaxTradeDurationDays
 BLOCKED_MONTHS = (11, 12)  # TradeInNovember / TradeInDecember, both false by default
+# The same non-overlapping UTC boundaries src/plan_journal.py attributes breakout trades by,
+# so the session prior recorded there (XAU Asia +0.378 R, London +0.226 R, New York -0.003 R)
+# is measured against the same clock.
+SESSIONS_UTC = {"asia": (21, 7), "london": (7, 12), "new_york": (12, 21)}
 # P() in the EA: Point x 10 when Digits is 3 or 5, else Point. Gold is quoted to 2 or 3 decimals,
 # so both branches give 0.01 of a dollar per point. Bitcoin is quoted to 2 decimals, same.
 POINT_VALUE = 0.01
@@ -131,7 +135,11 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
 
     upper, lower = trendlines(ind, p["structure_depth"], p["spacing"], p["refresh_bars"])
     ma = ind.sma(p["ma_period"]) if p["ma_period"] else None
-    months = pd.DatetimeIndex(ind.times).month.to_numpy()
+    stamps = pd.DatetimeIndex(ind.times)
+    months = stamps.month.to_numpy()
+    hours = stamps.hour.to_numpy()
+    atr = ind.atr(14)
+    atr_median = pd.Series(atr).rolling(200).median().to_numpy()
     step = max(1, int(round((ind.times.iloc[1] - ind.times.iloc[0]).total_seconds() / 60))) if n > 1 else 1
     fill_window = max(1, int(p["expiry_minutes"] // step))
     sl_dist = p["sl_points"] * POINT_VALUE
@@ -148,6 +156,22 @@ def aurum_orders(ind: lab.Indicators, spec: dict):
             continue
         if p["block_nov_dec"] and months[t] in BLOCKED_MONTHS:
             continue
+        # Third grid: filters that add information the entry does not carry. Both are read on the
+        # decision bar, so neither can see anything the EA could not have seen.
+        session = p.get("session", "all")
+        if session != "all":
+            hour = hours[t]
+            start, end = SESSIONS_UTC[session]
+            inside = (hour >= start or hour < end) if start > end else (start <= hour < end)
+            if not inside:
+                continue
+        regime = p.get("atr_regime", "all")
+        if regime != "all":
+            level, median = atr[one], atr_median[one]
+            if not (np.isfinite(level) and np.isfinite(median)):
+                continue
+            if (regime == "expansion") != (level > median):
+                continue
         if ma is not None:
             level = ma[one]
             if not np.isfinite(level):
@@ -235,6 +259,42 @@ def search_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
     return out
 
 
+# Third grid (strategies/aurum_flow.md): session, volatility regime and exit style. The base entry
+# is fixed so that the FILTERS are what is measured, not another sweep of the EA's own knobs.
+IMPROVE_SESSIONS = ("all", "asia", "london", "new_york")
+IMPROVE_REGIMES = ("all", "expansion", "compression")
+# The engine's own exit features: be_trigger_r / be_lock_price lock break-even, trail_start_r and
+# trail_atr trail behind the best price. "far target" means 6 R, so the trail decides the exit.
+IMPROVE_EXITS = {
+    "fixed_2r":   {"sl_points": 2100, "tp_points": 4200, "trail_atr": 0.0, "be_trigger_r": 0.0, "trail_start_r": 0.0},
+    "be_trail":   {"sl_points": 2100, "tp_points": 12600, "trail_atr": 2.2, "be_trigger_r": 1.0, "trail_start_r": 1.0},
+    "trail_only": {"sl_points": 2100, "tp_points": 12600, "trail_atr": 2.2, "be_trigger_r": 0.0, "trail_start_r": 0.0},
+}
+
+
+def improve_variants(symbol: str, timeframe: str, max_bars: int) -> list[dict]:
+    """36 per timeframe: 4 sessions x 3 volatility regimes x 3 exit styles, base entry fixed."""
+    out = []
+    for session, regime, exit_name in product(IMPROVE_SESSIONS, IMPROVE_REGIMES, sorted(IMPROVE_EXITS)):
+        style = IMPROVE_EXITS[exit_name]
+        name = f"{session}|{regime}|{exit_name}"
+        out.append({
+            "family": "aurum_flow",
+            "params": {"symbol": symbol, "timeframe": timeframe, "structure_depth": STRUCTURE_DEPTH,
+                       "spacing": SPACING, "refresh_bars": REFRESH_BARS, "ma_period": 600,
+                       "entry_points": 0, "expiry_minutes": EXPIRY_MINUTES,
+                       "sl_points": style["sl_points"], "tp_points": style["tp_points"],
+                       "block_nov_dec": False, "session": session, "atr_regime": regime},
+            "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0,
+                      "trail_atr": style["trail_atr"], "be_trigger_r": style["be_trigger_r"],
+                      "be_lock_price": 0.0, "trail_start_r": style["trail_start_r"],
+                      "trail_dist_r": 0.0, "max_bars": max_bars, "swing_lookback": 0},
+            "description": f"Aurum Flow + filters {name}",
+            "variant": name,
+        })
+    return out
+
+
 # The broker's one-minute history for XAUUSD begins here (measured 19 Sep 2026 by probing
 # /api/data/bars with a start/end window; every earlier window comes back empty). load_bars stops
 # at APP_MAX_BARS = 50,000 bars, which is only half of it, so 1m is paged instead.
@@ -268,7 +328,8 @@ def run(symbols=("XAUUSD",), timeframes=("15m", "1h"), grid: str = "shipped") ->
         max_bars = max(8, int(MAX_TRADE_DAYS * 24 * 60 // max(minutes, 1)))
         market = lab.Market(symbol, timeframe, bars,
                             boundaries=(registry["markets"].get(key) or {}).get("boundaries"), swap=True)
-        specs = (search_variants if grid == "search" else aurum_variants)(symbol, timeframe, max_bars)
+        builder = {"search": search_variants, "improve": improve_variants}.get(grid, aurum_variants)
+        specs = builder(symbol, timeframe, max_bars)
         records = []
         for spec in specs:
             record = lab.evaluate_candidate(market, spec, with_holdout=True)
@@ -304,8 +365,8 @@ def main(argv=None) -> int:
     parser.add_argument("command", choices=["run"])
     parser.add_argument("--symbols", nargs="+", default=["XAUUSD"])
     parser.add_argument("--timeframes", nargs="+", default=["15m", "1h"])
-    parser.add_argument("--grid", choices=["shipped", "search"], default="shipped",
-                        help="shipped = the EA's own 8 variants; search = the wider 72-variant grid")
+    parser.add_argument("--grid", choices=["shipped", "search", "improve"], default="shipped",
+                        help="shipped = the EA's own 8; search = the wider 72; improve = 36 with session, volatility and exit filters")
     args = parser.parse_args(argv)
     report = run(tuple(args.symbols), tuple(args.timeframes), grid=args.grid)
     print(f"saved {report['path']}")

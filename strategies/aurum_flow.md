@@ -219,3 +219,57 @@ The verdict rule does not move. After costs, ≥ 30 holdout trades, drawdown wit
 deflated Sharpe ≥ 0.95, and the inverse baseline reported beside the best candidate. If nothing
 clears it, the conclusion recorded is that this mechanism has no edge on gold at these costs —
 not that the grid needs widening again.
+
+## Third grid: can the mechanism be MADE profitable?
+
+Declared 19 September 2026 **before the run**, after the owner said "the problem is to make it
+profitable". The two earlier grids only varied the EA's own knobs, and the inverse baseline showed
+the raw entry carries no directional information. So no rearrangement of its own parameters can
+help — anything that works has to **add information the entry does not have**.
+
+Costs are not touched. The owner offered to change the spread assumption; a strategy that is only
+profitable at an optimistic spread is not profitable, so the cost model stays
+`spread+swap-v2-percent` exactly as for every other row in this log.
+
+**Base entry, fixed, so the filters are what is being tested:** `structure_depth` 200 and
+`ma_period` 600 (the EA's own defaults), `entry_points` 0 (measured better than 130 on M1 in the
+second grid, and already a tested binary rather than a new degree of freedom).
+
+### The three hypotheses, each with a stated prior
+
+**H1 — Session.** Gold's breakouts already behave very differently by session in this system's own
+records: the plan journal row of 17 September 2026 measured XAUUSD breakout plans at Asia
+**+0.378 R** over 103 trades, London **+0.226 R** over 51, and New York **−0.003 R** over 98. Those
+splits were descriptive on full history, so they are a hypothesis and not evidence. Values:
+`all`, `asia` (21–07 UTC), `london` (07–12), `new_york` (12–21) — the same non-overlapping
+boundaries `src/plan_journal.py` uses, so the numbers stay comparable. **4 values.**
+
+**H2 — Volatility regime.** A breakout needs expansion; in a compressed range it is noise. Values:
+`all`, `expansion` (ATR(14) above its own 200-bar median at the signal bar), `compression` (below).
+**3 values.**
+
+**H3 — Exit.** The system's one gold strategy that beats its own inverse, the Volatility Trend
+Breakout, does not use a fixed target — it locks break-even and trails. Values:
+`fixed_2r` (stop 2100 points, target 4200), `be_trail` (same stop, break-even at 1 R, then trail
+2.2 ATR once 1 R in profit, far 6 R target so the trail does the work), `trail_only` (trail 2.2 ATR
+from entry, far 6 R target). **3 values.**
+
+4 × 3 × 3 = **36 variants per timeframe**, run on XAUUSD **1h** and **1m**. 1h is included and
+reported first *because it has eight years of history*: 70 trading days of M1 cannot validate a
+filter, and a filter is exactly the kind of change that fits a short window. **72 trials**, every
+one counted in the deflated Sharpe.
+
+### What would count as success, fixed in advance
+
+Unchanged: after costs, ≥ 30 holdout trades, drawdown within limits, **deflated Sharpe ≥ 0.95**.
+Plus two conditions this grid adds, because a filter is so easy to overfit:
+
+1. **Positive on all three splits** — search, validation and holdout. Zero of the 72 variants in
+   the second grid managed that, and it is the test that exposed the apparent M1 winner whose
+   holdout gain sat on top of a −16 % search window.
+2. **Beats its own inverse** on the holdout by a margin, so the result is not simply gold's
+   direction over the window.
+
+If nothing satisfies those, the recorded conclusion is that this mechanism cannot be made
+profitable by session, volatility or exit selection, and the next honest step is a different entry
+rather than a fourth grid on this one.
