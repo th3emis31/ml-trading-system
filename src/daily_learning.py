@@ -152,7 +152,17 @@ class DailyLearner:
             if not lstm_promoted:
                 promotion.restore_files(archive, self.symbol, promotion.LSTM_FILES)
 
-        live_rf_accuracy = rf_metrics.get("accuracy") if rf_promoted else champion_rf_metrics.get("accuracy", rf_metrics.get("accuracy"))
+        # The live model's accuracy must describe the bars it is being judged on TODAY. When the champion
+        # is kept, its stored metrics figure is whatever it scored when it was trained - for gold that was
+        # Yahoo's GC=F proxy, and on 19 Sep 2026 it displayed 0.5639 for bitcoin whose re-scored accuracy
+        # on current broker bars was 0.5312, overstating it by 3.3 points. champion_eval is that re-scored
+        # figure, computed a few lines above on the same holdout the challenger was scored on, so it is
+        # both current and comparable. The stored figure is only a fallback.
+        if rf_promoted:
+            live_rf_accuracy = rf_metrics.get("accuracy")
+        else:
+            live_rf_accuracy = ((champion_eval or {}).get("accuracy")
+                                or champion_rf_metrics.get("accuracy", rf_metrics.get("accuracy")))
         live_lstm_accuracy = lstm_metrics.get("accuracy") if lstm_promoted else champion_lstm_metrics.get("accuracy")
         entry = {
             "symbol": self.symbol,
@@ -163,6 +173,11 @@ class DailyLearner:
             "lstm_accuracy": live_lstm_accuracy,
             "lstm_status": lstm_metrics.get("status"),
             "challenger_accuracy": rf_metrics.get("accuracy"),
+            # Where the "accuracy" above came from, so nobody has to guess whether it is current.
+            "accuracy_basis": ("challenger metrics, just trained" if rf_promoted else
+                               "champion re-scored on this run's holdout" if (champion_eval or {}).get("accuracy")
+                               else "champion's stored metrics from when it was trained"),
+            "champion_rescored_accuracy": (champion_eval or {}).get("accuracy"),
             "challenger_lstm_accuracy": lstm_metrics.get("accuracy"),
             "rf_promoted": rf_promoted,
             "rf_decision": rf_reason,

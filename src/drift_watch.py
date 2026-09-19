@@ -13,8 +13,15 @@ each is now a check here rather than something a person has to remember to look 
 2. **A frozen number read as a fresh one.** ``accuracy`` in ``data/learning_decisions.json`` is the
    *champion's* figure from the day it was promoted, not a new measurement. Gold's has been
    identical to sixteen decimal places on 17, 18 and 19 September, because the champion was not
-   replaced. Only ``challenger_accuracy`` is measured fresh each day, so drift shows up as
-   challengers repeatedly landing below what the champion claims.
+   replaced.
+
+   A correction worth recording, because the first version of this module got it wrong: the
+   promotion **decision** is sound. ``model_promotion.evaluate_rf`` re-scores the champion *and* the
+   challenger on the same current holdout, so a Yahoo-trained champion is re-tested on broker bars
+   every day and can lose. What is stale is only the number that gets **recorded and displayed**.
+   The honest figure is already computed daily and kept as ``rf_champion.accuracy`` — on 19 September
+   that was 0.5345 for gold against a displayed 0.5371, and 0.5312 for bitcoin against a displayed
+   0.5639, an overstatement of 3.3 points. This module reads the re-scored figure.
 
 3. **A silent change of price source.** The learning history switched from Yahoo to broker candles on
    19 September. Accuracies either side of that are not comparable, and a trend drawn across it is an
@@ -96,11 +103,16 @@ def majority_class_baseline(symbol: str, interval: str = "1h", bars: int = 3000)
 def accuracy_against_baseline(decisions: list, symbol: str, baseline: dict) -> dict:
     """Is the champion's claimed accuracy actually better than guessing the common class?"""
     rows = [r for r in decisions if r.get("symbol") == symbol
-            and isinstance(r.get("accuracy"), (int, float))]
+            and (isinstance(r.get("accuracy"), (int, float))
+                 or isinstance((r.get("rf_champion") or {}).get("accuracy"), (int, float)))]
     if not rows:
         return {"status": "no evidence", "why": f"no recorded accuracy for {symbol}"}
     latest = rows[-1]
-    accuracy = float(latest["accuracy"])
+    # Prefer the champion RE-SCORED on the current holdout over the figure frozen at promotion: the
+    # re-scored one is measured on the same bars as the baseline below, so the two are comparable.
+    rescored = (latest.get("rf_champion") or {}).get("accuracy")
+    using_rescored = isinstance(rescored, (int, float))
+    accuracy = float(rescored if using_rescored else latest["accuracy"])
     if not baseline.get("available"):
         return {"status": "cannot judge", "accuracy": round(accuracy, 4),
                 "why": f"the baseline could not be measured: {baseline.get('reason')}"}
@@ -112,8 +124,13 @@ def accuracy_against_baseline(decisions: list, symbol: str, baseline: dict) -> d
     # ``accuracy`` is the CHAMPION's frozen figure, so its price source is the source of the run that
     # PROMOTED it, not of the most recent run. Reading the latest row's source here would have called a
     # Yahoo-trained accuracy "broker-measured" and reported a clean edge that does not exist.
-    promoting = [r for r in decisions if r.get("symbol") == symbol and r.get("rf_promoted")]
-    trained_on = str((promoting[-1] if promoting else latest).get("data_source") or "unknown")
+    if using_rescored:
+        # The re-scored accuracy was measured on this run's bars, so this run's source is the one
+        # that matters for comparability.
+        trained_on = str(latest.get("data_source") or "unknown")
+    else:
+        promoting = [r for r in decisions if r.get("symbol") == symbol and r.get("rf_promoted")]
+        trained_on = str((promoting[-1] if promoting else latest).get("data_source") or "unknown")
     baseline_source = str(baseline.get("source") or "unknown")
     comparable = (trained_on in ("broker", "mt5") or trained_on.startswith("mt5")) and "mt5" in baseline_source
     if not comparable:
@@ -134,6 +151,9 @@ def accuracy_against_baseline(decisions: list, symbol: str, baseline: dict) -> d
                                       f"{rate:.4f}, an edge of {edge:+.4f}")
     return {"status": status, "accuracy": round(accuracy, 4), "baseline": rate,
             "edge": round(edge, 4), "why": why,
+            "measured_on": ("re-scored on this run's holdout" if using_rescored
+                            else "the figure frozen when the champion was promoted"),
+            "displayed_accuracy": latest.get("accuracy"),
             "measured_at": latest.get("trained_at") or latest.get("at")}
 
 
@@ -143,11 +163,15 @@ def champion_freshness(decisions: list, symbol: str) -> dict:
     if not rows:
         return {"status": "no evidence", "why": f"no learning decisions for {symbol}"}
     latest = rows[-1]
-    champion = latest.get("accuracy")
+    # Compare challengers against the champion RE-SCORED on the same holdout they were scored on,
+    # not against the figure frozen at promotion: the frozen one is a different measurement.
+    rescored = (latest.get("rf_champion") or {}).get("accuracy")
+    champion = rescored if isinstance(rescored, (int, float)) else latest.get("accuracy")
+    displayed = latest.get("accuracy")
     claims = [r.get("accuracy") for r in rows if isinstance(r.get("accuracy"), (int, float))]
     unchanged = 0
     for value in reversed(claims):
-        if champion is not None and abs(value - champion) < 1e-12:
+        if displayed is not None and abs(value - displayed) < 1e-12:
             unchanged += 1
         else:
             break
@@ -162,10 +186,12 @@ def champion_freshness(decisions: list, symbol: str) -> dict:
     age = latest.get("champion_age_days")
     stale = isinstance(age, (int, float)) and age > STALE_CHAMPION_DAYS
     status = "stale" if stale else ("unchanged" if unchanged >= 3 else "current")
-    return {"status": status, "champion_accuracy": champion, "champion_age_days": age,
+    return {"status": status, "champion_accuracy_rescored": champion, "displayed_accuracy": displayed,
+            "champion_age_days": age,
             "identical_records_in_a_row": unchanged, "challengers": shortfall,
-            "why": (f"the recorded accuracy has been identical for {unchanged} runs, so it is the "
-                    f"champion's figure from promotion rather than a fresh measurement"
+            "why": (f"the DISPLAYED accuracy has been identical for {unchanged} runs because it is the "
+                    f"figure frozen when the champion was promoted; its re-scored accuracy on the "
+                    f"latest holdout is {champion}"
                     if unchanged >= 3 else "the champion was replaced recently, so its figure is recent")}
 
 

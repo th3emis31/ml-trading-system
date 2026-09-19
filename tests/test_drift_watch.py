@@ -71,11 +71,48 @@ def test_the_champions_source_is_taken_from_the_run_that_promoted_it():
 # --- the frozen number read as a fresh one ----------------------------------------
 
 def test_an_accuracy_repeated_across_runs_is_flagged_as_the_champions_frozen_figure():
+    """The displayed figure repeats because it is frozen at promotion; the re-scored one is current."""
     decisions = [_decision(accuracy=0.5370843989769821) for _ in range(4)]
+    decisions[-1]["rf_champion"] = {"accuracy": 0.5345, "rows": 565}
     out = dw.champion_freshness(decisions, "XAUUSD")
     assert out["status"] == "unchanged"
     assert out["identical_records_in_a_row"] == 4
-    assert "rather than a fresh measurement" in out["why"]
+    assert out["displayed_accuracy"] == pytest.approx(0.5370843989769821)
+    assert out["champion_accuracy_rescored"] == pytest.approx(0.5345)
+    assert "frozen when the champion was promoted" in out["why"]
+
+
+def test_the_rescored_accuracy_is_preferred_over_the_frozen_one():
+    """The bug this pins: bitcoin displayed 0.5639 while its real current accuracy was 0.5312."""
+    base = {"available": True, "majority_class_rate": 0.5010, "source": "app:mt5:BTCUSD"}
+    decisions = [_decision(symbol="BTCUSD", accuracy=0.5639, source="broker", promoted=False)]
+    decisions[-1]["rf_champion"] = {"accuracy": 0.5312, "rows": 576}
+    out = dw.accuracy_against_baseline(decisions, "BTCUSD", base)
+    assert out["accuracy"] == pytest.approx(0.5312), "must use the re-scored figure, not the displayed one"
+    assert out["displayed_accuracy"] == pytest.approx(0.5639)
+    assert "re-scored" in out["measured_on"]
+    assert out["status"] == "has an edge"
+    assert out["edge"] == pytest.approx(0.0302, abs=1e-4)
+
+
+def test_the_promotion_decision_itself_was_always_fair():
+    """Recorded because I claimed otherwise first: both models are scored on the same holdout."""
+    from src import model_promotion, daily_learning
+    import inspect
+
+    source = inspect.getsource(daily_learning)
+    assert "holdout = promotion.challenger_holdout(features)" in source
+    assert "evaluate_rf(rf_model, holdout" in source
+    assert "evaluate_rf(champion_rf, holdout" in source
+
+
+def test_the_learner_records_where_its_accuracy_figure_came_from():
+    import inspect
+    from src import daily_learning
+
+    source = inspect.getsource(daily_learning)
+    assert '"accuracy_basis"' in source
+    assert '"champion_rescored_accuracy"' in source
 
 
 def test_challengers_landing_below_the_champions_claim_are_counted():
