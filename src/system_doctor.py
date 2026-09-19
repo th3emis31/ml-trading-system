@@ -260,6 +260,39 @@ def check_demo_pullback(state_path: Path = ROOT / "data" / "paper_trading" / "de
                    f"{state['last_cycle'].get('reason')}", **detail)
 
 
+def check_model_drift(now: Optional[datetime] = None) -> dict:
+    """Does the live model still describe the prices the system trades, and does it beat guessing?
+
+    Added 19 Sep 2026 because nothing was checking this. The learning gate records an accuracy and
+    compares it with nothing, and the champions in use were trained on Yahoo while the feed is MT5.
+    Both are now noticed here instead of needing someone to go looking.
+    """
+    from .drift_watch import collect_drift
+
+    try:
+        report = collect_drift()
+    except Exception as exc:
+        return _result("Model drift", "data", "info", f"Drift watch could not run: {exc}")
+    concerns = report.get("concerns") or []
+    mismatched = [s for s, m in report["models"].items()
+                  if (m.get("source_match") or {}).get("status") == "MISMATCH"]
+    no_edge = [s for s, m in report["models"].items()
+               if (m.get("vs_baseline") or {}).get("status") in ("no edge", "negligible")]
+    if mismatched:
+        return _result("Model drift", "data", "warn",
+                       f"{', '.join(mismatched)}: the live champion was trained on a different price "
+                       f"source than the feed serves, so its accuracy describes another series.",
+                       concerns=concerns[:6])
+    if no_edge:
+        return _result("Model drift", "data", "warn",
+                       f"{', '.join(no_edge)}: accuracy is at or barely above the majority class, so the "
+                       f"model is not beating a guess.", concerns=concerns[:6])
+    if concerns:
+        return _result("Model drift", "data", "info",
+                       f"{len(concerns)} drift note(s) worth reading.", concerns=concerns[:6])
+    return _result("Model drift", "data", "ok", "The live models match the feed and beat the majority class.")
+
+
 def check_i40_pilot(now: Optional[datetime] = None) -> dict:
     """The system brain: warn when its brief stops refreshing, because a stale brain misdescribes the system."""
     from .i40_pilot import REFRESH_MINUTES, loop
@@ -714,7 +747,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
