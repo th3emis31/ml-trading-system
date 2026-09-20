@@ -35,9 +35,25 @@ def _plan(**kw):
 
 
 def test_it_ships_switched_off():
-    """The capability is built and dry: an order path that has never been asked to place one must not."""
+    """The DEFAULT must be dry: an order path that has never been asked to place one must not.
+
+    This deliberately checks DEFAULT_CONFIG and not the live config file. The owner enabled real demo
+    orders on 20 Sep 2026, so asserting the live config is dry would be asserting that their decision
+    never happened - the invariant that matters is that a fresh install places nothing until asked.
+    """
     assert pt.DEFAULT_CONFIG["dry_run"] is True
-    assert pt.plan_status()["places_orders"] is False
+    assert pt.DEFAULT_CONFIG["max_entries_per_day"] == 1
+    assert pt.DEFAULT_CONFIG["volume"] == 0.01
+
+
+def test_no_configuration_can_point_it_at_another_account():
+    """The account is hard-coded, not configured: whatever the config says, only 11581419 may trade."""
+    assert pt.plan_status()["demo_account"] == dsp.DEMO_ACCOUNT_LOGIN == 11581419
+    source = open(pt.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    assert "DEMO_ACCOUNT_LOGIN" not in source.split("def plan_cycle")[0].split("DEFAULT_CONFIG")[1].split("}")[0],         "the account must never be a config key"
+    engine = PullbackEngine(account={**DEMO, "login": 99999999, "trade_mode": 2})
+    pt.plan_cycle(engine, _plan(), now=NOW, config={**SENDING, "enabled": True})
+    assert engine.sent == [], "a foreign account sends nothing, whatever the config says"
 
 
 def test_a_live_account_is_refused_and_nothing_is_sent():

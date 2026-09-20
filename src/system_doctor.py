@@ -69,6 +69,9 @@ TASKS = {
     "SmartEntry Daily Learning": {"script": "run_daily_learning.cmd", "schedule": ["/sc", "daily", "/st", "05:30"]},
     "SmartEntry Demo Pullback": {"script": "run_demo_pullback.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:01"]},
     "SmartEntry Demo Breakout": {"script": "run_demo_breakout.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:03"]},
+    # The daily plan's executor, added 20 Sep 2026 when the plan finally got an execution path. Magic 440704,
+    # demo account 11581419 only; enabled/dry_run live in data/paper_trading/demo_plan_trader.json.
+    "SmartEntry Demo Plan": {"script": "run_demo_plan.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Positioning": {"script": "run_positioning.cmd", "schedule": ["/sc", "daily", "/st", "21:10"]},
     "SmartEntry i40 Pilot": {"script": "run_i40_pilot.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:40"]},
