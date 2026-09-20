@@ -138,3 +138,27 @@ def test_the_unseen_window_ends_before_the_app_history_begins():
     end = pd.to_datetime(frame["datetime"], utc=True).max()
     # the app's own XAUUSD 15m history starts 2024-08-07; this must finish before it
     assert end < pd.Timestamp("2024-08-07", tz="UTC"), f"unseen window ends {end}, which overlaps the app's bars"
+
+
+def test_the_unseen_report_says_what_survives_without_its_best_stretch():
+    """A window total can rest entirely on one good month. Measured 2026-09-20 on the unseen gold
+    window: V2_break_even_only totals +4.99 R over 135 trades, but +6.57 R of that is 14 trades in
+    July 2024, so the other 121 trades are -1.58 R. Reporting only the total would have called that
+    an edge. v1's own near-break-even total is the same illusion: -7.42 R without its best half."""
+    from pathlib import Path
+
+    if not Path(crt_lab.UNSEEN_CACHE.format(tf="15m")).exists():
+        pytest.skip("the unseen window exists only as a cached export")
+    report = crt_lab.run_unseen()
+    assert not report.get("error")
+    for row in report["variants"]:
+        if not row.get("trades"):
+            continue
+        for key in ("by_half_year", "profitable_half_years", "half_years",
+                    "net_r_without_best_half", "trades_without_best_half"):
+            assert key in row, f"{key} missing from {row['variant']}"
+        # the leave-one-out total can never exceed the full total, and must drop some trades
+        assert row["net_r_without_best_half"] <= row["net_r"] + 1e-9
+        assert 0 < row["trades_without_best_half"] < row["trades"]
+        assert row["half_years"] >= 1
+        assert 0 <= row["profitable_half_years"] <= row["half_years"]

@@ -372,11 +372,35 @@ def run_unseen() -> dict:
         outcomes = {}
         for t in trades:
             outcomes[t["outcome"]] = outcomes.get(t["outcome"], 0) + 1
+        # Per half-year, because a whole-window total hides whether an edge is steady or one lucky
+        # stretch. This breakdown is what exposed the earlier M15 EMA50 candidate as regime luck.
+        periods = {}
+        for t in trades:
+            stamp = pd.Timestamp(t["entry_time"])
+            half = f"{stamp.year}H{1 if stamp.month <= 6 else 2}"
+            row = periods.setdefault(half, {"trades": 0, "net_r": 0.0})
+            row["trades"] += 1
+            row["net_r"] += float(t["net_r"])
+        for row in periods.values():
+            row["net_r"] = round(row["net_r"], 2)
         report["variants"].append({"variant": name, **{k: summary.get(k) for k in
                                    ("trades", "profit_factor", "total_return_pct", "expectancy_r",
                                     "max_drawdown_pct", "win_rate_pct", "ambiguous_exits")},
                                    "net_r": round(sum(t["net_r"] for t in trades), 2),
-                                   "outcomes": outcomes})
+                                   "outcomes": outcomes, "by_half_year": dict(sorted(periods.items())),
+                                   "profitable_half_years": sum(1 for r in periods.values() if r["net_r"] > 0),
+                                   "half_years": len(periods),
+                                   # A total can rest entirely on one good stretch. This drops the single best
+                                   # half-year and reports what is left, which is the difference between an edge
+                                   # and a lucky month. Measured 2026-09-20: V2_break_even_only totals +4.99 R
+                                   # over 135 trades, but +6.57 R of that comes from 14 trades in July 2024, so
+                                   # the other 121 trades are -1.58 R.
+                                   "net_r_without_best_half": round(
+                                       sum(r["net_r"] for r in periods.values())
+                                       - max((r["net_r"] for r in periods.values()), default=0.0), 2),
+                                   "trades_without_best_half": sum(
+                                       r["trades"] for r in periods.values()
+                                       if r["net_r"] != max((q["net_r"] for q in periods.values()), default=0.0))})
     lab.LAB_DIR.mkdir(parents=True, exist_ok=True)
     path = lab.LAB_DIR / f"crt_unseen_2022_2024_{datetime.now(timezone.utc):%Y%m%d}.json"
     path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
@@ -459,6 +483,16 @@ def main(argv=None) -> None:
                   f"net {r['total_return_pct']:+7.2f}% netR {r['net_r']:+7.2f} "
                   f"expR {r['expectancy_r']:+.4f} DD {r['max_drawdown_pct']:5.2f}% win {r['win_rate_pct']:4.1f}% "
                   f"{r['outcomes']}")
+        print("\nnet R per half-year - is the edge steady, or one lucky stretch?")
+        halves = sorted({h for r in report["variants"] if r.get("by_half_year") for h in r["by_half_year"]})
+        print(f"  {'variant':26s} " + " ".join(f"{h:>9s}" for h in halves) + "   positive")
+        for r in report["variants"]:
+            if not r.get("by_half_year"):
+                continue
+            cells = " ".join(f"{r['by_half_year'].get(h, {}).get('net_r', 0.0):+9.2f}" for h in halves)
+            print(f"  {r['variant']:26s} {cells}   {r['profitable_half_years']}/{r['half_years']}"
+                  f"   without its best half: {r['net_r_without_best_half']:+7.2f} R over "
+                  f"{r['trades_without_best_half']:3d} trades")
         print("\nsaved:", report["path"])
         return
 
