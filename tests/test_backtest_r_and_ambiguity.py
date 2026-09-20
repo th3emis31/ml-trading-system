@@ -98,3 +98,44 @@ def test_a_split_whose_sign_depends_on_the_assumption_is_reported_as_unresolved(
     assert lab._outcome_is_resolved({"expectancy_r": 0.05, "expectancy_r_bound": 0.06}) is True
     assert lab._outcome_is_resolved({"expectancy_r": 0.05, "expectancy_r_bound": None}) is True
     assert lab._outcome_is_resolved({"expectancy_r": None}) is None
+
+
+# --- 3. the partial close the engine could not represent -----------------------------
+
+def test_a_partial_close_books_its_share_and_carries_the_remainder():
+    """Added 20 Sep 2026 after the owner challenged a backtest that called CRT_Dashboard_EA
+    unprofitable. The engine had NO partial-close concept, so the expert was judged without its own
+    risk management: it banks 50 % at 1R and only the remainder is trailed."""
+    # rises to +1R (101.0 with a 1.0 risk), then comes back and stops out at 100.0-ish
+    rows = [(100.0, 100.2, 99.8, 100.0)] * 2 + [(100.0, 101.2, 99.9, 101.0)] + [(101.0, 101.1, 98.9, 99.0)] * 2
+    t = _run(rows, stop=99.0, target=103.0, exits={"max_bars": 50, "partial_at_r": 1.0, "partial_pct": 50.0})[0]
+    assert t["partial_booked"] is True
+    assert t["partial_r_booked"] == pytest.approx(0.5, abs=0.01), "half the position banked at 1R"
+    # the remaining half stopped out for -1R, so the trade nets about zero rather than a full loss
+    assert t["net_r"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_a_trade_that_never_reaches_the_level_books_nothing():
+    """The finding that settled the CRT question: the expert's trail exits at about 0.15R, so its own
+    partial close at 1R never fires. Zero of 116 holdout trades ever reached 1R."""
+    rows = [(100.0, 100.2, 99.8, 100.0)] * 2 + [(100.0, 100.3, 99.9, 100.2)] + [(100.2, 100.3, 98.9, 99.0)] * 2
+    t = _run(rows, stop=99.0, target=103.0, exits={"max_bars": 50, "partial_at_r": 1.0, "partial_pct": 50.0})[0]
+    assert t["partial_booked"] is False and t["partial_r_booked"] == 0.0
+    assert t["net_r"] < -0.9, "no partial means the full position takes the loss"
+
+
+def test_without_the_keys_nothing_changes():
+    """Every existing spec must behave exactly as before."""
+    rows = [(100.0, 100.2, 99.8, 100.0)] * 2 + [(100.0, 101.2, 99.9, 101.0)] + [(101.0, 101.1, 98.9, 99.0)] * 2
+    plain = _run(rows, stop=99.0, target=103.0)[0]
+    assert plain["partial_booked"] is False
+    assert plain["net_r"] == pytest.approx(-1.0, abs=0.05)
+
+
+def test_the_partial_pays_its_own_cost():
+    rows = [(100.0, 100.2, 99.8, 100.0)] * 2 + [(100.0, 101.2, 99.9, 101.0)] + [(101.0, 101.1, 98.9, 99.0)] * 2
+    free = _run(rows, cost_pct=0.0, stop=99.0, target=103.0,
+                exits={"max_bars": 50, "partial_at_r": 1.0, "partial_pct": 50.0})[0]
+    costly = _run(rows, cost_pct=0.002, stop=99.0, target=103.0,
+                  exits={"max_bars": 50, "partial_at_r": 1.0, "partial_pct": 50.0})[0]
+    assert costly["partial_r_booked"] < free["partial_r_booked"], "the booked half is charged too"

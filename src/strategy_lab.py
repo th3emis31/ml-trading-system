@@ -356,6 +356,14 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
     trail_start_r = float(exits.get("trail_start_r") or 0.0)
     trail_dist_r = float(exits.get("trail_dist_r") or 0.0)
     managed = be_trigger_r > 0 or trail_dist_price > 0 or trail_dist_r > 0
+    # Optional partial close, which several real experts use and this engine could not represent until
+    # 20 Sep 2026: book ``partial_pct`` of the position once price reaches ``partial_at_r`` x the initial
+    # risk, and carry the remainder to whatever exit follows. Omitting it judged CRT_Dashboard_EA without
+    # its own risk management - the expert banks half at 1 R, and the simulation trailed the whole
+    # position instead. Absent keys change nothing.
+    partial_at_r = float(exits.get("partial_at_r") or 0.0)
+    partial_pct = float(exits.get("partial_pct") or 0.0) / 100.0
+    partial_on = partial_at_r > 0 and 0.0 < partial_pct < 1.0
     # Optional swap avoidance (needs ``holding``): close at the close of the last bar before a rollover that would
     # charge three nights ("exit_before_triple_swap") or any night ("exit_before_rollover"), so that night is not paid.
     roll = holding["roll"] if holding is not None else None
@@ -379,6 +387,7 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
         current_stop, extreme = stop0, (h[t] if s == 1 else l[t])
         best, risk0 = entry, abs(entry - stop0)
         ambiguous = False
+        partial_done, booked_r, partial_price = False, 0.0, None
         exit_price = outcome = None
         j = entry_i
         while j < n:
@@ -426,6 +435,11 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
                     ambiguous = True
                 exit_price, outcome = current_stop, "STOP"
                 break
+            if partial_on and not partial_done:
+                level = entry + s * partial_at_r * risk0
+                if (s == 1 and h[j] >= level) or (s == -1 and l[j] <= level):
+                    partial_done, partial_price = True, level
+                    booked_r = partial_pct * (partial_at_r - (cost_pct * entry) / risk0)
             if np.isfinite(tgt) and not (limit_fill and j == entry_i) and ((s == 1 and h[j] >= tgt) or (s == -1 and l[j] <= tgt)):
                 exit_price, outcome = tgt, "TARGET"
                 break
@@ -445,17 +459,23 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
             "entry_time": _iso(times[entry_i]), "exit_time": _iso(times[j]), "outcome": outcome,
             "entry_price": round(float(entry), 3), "exit_price": round(float(exit_price), 3),
             "bars_held": int(j - entry_i), "gross_pct": round(gross * 100, 4),
-            "net_pct": round((gross - cost_pct - swap_frac) * 100, 4),
+            # Weighted across the booked and remaining parts, so the equity curve and the profit factor
+            # see the same trade the R figure does.
+            "net_pct": round((((partial_pct * (s * (partial_price - entry) / entry - cost_pct)) if partial_done else 0.0)
+                              + (1.0 - (partial_pct if partial_done else 0.0))
+                              * (gross - cost_pct - swap_frac)) * 100, 4),
             "nights": nights, "swap_pct": round(swap_frac * 100, 4),
             "r_multiple": round(gross * entry / abs(entry - stop0), 3),
             # R AFTER costs. r_multiple above is gross, which flattered every expectancy this lab has ever
             # reported: spread and swap are a fixed slice of the entry price, so on a tight stop they eat a
             # large fraction of one R. summarize_trades reports expectancy_r from this field, never from the
             # gross one. Same convention as walkforward_backtest, which had it from the start.
-            "net_r": round((gross - cost_pct - swap_frac) * entry / abs(entry - stop0), 4),
+            "net_r": round(booked_r + (1.0 - (partial_pct if partial_done else 0.0))
+                           * (gross - cost_pct - swap_frac) * entry / abs(entry - stop0), 4),
             # True when the exit bar reached both the stop and the target, so this trade's outcome was assigned
             # by the engine's pessimism rather than read off the data.
             "ambiguous_exit": bool(ambiguous),
+            "partial_booked": bool(partial_done), "partial_r_booked": round(booked_r, 4),
             # The R this trade would have returned at its target, net of costs: what an ambiguous exit is worth
             # if the target came first. Read by summarize_trades for the pessimism bound.
             "target_r": (round((s * (tgt - entry) / entry - cost_pct - swap_frac) * entry / abs(entry - stop0), 4)

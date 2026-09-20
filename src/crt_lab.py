@@ -230,7 +230,7 @@ ROUND2_FILTERS = [
     ("max_3_middle_bars", {"max_mid": 3}),
     ("breakout_body_half_atr", {"body_atr": 0.5}),
 ]
-ROUND1_TRIALS = 8
+ROUND1_TRIALS = 9   # 8 exits, plus A without its partial close as a control
 
 
 def crt_orders(ind: lab.Indicators, spec: dict):
@@ -262,8 +262,17 @@ def exit_variants(symbol: str) -> list[tuple[str, dict]]:
     p = PRESETS[symbol]
     base = {"stop": "crt", "sl_atr": 0.0, "rr": p["rr"], "trail_atr": 0.0, "max_bars": 0, "swing_lookback": 0}
     return [
+        # The expert as coded, INCLUDING its partial close. Until 20 Sep 2026 this variant omitted the
+        # partial entirely - the engine had no way to express it - so the expert was judged without its own
+        # risk management: it banks 50 % at 1 R (EnablePartialClose true, PartialCloseAtR 1.0,
+        # PartialClosePercent 50.0) and only the remainder is trailed.
         ("A_live_exits", dict(base, be_trigger_r=1.0, be_lock_price=p["be_lock"] * POINT,
-                              trail_start_price=p["trail_start"] * POINT, trail_dist_price=p["trail_dist"] * POINT)),
+                              trail_start_price=p["trail_start"] * POINT, trail_dist_price=p["trail_dist"] * POINT,
+                              partial_at_r=1.0, partial_pct=50.0)),
+        # kept so the size of that omission stays visible rather than being quietly corrected away
+        ("A_live_exits_no_partial", dict(base, be_trigger_r=1.0, be_lock_price=p["be_lock"] * POINT,
+                                         trail_start_price=p["trail_start"] * POINT,
+                                         trail_dist_price=p["trail_dist"] * POINT)),
         ("B_fixed_target", dict(base)),
         ("C_breakeven_at_1R", dict(base, be_trigger_r=1.0, be_lock_price=p["be_lock"] * POINT)),
         ("D_trail_from_1.5R_1R_behind", dict(base, trail_start_r=1.5, trail_dist_r=1.0)),
