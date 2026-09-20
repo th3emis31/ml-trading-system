@@ -216,3 +216,71 @@ def test_a_missing_doctor_report_says_so_instead_of_claiming_health(tmp_path):
     items = pilot.attention({"health": missing})["items"]
     assert not any("/system-doctor" == i["where"] and "drift" in i["what"].lower() for i in items)
     assert all(i["severity"] != "bad" for i in items), "a missing report is not itself a failure"
+
+
+def _decisions(tmp_path, rows):
+    path = tmp_path / "learning_decisions.json"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return path
+
+
+def test_the_loop_is_open_when_observations_change_nothing():
+    """Measured 20 Sep 2026: eleven consecutive learning runs recorded the live model losing money on
+    unseen bars, and not one threshold, weight or gate moved. File freshness cannot see that, which is
+    why closure is measured separately from cadence."""
+    import tempfile
+    from pathlib import Path as P
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [{"symbol": "XAUUSD", "trained_at": "2026-09-18 05:30:00", "rf_promoted": True},
+                {"symbol": "XAUUSD", "trained_at": "2026-09-19 05:30:00", "rf_promoted": False},
+                {"symbol": "XAUUSD", "trained_at": "2026-09-20 05:30:00", "rf_promoted": False}]
+        out = pilot.loop_closure(path=_decisions(P(tmp), rows))
+        assert out["available"] and out["closing"] is False
+        assert out["observations"] == 3 and out["actions"] == 1
+        assert out["last_action"] == "2026-09-18 05:30:00"
+        assert out["observations_since_action"] == 2
+        assert "OPEN" in out["note"]
+
+
+def test_the_loop_is_closing_when_the_newest_observation_acted():
+    import tempfile
+    from pathlib import Path as P
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [{"symbol": "XAUUSD", "trained_at": "2026-09-19 05:30:00", "rf_promoted": False},
+                {"symbol": "XAUUSD", "trained_at": "2026-09-20 05:30:00", "lstm_promoted": True}]
+        out = pilot.loop_closure(path=_decisions(P(tmp), rows))
+        assert out["closing"] is True and out["observations_since_action"] == 0
+        assert "CLOSING" in out["note"]
+
+
+def test_a_loop_that_never_acted_says_so():
+    import tempfile
+    from pathlib import Path as P
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = [{"symbol": "XAUUSD", "trained_at": "2026-09-20 05:30:00", "rf_promoted": False}]
+        out = pilot.loop_closure(path=_decisions(P(tmp), rows))
+        assert out["closing"] is False and out["last_action"] is None
+        assert "never closed" in out["note"]
+
+
+def test_learning_decisions_reach_the_activity_trail():
+    """Two bugs kept them out. The field is trained_at, not at/timestamp/date, so every learning
+    timestamp was None and activity() dropped it; and once fixed, a straight newest-first cut buried
+    the 05:30 decisions under 18 newer scheduler rows."""
+    brief = {
+        "context": {"learning": {"per_symbol": {
+            "XAUUSD": {"status": "trained", "at": "2026-09-20 05:30:12", "rf_promoted": False},
+            "BTCUSD": {"status": "trained", "at": "2026-09-20 05:30:34", "rf_promoted": True}}}},
+        "schedule": {"tasks": [{"task": f"noisy {i}", "registered": True, "last_result": "0",
+                                "last_run": f"20/09/2026 {10 + i}:00:00"} for i in range(9)]},
+    }
+    out = pilot.activity(brief, limit=8)
+    sources = {e["source"] for e in out["events"]}
+    assert "learning" in sources, "a slow source must not be crowded out by a fast one"
+    assert out["count"] == 11, "count is the true total, not the shown slice"
+    learning = [e for e in out["events"] if e["source"] == "learning"]
+    assert {e["at"] for e in learning} == {"2026-09-20 05:30:12", "2026-09-20 05:30:34"}
+    assert "promoted" in [e["detail"] for e in learning if "BTCUSD" in e["what"]][0]

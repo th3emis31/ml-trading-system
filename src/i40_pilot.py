@@ -231,7 +231,14 @@ def learning_state(path: Optional[Path] = None) -> dict:
     return {"available": True, "decisions": len(rows), "file": str(target),
             "per_symbol": {symbol: {"status": row.get("status"), "rf_promoted": row.get("rf_promoted"),
                                     "lstm_promoted": row.get("lstm_promoted"), "accuracy": row.get("accuracy"),
-                                    "at": row.get("at") or row.get("timestamp") or row.get("date")}
+                                    # The field in data/learning_decisions.json is "trained_at". Reading
+                                    # "at"/"timestamp"/"date" returned None every time, and because
+                                    # activity() drops events with no time, LEARNING NEVER APPEARED IN THE
+                                    # ACTIVITY TRAIL AT ALL - 0 of 27 events, in the pillar the owner most
+                                    # wants to see moving. The older names are kept as fallbacks.
+                                    "at": (row.get("trained_at") or row.get("at")
+                                           or row.get("timestamp") or row.get("date")),
+                                    "data_source": row.get("data_source")}
                            for symbol, row in sorted(latest.items())}}
 
 
@@ -332,6 +339,13 @@ def attention(brief: dict) -> dict:
     # at 18:28 the doctor reported overall "warnings" with a live model-drift warn on BOTH traded symbols,
     # while the pilot's 17:40 brief said "Everything the pilot can check is running." A green control room
     # sitting on top of an open warning is exactly the flattering label the owner's standing rule forbids.
+    # An open loop is not a failure, but it is the thing the owner most wants to know: the system is
+    # observing and recording without anything changing as a result.
+    closure = (brief.get("loop") or {}).get("closure") or {}
+    if closure.get("available") and not closure.get("closing"):
+        add("info", f"the learning loop is open: {closure.get('observations_since_action')} runs since "
+                    f"anything changed", closure.get("note") or "", "/self-learning")
+
     for check in (brief.get("health") or {}).get("open") or []:
         severity = {"fail": "bad", "error": "bad", "warn": "warn"}.get(check.get("level"), "info")
         add(severity, f"{check.get('name')}: {check.get('summary')}",
@@ -369,8 +383,28 @@ def activity(brief: dict, limit: int = 18) -> dict:
                                  f"LSTM {'promoted' if decision.get('lstm_promoted') else 'kept'}"})
     events = [e for e in events if e["at"]]
     events.sort(key=lambda e: e["at"], reverse=True)
-    return {"count": len(events), "events": events[:limit],
-            "note": "Straight from the strategies' decision logs and the task scheduler; nothing here is inferred."}
+    # A straight newest-first cut is dominated by whichever source ticks fastest. Measured 20 Sep 2026:
+    # 29 events built, 18 shown, and the oldest shown was 16:01 - so the day's LEARNING decisions, stamped
+    # 05:30, fell off the end and the trail read as 100 % scheduler rows. Give each source a share first,
+    # then sort, so a slow but important source is not buried by a noisy one. count stays the true total.
+    per_source = max(2, limit // max(1, len({e["source"] for e in events})))
+    seen: dict[str, int] = {}
+    fair = []
+    for event in events:
+        taken = seen.get(event["source"], 0)
+        if taken < per_source:
+            seen[event["source"]] = taken + 1
+            fair.append(event)
+    for event in events:                       # backfill any spare slots with the newest remaining
+        if len(fair) >= limit:
+            break
+        if event not in fair:
+            fair.append(event)
+    fair.sort(key=lambda e: e["at"], reverse=True)
+    return {"count": len(events), "events": fair[:limit], "sources": sorted(seen),
+            "note": "Straight from the strategies' decision logs, the learning decisions and the task "
+                    "scheduler; nothing here is inferred. Each source gets a share so the fastest-ticking "
+                    "one cannot crowd out the rest."}
 
 
 def context(get: Optional[Callable] = None) -> dict:
@@ -421,16 +455,65 @@ def context(get: Optional[Callable] = None) -> dict:
                             "reason": positioning.get("reason")}}
 
 
-def loop(now=None, path: Optional[Path] = None) -> dict:
-    """How often the brief refreshes, and how stale the copy on disk is."""
+def loop_closure(now=None, path: Optional[Path] = None) -> dict:
+    """Does the loop CLOSE? That is: has anything the system observed actually changed what it does?
+
+    A refresh cadence is not a loop. Observing, recording and displaying is an OPEN loop, and this system
+    has been running one: as of 20 Sep 2026 the Daily Learning task had recorded eleven consecutive runs
+    saying the live model loses money on unseen bars, and not one threshold, weight or gate had moved.
+    Measuring file freshness cannot see that, which is why it was worth separating the two questions.
+
+    The observable action here is a promotion: the gate replacing a champion with a challenger. Every
+    learning run is an observation; a run with rf_promoted or lstm_promoted is the loop closing.
+    """
+    now = now or datetime.now(timezone.utc)
+    target = Path(path) if path else smartentry_data_dir() / "learning_decisions.json"
+    try:
+        rows = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"available": False, "reason": f"cannot read {target}"}
+    if not isinstance(rows, list) or not rows:
+        return {"available": False, "reason": f"{target} holds no decisions"}
+
+    def when(row):
+        return row.get("trained_at") or row.get("at") or ""
+
+    observations = [r for r in rows if isinstance(r, dict) and when(r)]
+    actions = [r for r in observations if r.get("rf_promoted") or r.get("lstm_promoted")]
+    last_observation = max((when(r) for r in observations), default=None)
+    last_action = max((when(r) for r in actions), default=None)
+    since = None
+    if last_action:
+        try:
+            since = round((now - datetime.fromisoformat(last_action).replace(tzinfo=timezone.utc)).days)
+        except ValueError:
+            since = None
+    # How many observations have been made since the loop last closed: the honest measure of an open loop.
+    idle = sum(1 for r in observations if last_action and when(r) > last_action)
+    return {"available": True, "observations": len(observations), "actions": len(actions),
+            "last_observation": last_observation, "last_action": last_action,
+            "days_since_action": since, "observations_since_action": idle,
+            "closing": bool(last_action) and idle == 0,
+            "what_counts_as_action": "the learning gate promoting a challenger over the live champion",
+            "note": ("The loop is CLOSING: the last thing observed changed what runs."
+                     if last_action and idle == 0 else
+                     f"The loop is OPEN: {idle} learning runs recorded since anything last changed"
+                     f"{f' ({since} days)' if since is not None else ''}. Observation without action is "
+                     f"not learning." if last_action else
+                     "The loop has never closed: nothing observed has ever changed what runs.")}
+
+
+def loop(now=None, path: Optional[Path] = None, decisions_path: Optional[Path] = None) -> dict:
+    """How often the brief refreshes, how stale the copy on disk is, and whether the loop actually closes."""
     now = now or datetime.now(timezone.utc)
     target = Path(path) if path else pilot_dir() / "latest.json"
+    closure = loop_closure(now, decisions_path)
     if not target.exists():
-        return {"available": False, "every_minutes": REFRESH_MINUTES,
+        return {"available": False, "every_minutes": REFRESH_MINUTES, "closure": closure,
                 "reason": f"{target} has not been written yet (task SmartEntry i40 Pilot)"}
     age = (now.timestamp() - target.stat().st_mtime) / 60
     return {"available": True, "every_minutes": REFRESH_MINUTES, "age_minutes": round(age, 1),
-            "stale": age > REFRESH_MINUTES * 2, "file": str(target)}
+            "stale": age > REFRESH_MINUTES * 2, "file": str(target), "closure": closure}
 
 
 def build_brief(url_map=None, get: Optional[Callable] = None, now=None, csv_text: Optional[str] = None,
