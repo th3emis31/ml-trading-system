@@ -263,6 +263,21 @@ def _as_iso(value) -> Optional[str]:
 ATTENTION_ORDER = {"bad": 0, "warn": 1, "info": 2}
 
 
+def second_brain_state() -> dict:
+    """What the durable record holds, and how to ask it. Degrades to a reason rather than raising."""
+    try:
+        from .second_brain import status as brain_status
+
+        state = brain_status()
+    except Exception as exc:                        # a reporting section must never take the brain down
+        return {"available": False, "reason": f"second brain unreadable: {exc}"}
+    state["ask"] = ["python -m src.second_brain tried \"<topic>\"",
+                    "python -m src.second_brain recall \"<query>\""]
+    state["why"] = ("Before testing something, ask whether it has already been settled. On 20 Sep 2026 a "
+                    "4H CRT idea was proposed that earlier research had already killed.")
+    return state
+
+
 def health(path: Optional[Path] = None) -> dict:
     """The System Doctor's own latest verdict, read rather than re-derived.
 
@@ -533,6 +548,10 @@ def build_brief(url_map=None, get: Optional[Callable] = None, now=None, csv_text
         "tools": tools(url_map),
         "loop": loop(now),
         "health": health(),
+        # The eighth pillar the owner named, and the one that did not exist until 20 Sep 2026: the
+        # durable side of memory. memory() above counts records; this one makes them askable, so work
+        # already settled is not repeated. It never answers in its own words - only with sources.
+        "second_brain": second_brain_state(),
     }
     brief["attention"] = attention(brief)
     brief["activity"] = activity(brief)
