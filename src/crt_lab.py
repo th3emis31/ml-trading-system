@@ -321,6 +321,69 @@ def round2_variants(symbol: str) -> list[tuple[str, dict, dict]]:
             for ename in ("B_fixed_target", "G_target_3R")]
 
 
+UNSEEN_CACHE = "data/research/cache/xauusd_{tf}_mt5hist_2018_2024.csv"
+
+
+def run_unseen() -> dict:
+    """Round 3's exits on gold M15 bars no CRT selection has ever chosen with.
+
+    The window ends 2024-08-01, six days BEFORE the app's history begins, so nothing here informed
+    any CRT parameter, filter or exit. Nothing is selected or tuned: the five declared exits run over
+    the whole window at once, to answer one pre-stated question. The trail defect is mechanical
+    arithmetic - v1's trail starts at 0.15 R and follows 0.09 R behind - so removing it should help
+    here too. If it did not, round 3 would have been a fact about 2026 rather than about the expert.
+    """
+    from .walkforward_backtest import summarize_trades
+
+    frames = {}
+    for tf in ("15m", "4h"):
+        path = Path(UNSEEN_CACHE.format(tf=tf))
+        if not path.exists():
+            return {"error": f"missing {path}; this window exists only as a cached export"}
+        frame = pd.read_csv(path)
+        frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
+        frames[tf] = frame.sort_values("datetime").reset_index(drop=True)
+
+    bars = frames["15m"]
+    market = lab.Market("XAUUSD", "15m", bars, swap=True)
+    market.ind.htf_bars = frames["4h"]
+    rows = np.arange(lab.WARMUP_BARS, len(market.ind.c) - 1)
+    report = {"generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              "window": f"{lab._iso(bars['datetime'].iloc[0])} to {lab._iso(bars['datetime'].iloc[-1])}",
+              "bars": int(len(bars)), "cost_model": market.info["cost_model"],
+              "note": "no selection and no tuning; the five round-3 exits over the whole window",
+              "variants": []}
+    for name, filters, exits in round3_variants("XAUUSD"):
+        spec = {"family": "crt", "params": {"symbol": "XAUUSD", "filters": filters}, "exits": exits,
+                "description": f"CRT replica, {name}, unseen 2022-2024"}
+        orders = lab.strategy_orders(market.ind, spec)
+        side, stop, target = orders[:3]
+        entry_prices = orders[3] if len(orders) > 3 else None
+        atr = market.ind.atr(int(spec["params"].get("atr_len", 14)))
+        trades = lab.simulate_orders(market.ind.o, market.ind.h, market.ind.l, market.ind.c, atr,
+                                     market.ind.times, side, stop, target, rows, exits,
+                                     market.cost_pct, market.holding, entry_prices)
+        if not trades:
+            report["variants"].append({"variant": name, "trades": 0})
+            continue
+        summary = summarize_trades(trades, test_start=market.ind.times.iloc[int(rows[0])],
+                                   test_end=market.ind.times.iloc[int(rows[-1])], test_bars=len(rows),
+                                   bars_in_market=sum(t["bars_held"] for t in trades))
+        outcomes = {}
+        for t in trades:
+            outcomes[t["outcome"]] = outcomes.get(t["outcome"], 0) + 1
+        report["variants"].append({"variant": name, **{k: summary.get(k) for k in
+                                   ("trades", "profit_factor", "total_return_pct", "expectancy_r",
+                                    "max_drawdown_pct", "win_rate_pct", "ambiguous_exits")},
+                                   "net_r": round(sum(t["net_r"] for t in trades), 2),
+                                   "outcomes": outcomes})
+    lab.LAB_DIR.mkdir(parents=True, exist_ok=True)
+    path = lab.LAB_DIR / f"crt_unseen_2022_2024_{datetime.now(timezone.utc):%Y%m%d}.json"
+    path.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    report["path"] = str(path)
+    return report
+
+
 def run(symbols=("XAUUSD", "BTCUSD"), round_no: int = 1) -> dict:
     from .mtf_data import load_bars
 
@@ -378,7 +441,27 @@ def main(argv=None) -> None:
     go.add_argument("--symbols", nargs="+", default=["XAUUSD", "BTCUSD"])
     go.add_argument("--round", type=int, choices=(1, 2, 3), default=1,
                     help="1 = exit variants, 2 = entry filters x 2 exits, 3 = the v2 expert's exits")
+    sub.add_parser("unseen", help="round 3's exits on gold M15 bars no CRT selection ever used (2022-06 to 2024-08)")
     args = parser.parse_args(argv)
+
+    if args.command == "unseen":
+        report = run_unseen()
+        if report.get("error"):
+            print(report["error"])
+            return
+        print(f"=== unseen gold M15: {report['bars']} bars, {report['window']}")
+        print(f"    costs {report['cost_model']}; {report['note']}\n")
+        for r in report["variants"]:
+            if not r.get("trades"):
+                print(f"{r['variant']:26s} no trades")
+                continue
+            print(f"{r['variant']:26s} n {r['trades']:4d} PF {r['profit_factor'] or 0:5.3f} "
+                  f"net {r['total_return_pct']:+7.2f}% netR {r['net_r']:+7.2f} "
+                  f"expR {r['expectancy_r']:+.4f} DD {r['max_drawdown_pct']:5.2f}% win {r['win_rate_pct']:4.1f}% "
+                  f"{r['outcomes']}")
+        print("\nsaved:", report["path"])
+        return
+
     report = run(args.symbols, args.round)
     for key, market in report["markets"].items():
         print(f"\n=== {key} {market['info']['data_start']} to {market['info']['data_end']} | {market['info']['periods']}")

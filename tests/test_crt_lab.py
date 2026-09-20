@@ -94,3 +94,47 @@ def test_filter_mask_keeps_everything_without_filters_and_applies_score_and_sess
     assert list(crt_lab.filter_mask(ind, sig, side, {"min_score": 70.0})) == [True, False, True, False]
     assert list(crt_lab.filter_mask(ind, sig, side, {"session": (10, 19)})) == [False, True, True, False]
     assert list(crt_lab.filter_mask(ind, sig, side, {"max_mid": 3})) == [True, True, False, False]
+
+
+def test_round3_is_five_declared_exits_with_v1_as_the_reference():
+    """Round 3 tests the exits shipped in strategies/mt4/CRT_Dashboard_EA_v2.mq4. It must stay a small
+    DECLARED set: the gold M15 holdout is spent, so a sweep over TrailStartR/TrailDistanceR here would
+    be fitting rather than measuring."""
+    v = crt_lab.round3_variants("XAUUSD")
+    assert len(v) == crt_lab.ROUND3_TRIALS == 5
+    names = [n for n, _, _ in v]
+    assert names[0] == "V1_live_exits_reference", "the reference must be in the table, not remembered"
+    assert set(names) == {"V1_live_exits_reference", "V2_default", "V2_break_even_only",
+                          "V2_r_trail_only", "V2_default_3R"}
+    exits = {n: e for n, _, e in v}
+    # v2's shipped default: break-even at 1R locking 0.10R, trail off, 2R target
+    assert exits["V2_break_even_only"]["be_trigger_r"] == 1.0
+    assert exits["V2_break_even_only"]["be_lock_r"] == 0.10
+    assert "trail_start_r" not in exits["V2_break_even_only"]
+    # the two halves of the change are separable, so credit lands on the right one
+    assert "be_trigger_r" not in exits["V2_r_trail_only"]
+    assert exits["V2_r_trail_only"]["trail_start_r"] == 1.5
+    assert exits["V2_r_trail_only"]["trail_dist_r"] == 1.0
+
+
+def test_round3_charges_every_crt_trial_ever_made_against_this_holdout():
+    """Rounds 1 and 2 already read this holdout, so their trials must still count."""
+    import inspect
+    src = inspect.getsource(crt_lab.run)
+    assert "ROUND1_TRIALS + len(ROUND2_FILTERS) * 2 + len(variants)" in src
+
+
+def test_the_unseen_window_ends_before_the_app_history_begins():
+    """The point of that window is that no CRT choice was ever made with it. If it overlapped the
+    app's bars, every conclusion drawn from it would be contaminated by rounds 1-3."""
+    from pathlib import Path
+
+    import pandas as pd
+
+    path = Path(crt_lab.UNSEEN_CACHE.format(tf="15m"))
+    if not path.exists():
+        pytest.skip("the unseen window exists only as a cached export")
+    frame = pd.read_csv(path, usecols=["datetime"])
+    end = pd.to_datetime(frame["datetime"], utc=True).max()
+    # the app's own XAUUSD 15m history starts 2024-08-07; this must finish before it
+    assert end < pd.Timestamp("2024-08-07", tz="UTC"), f"unseen window ends {end}, which overlaps the app's bars"
