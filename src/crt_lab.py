@@ -288,6 +288,33 @@ def r_stats(trades: list[dict], stop: np.ndarray) -> dict:
             "avg_net_r": round(float(np.mean(net_r)), 3), "outcomes": outcomes}
 
 
+# Round 3, pre-stated 20 Sep 2026 BEFORE any round 3 result: the exits shipped in
+# strategies/mt4/CRT_Dashboard_EA_v2.mq4, against v1's own exits as the reference. The entries are
+# identical throughout - only the exit changes - because the measured defect is in the exit: v1's trail
+# starts at 0.15 R and follows 0.09 R behind, capping winners at +0.158 R while losers pay -1.019 R.
+# Deliberately NO sweep over TrailStartR / TrailDistanceR: the gold M15 holdout is already spent, so a
+# parameter search here would be fitting, not measuring. Five variants, every one counted.
+ROUND3_TRIALS = 5
+
+
+def round3_variants(symbol: str) -> list[tuple[str, dict, dict]]:
+    p = PRESETS[symbol]
+    base = {"stop": "crt", "sl_atr": 0.0, "rr": p["rr"], "trail_atr": 0.0, "max_bars": 0, "swing_lookback": 0}
+    v1_ref = dict(exit_variants(symbol))["A_live_exits"]
+    return [
+        # the reference, unchanged, so the table is self-contained
+        ("V1_live_exits_reference", {}, v1_ref),
+        # v2 as shipped: break-even at 1R locking 0.10 R, then trail 1.0 R behind from 1.5 R, 2 R target
+        ("V2_default", {}, dict(base, be_trigger_r=1.0, be_lock_r=0.10, trail_start_r=1.5, trail_dist_r=1.0)),
+        # the two halves of that change, separated, so credit lands on the right one
+        ("V2_break_even_only", {}, dict(base, be_trigger_r=1.0, be_lock_r=0.10)),
+        ("V2_r_trail_only", {}, dict(base, trail_start_r=1.5, trail_dist_r=1.0)),
+        # v2's management with the wider target that scored best in round 1
+        ("V2_default_3R", {}, dict(base, rr=3.0, be_trigger_r=1.0, be_lock_r=0.10,
+                                   trail_start_r=1.5, trail_dist_r=1.0)),
+    ]
+
+
 def round2_variants(symbol: str) -> list[tuple[str, dict, dict]]:
     exits = dict(exit_variants(symbol))
     return [(f"{fname}+{ename}", filters, exits[ename]) for fname, filters in ROUND2_FILTERS
@@ -305,7 +332,11 @@ def run(symbols=("XAUUSD", "BTCUSD"), round_no: int = 1) -> dict:
         boundaries = (registry["markets"].get(key) or {}).get("boundaries")
         market = lab.Market(symbol, "15m", bars, boundaries=boundaries, swap=True)
         market.ind.htf_bars = bars4h
-        if round_no == 2:
+        if round_no == 3:
+            variants = round3_variants(symbol)
+            # every CRT trial ever charged against this holdout, not just this round's
+            n_trials = ROUND1_TRIALS + len(ROUND2_FILTERS) * 2 + len(variants)
+        elif round_no == 2:
             variants = round2_variants(symbol)
             n_trials = ROUND1_TRIALS + len(variants)
         else:
@@ -345,7 +376,8 @@ def main(argv=None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     go = sub.add_parser("run")
     go.add_argument("--symbols", nargs="+", default=["XAUUSD", "BTCUSD"])
-    go.add_argument("--round", type=int, choices=(1, 2), default=1, help="1 = exit variants, 2 = entry filters x 2 exits")
+    go.add_argument("--round", type=int, choices=(1, 2, 3), default=1,
+                    help="1 = exit variants, 2 = entry filters x 2 exits, 3 = the v2 expert's exits")
     args = parser.parse_args(argv)
     report = run(args.symbols, args.round)
     for key, market in report["markets"].items():

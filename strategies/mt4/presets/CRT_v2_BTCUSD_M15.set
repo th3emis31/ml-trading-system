@@ -1,0 +1,31 @@
+; CRT_Dashboard_EA v2 preset
+; Research only. Nothing here is proven profitable: the best deflated Sharpe measured was
+; 0.352 (bitcoin) and 0.286 (gold) against the owner's standing bar of 0.95. Run it on a
+; DEMO account and let forward evidence decide.
+EnableAutoTrading=true
+MagicNumber=260704
+RiskPercent=1.0
+UseFixedLotSize=false
+FixedLotSize=0.01
+UseSymbolPreset=true
+; --- the exit, which is what v2 changes ---
+EnableBreakEven=true
+BreakEvenTriggerR=1.0
+UseRBasedBreakEvenLock=true
+BreakEvenLockR=0.10
+EnableTrailingStop=false
+UseRBasedTrailing=true
+TrailStartR=1.5
+TrailDistanceR=1.0
+PersistInitialRisk=true
+EnablePartialClose=true
+PartialCloseAtR=1.0
+PartialClosePercent=50.0
+; BTCUSD M15. Measured holdout 2026-06-02 -> 2026-09-20, corrected costs:
+; v1 exits PF 0.420 -9.84 %  ->  this preset PF 1.233 +6.66 %, 109 trades, max DD 6.83 %
+; READ THIS BEFORE USING IT: on bitcoin the search and validation windows LOSE for every
+; variant tested (PF 0.55-0.60, -27 % to -38 %), so NOTHING was selectable and the positive
+; holdout is a single favourable window. Earlier research concluded 'stop CRT research on
+; BTC 15m'. This preset exists for completeness and forward observation, not because bitcoin
+; has been shown to work. Gold is the better-evidenced of the two.
+RiskReward=2.2

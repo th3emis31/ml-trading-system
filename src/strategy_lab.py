@@ -347,6 +347,10 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
     # profit. Checked on the previous bar's extreme, so the stop moves from the next bar on.
     be_trigger_r = float(exits.get("be_trigger_r") or 0.0)
     be_lock = float(exits.get("be_lock_price") or 0.0)
+    # A lock in R rather than in price, so it scales with the instrument. CRT_Dashboard_EA v1 locks a
+    # fixed 15 points ($0.15), which is 0.007 R on gold - no protection at all. Price form wins if both
+    # are given, so no existing spec changes behaviour.
+    be_lock_r = float(exits.get("be_lock_r") or 0.0)
     trail_start_price = float(exits.get("trail_start_price") or 0.0)
     trail_dist_price = float(exits.get("trail_dist_price") or 0.0)
     trail_start_r = float(exits.get("trail_start_r") or 0.0)
@@ -400,7 +404,8 @@ def simulate_orders(o, h, l, c, atr, times, side, stop, target, rows, exits: dic
                     profit = s * (best - entry)
                     moves = []
                     if be_trigger_r > 0 and profit >= be_trigger_r * risk0:
-                        moves.append(entry + s * be_lock)
+                        lock = be_lock if be_lock > 0 else be_lock_r * risk0
+                        moves.append(entry + s * lock)
                     if trail_dist_price > 0 and profit >= trail_start_price:
                         moves.append(best - s * trail_dist_price)
                     if trail_dist_r > 0 and profit >= trail_start_r * risk0:

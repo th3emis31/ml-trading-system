@@ -1,0 +1,28 @@
+; CRT_Dashboard_EA v2 preset
+; Research only. Nothing here is proven profitable: the best deflated Sharpe measured was
+; 0.352 (bitcoin) and 0.286 (gold) against the owner's standing bar of 0.95. Run it on a
+; DEMO account and let forward evidence decide.
+EnableAutoTrading=true
+MagicNumber=260704
+RiskPercent=1.0
+UseFixedLotSize=false
+FixedLotSize=0.01
+UseSymbolPreset=true
+; --- the exit, which is what v2 changes ---
+EnableBreakEven=true
+BreakEvenTriggerR=1.0
+UseRBasedBreakEvenLock=true
+BreakEvenLockR=0.10
+EnableTrailingStop=false
+UseRBasedTrailing=true
+TrailStartR=1.5
+TrailDistanceR=1.0
+PersistInitialRisk=true
+EnablePartialClose=true
+PartialCloseAtR=1.0
+PartialClosePercent=50.0
+; XAUUSD M15. Measured holdout 2026-04-14 -> 2026-09-18, corrected costs:
+; v1 exits PF 0.728 -3.12 %  ->  this preset PF 1.201 +4.27 %, 98 trades, max DD 2.71 %
+; The gold M15 holdout is SPENT (five rounds). Treat the above as a reason to forward test,
+; not as a result. Attach to XAUUSD M15 only.
+RiskReward=2.0
