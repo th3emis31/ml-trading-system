@@ -108,10 +108,13 @@ def test_leg_b_goes_to_break_even_and_trails_then_time_exit_and_trade_memory(mon
     settle = end + pd.Timedelta(hours=1)
     dvb.breakout_cycle(engine, bars_for(h4_frame(settle)), [], now=settle, config=SENDING)
     memory = dsp.read_jsonl(dvb.breakout_paths()["trade_memory"])
-    assert len(memory) == 1 and memory[0]["magic"] == 440603 and memory[0]["strategy"] == "volatility_trend_breakout"
+    # Two rows since 20 Sep 2026: one when the order was placed, one when it settled.
+    assert len(memory) == 2 and [m.get("event") for m in memory] == ["opened", "closed"]
+    closed = [m for m in memory if m.get("event") == "closed"]
+    assert len(closed) == 1 and closed[0]["magic"] == 440603 and closed[0]["strategy"] == "volatility_trend_breakout"
     for key in ("setup", "session", "regime", "minutes_to_next_tier1_event", "r_result", "legs"):
-        assert key in memory[0]
-    assert memory[0]["r_result"] == pytest.approx(0.5 * (2019.5 - leg_a["fill"]) / trade["r_price"]
+        assert key in closed[0]
+    assert closed[0]["r_result"] == pytest.approx(0.5 * (2019.5 - leg_a["fill"]) / trade["r_price"]
                                                   + 0.5 * (engine.bid - leg_b["fill"]) / trade["r_price"], abs=1e-3)
 
 
@@ -184,3 +187,60 @@ def test_gold_and_bitcoin_are_traded_independently(monkeypatch):
     again = dvb.breakout_cycle(engine, bars, [], now=NOW + pd.Timedelta(minutes=5), config=both)
     assert all(r["decision"] in ("hold", "refused") for r in again["per_symbol"].values())
     assert len(dvb.load_breakout_state()["trades"]) == 2
+
+
+def _memory_rows():
+    return dsp.read_jsonl(dvb.breakout_paths()["trade_memory"])
+
+
+def test_an_order_is_journalled_the_moment_it_is_placed(monkeypatch):
+    """Added 20 Sep 2026. Only closes were recorded before, so a live position existed nowhere durable:
+    the BTCUSD trade opened 18 Sep left one log line saying "BUY opened: 2 legs" - no symbol, no price,
+    no size, no stop, no target, no ticket. If the state file had been lost it was unreconstructable."""
+    signal_on_last_closed(monkeypatch)
+    engine = PullbackEngine()
+    summary = dvb.breakout_cycle(engine, bars_for(h4_frame()), [], now=NOW, config=SENDING)
+    assert summary["decision"] == "opened"
+
+    opens = [m for m in _memory_rows() if m.get("event") == "opened"]
+    assert len(opens) == 1, "placing an order must leave exactly one durable record"
+    row = opens[0]
+    # everything needed to reconstruct the trade without the state file
+    assert row["symbol"] == "XAUUSD" and row["side"] == "BUY"
+    trade = next(iter(dvb.load_breakout_state()["trades"].values()))
+    assert row["entry"] == trade["entry"], "the record must carry the FILL, not the signal price"
+    assert row["stop"] == 1985.0
+    assert row["volume_per_leg"] == 0.01 and row["total_volume"] == 0.02
+    assert sorted(row["targets"].values()) == [2019.5, 2042.0]
+    assert len(row["tickets"]) == 2 and all(isinstance(t, int) for t in row["tickets"])
+    assert row["magic"] == 440603 and row["account"] == dsp.DEMO_ACCOUNT_LOGIN
+    assert row["opened_at"] and row["signal_bar"]
+
+
+def test_the_log_line_names_the_symbol_price_size_and_tickets(monkeypatch):
+    """"BUY opened: 2 legs" told the owner nothing about what had been placed."""
+    signal_on_last_closed(monkeypatch)
+    summary = dvb.breakout_cycle(PullbackEngine(), bars_for(h4_frame()), [], now=NOW, config=SENDING)
+    reason = summary["reason"]
+    fill = next(iter(dvb.load_breakout_state()["trades"].values()))["entry"]
+    for expected in ("XAUUSD", "0.01", str(fill), "1985.0", "tickets"):
+        assert expected in reason, f"{expected!r} missing from {reason!r}"
+
+
+def test_an_open_record_is_never_counted_as_a_closed_trade(monkeypatch):
+    """The journal is read by selecting on r_result, so open rows must not inflate the trade count."""
+    signal_on_last_closed(monkeypatch)
+    dvb.breakout_cycle(PullbackEngine(), bars_for(h4_frame()), [], now=NOW, config=SENDING)
+    rows = _memory_rows()
+    assert any(m.get("event") == "opened" for m in rows)
+    assert [m for m in rows if m.get("r_result") is not None] == [], "an open trade has no result yet"
+
+
+def test_a_dry_run_order_is_not_journalled_as_placed(monkeypatch):
+    """A dry run sends nothing, so it must leave no 'opened' record claiming it did."""
+    signal_on_last_closed(monkeypatch)
+    summary = dvb.breakout_cycle(PullbackEngine(), bars_for(h4_frame()), [], now=NOW,
+                                 config={**dvb.DEFAULT_CONFIG, "enabled": True, "dry_run": True,
+                                         "symbols": ["XAUUSD"]})
+    assert summary["decision"] == "dry_run_order"
+    assert [m for m in _memory_rows() if m.get("event") == "opened"] == []

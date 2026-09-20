@@ -173,6 +173,7 @@ def manage_breakout_trade(engine, state: dict, trade: dict, candles: list, confi
         shared._append_jsonl(breakout_paths()["trade_memory"], {
             "strategy": STRATEGY, "magic": MAGIC, "account": shared.DEMO_ACCOUNT_LOGIN,
             "symbol": trade.get("symbol", SYMBOL),
+            "event": "closed",
             "mode": "demo_broker_fill", "trade_id": trade["id"], "side": "BUY", "opened_at": trade["opened_at"],
             "closed_at": trade["closed_at"], "setup": trade["setup"], "session": trade["session"], "regime": trade["regime"],
             "next_event": trade["next_event"], "minutes_to_next_tier1_event": trade["minutes_to_next_tier1_event"],
@@ -373,7 +374,24 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     trade["entry"] = round(sum(p["fill"] for p in placed) / len(placed), 2)
     trade["r_price"] = round(trade["entry"] - setup["stop"], 3)
     state["trades"][trade["id"]] = trade
-    summary.update(decision="opened", reason="BUY opened: 2 legs")
+    # Journal the OPEN, not only the close. Until 20 Sep 2026 only closes were written here, so a live
+    # position existed nowhere durable: the BTCUSD trade opened 18 Sep left a single log line reading
+    # "BUY opened: 2 legs" - no symbol, no price, no size, no stop, no target, no ticket. Had the state
+    # file been lost the trade could not have been reconstructed. Readers of this journal select on
+    # r_result being present, so these rows are correctly ignored when counting closed trades.
+    shared._append_jsonl(breakout_paths()["trade_memory"], {
+        "strategy": STRATEGY, "magic": MAGIC, "account": shared.DEMO_ACCOUNT_LOGIN, "event": "opened",
+        "symbol": symbol, "mode": "demo_broker_fill", "trade_id": trade["id"], "side": "BUY",
+        "opened_at": trade["opened_at"], "signal_bar": trade["signal_bar"], "entry": trade["entry"],
+        "stop": setup["stop"], "r_price": trade["r_price"], "atr": signal.atr,
+        "volume_per_leg": VOLUME_PER_LEG, "total_volume": round(VOLUME_PER_LEG * len(placed), 4),
+        "targets": {p["leg"]: p["target"] for p in placed},
+        "tickets": [p["ticket"] for p in placed], "legs": placed, "setup": setup, **context})
+    summary.update(decision="opened",
+                   reason=(f"BUY {symbol} opened: {len(placed)} x {VOLUME_PER_LEG} lot at {trade['entry']}, "
+                           f"stop {setup['stop']}, targets "
+                           + " / ".join(str(p["target"]) for p in placed)
+                           + ", tickets " + ", ".join(str(p["ticket"]) for p in placed)))
     return summary
 
 
