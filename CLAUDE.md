@@ -83,6 +83,19 @@ Standing owner rules (approved 14 Sep 2026):
   deflated Sharpe 0.95 and the other holdout criteria. Research, backtests, runs in the separate
   Strategy Tester copy and new presets for later review remain allowed.
 
+**NEVER-BLOCK, clarified 20 September 2026** (an addition to the rule above, which stands unchanged):
+
+> The rule protects **LEARNING and GOOD signals**: every trade fires and feeds learning so the system
+> always has full data. It does **NOT** mean preserving bad signals. The system **SHOULD** get smarter
+> and improve away from bad signals - but **ONLY** through proven, evidence-based learning validated on
+> accumulated data, **NEVER** through a naive filter or throttle that stops trades firing or starves
+> learning. Improvement path = better calibration + a better model built from all the data, proven
+> before it changes any live behaviour.
+
+So "never block" is not "never improve". It forbids the *shortcut* - a filter bolted on to suppress
+signals - because that starves the very data the improvement has to be proven on. It permits, and
+expects, improvement earned from the accumulated record and demonstrated before it touches anything live.
+
 ```bash
 python run.py                    # alternative entry: probes for a free port from 5001
 python -m pytest -q              # tests live in ml_trading_system\tests
