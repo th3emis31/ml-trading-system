@@ -25,6 +25,7 @@ with changing markets.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import sys
@@ -171,7 +172,34 @@ def evaluate_rf(model, holdout: pd.DataFrame, symbol: str, *, buy_threshold: flo
     }
 
 
+def accuracy_chance_band(rows: Optional[int]) -> float:
+    """The 95 % band inside which an accuracy DIFFERENCE on ``rows`` bars is indistinguishable from luck.
+
+    Two coin-flippers scored on the same n bars differ by about 1.96 x 0.5 x sqrt(2/n) by chance alone. On the
+    565-bar holdouts these models are scored on, that is roughly 5.8 points - far wider than the gaps the gate
+    was rejecting on. Measured 20 Sep 2026: every rejection in the four preceding runs was made on a gap INSIDE
+    this band, so the gate was resolving noise.
+    """
+    n = int(rows or 0)
+    if n <= 0:
+        return 1.0                      # nothing to compare: treat every difference as noise
+    return 1.96 * 0.5 * math.sqrt(2.0 / n)
+
+
 def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age_days: Optional[float]) -> tuple[bool, str]:
+    """Which model serves live, decided on MONEY rather than on accuracy.
+
+    Changed 20 Sep 2026 after measuring the old gate against its own record. It compared accuracy first and
+    only reached the money checks if accuracy passed. Across 41 head-to-head runs the accuracy winner and the
+    money winner agreed 17 times and disagreed 17 - a coin flip - and IN 17 OF 41 RUNS THE GATE KEPT THE MODEL
+    THAT MADE LESS MONEY. On 20 Sep it preferred -5.653 % over -2.239 % for gold and -11.613 % over -10.518 %
+    for bitcoin, taking the worse drawdown in both cases too.
+
+    So the order is now: reject only on a REAL accuracy collapse (outside the chance band), then decide on
+    after-cost return over the same bars, then keep the drawdown guard. Accuracy is a sanity check, not the
+    verdict. Nothing here claims the promoted model is profitable - it is the better of two, and
+    ``promoted_model_is_profitable`` in the decision record says whether it makes money at all.
+    """
     if challenger is None:
         if champion is None:
             return True, "No champion to compare with and too few unseen bars to score the challenger; keeping the new model."
@@ -179,16 +207,52 @@ def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age
     if champion is None:
         return True, "No previous model to compare with; the new model goes live."
     stale = champion_age_days is not None and champion_age_days > STALE_CHAMPION_DAYS
-    required = champion["accuracy"] - (ACCURACY_TOLERANCE if stale else 0.0)
-    if challenger["accuracy"] + 1e-9 < required:
-        return False, (f"Challenger accuracy {challenger['accuracy']:.3f} is below the champion's {champion['accuracy']:.3f}"
-                       f"{' less the stale-model tolerance' if stale else ''} on {challenger['rows']} unseen bars; champion restored.")
-    if (champion.get("trades", 0) >= MIN_TRADES_FOR_DRAWDOWN_CHECK and challenger.get("trades", 0) >= MIN_TRADES_FOR_DRAWDOWN_CHECK
+    band = accuracy_chance_band(challenger.get("rows"))
+    gap = challenger["accuracy"] - champion["accuracy"]
+
+    # 1. Sanity only: reject a challenger whose accuracy has genuinely collapsed, meaning the gap is worse
+    #    than chance can explain. A gap inside the band carries no information and must not decide anything.
+    allowance = band + (ACCURACY_TOLERANCE if stale else 0.0)
+    if gap + 1e-9 < -allowance:
+        return False, (f"Challenger accuracy {challenger['accuracy']:.3f} is {abs(gap) * 100:.1f} points below the "
+                       f"champion's {champion['accuracy']:.3f} on {challenger['rows']} unseen bars, beyond the "
+                       f"{band * 100:.1f}-point chance band{' plus the stale-model tolerance' if stale else ''}; "
+                       f"champion restored.")
+
+    # 2. The drawdown guard, unchanged, and applied BEFORE anything can promote. An earlier version of this
+    #    rewrite put the no-return fallback above it, which let a challenger with double the drawdown through
+    #    whenever the return figures were missing - caught by test_drawdown_guard_blocks_riskier_challenger.
+    if (champion.get("trades", 0) >= MIN_TRADES_FOR_DRAWDOWN_CHECK
+            and challenger.get("trades", 0) >= MIN_TRADES_FOR_DRAWDOWN_CHECK
             and challenger["max_drawdown_pct"] > champion["max_drawdown_pct"] + DRAWDOWN_TOLERANCE_PCT):
         return False, (f"Challenger drawdown {challenger['max_drawdown_pct']:.1f}% is worse than the champion's "
                        f"{champion['max_drawdown_pct']:.1f}% on the same bars; champion restored.")
-    return True, (f"Challenger accuracy {challenger['accuracy']:.3f} vs champion {champion['accuracy']:.3f} on "
-                  f"{challenger['rows']} unseen bars{' (champion was stale)' if stale else ''}; new model promoted.")
+
+    # 3. With no money to compare, fall back to the original contract: equal or better accuracy is promoted,
+    #    with the stale-champion tolerance. This path exists for scored-but-untraded holdouts.
+    champion_return = champion.get("total_return_pct")
+    challenger_return = challenger.get("total_return_pct")
+    if champion_return is None or challenger_return is None:
+        tolerance = ACCURACY_TOLERANCE if stale else 0.0
+        if challenger["accuracy"] + tolerance + 1e-9 >= champion["accuracy"]:
+            return True, (f"No after-cost return to compare on {challenger['rows']} bars; on accuracy "
+                          f"{challenger['accuracy']:.3f} vs {champion['accuracy']:.3f}"
+                          f"{' (champion was stale)' if stale else ''}; new model promoted.")
+        return False, (f"No after-cost return to compare, and challenger accuracy {challenger['accuracy']:.3f} is "
+                       f"below the champion's {champion['accuracy']:.3f} on {challenger['rows']} bars; "
+                       f"champion restored.")
+
+    # 4. The verdict: after-cost return over the same bars.
+    noise = "inside" if abs(gap) <= band else "outside"
+    if challenger_return > champion_return + 1e-9:
+        return True, (f"Challenger returns {challenger_return:+.3f}% against the champion's {champion_return:+.3f}% "
+                      f"after costs on {challenger['rows']} unseen bars (drawdown {challenger['max_drawdown_pct']:.1f}% "
+                      f"vs {champion['max_drawdown_pct']:.1f}%); accuracy gap {gap * 100:+.1f} points is {noise} the "
+                      f"{band * 100:.1f}-point chance band{' and the champion was stale' if stale else ''}; "
+                      f"new model promoted on after-cost return.")
+    return False, (f"Challenger returns {challenger_return:+.3f}% against the champion's {champion_return:+.3f}% after "
+                   f"costs on {challenger['rows']} unseen bars; accuracy gap {gap * 100:+.1f} points is {noise} the "
+                   f"{band * 100:.1f}-point chance band, so it cannot decide; champion stays live on return.")
 
 
 def decide_lstm(champion_accuracy: Optional[float], challenger_accuracy: Optional[float],
@@ -222,10 +286,26 @@ def learning_caller_context() -> dict:
     return context
 
 
+def promoted_model_is_profitable(entry: dict) -> Optional[bool]:
+    """Does the model that will now serve live actually make money on the unseen bars?
+
+    The gate picks the BETTER of two models; that is not the same as picking a good one. Measured
+    20 Sep 2026, every gated run on record had the live model losing money on unseen bars, so a
+    promotion can mean "loses less". Recording this separately keeps the two questions apart instead
+    of letting a promotion read as good news. None when there is nothing to judge.
+    """
+    served = entry.get("rf_challenger") if entry.get("rf_promoted") else entry.get("rf_champion")
+    if not isinstance(served, dict):
+        return None
+    value = served.get("total_return_pct")
+    return None if value is None else bool(value > 0)
+
+
 def record_decision(entry: dict) -> None:
     DECISIONS_PATH.parent.mkdir(exist_ok=True)
     decisions = load_decisions(limit=None)
-    entry = {**entry, "caller": entry.get("caller") or learning_caller_context()}
+    entry = {**entry, "caller": entry.get("caller") or learning_caller_context(),
+             "promoted_model_is_profitable": promoted_model_is_profitable(entry)}
     decisions.append(entry)
     tmp = DECISIONS_PATH.with_name(DECISIONS_PATH.name + ".tmp")
     tmp.write_text(json.dumps(decisions, indent=1), encoding="utf-8")
