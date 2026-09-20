@@ -24,11 +24,20 @@ def test_memory_counts_results_and_says_when_there_is_no_folder(tmp_path):
     (tmp_path / "BASELINE.md").write_text("| date | run | result |\n|---|---|---|\n| 2026-09-16 | a | FAIL |\n"
                                           "| 2026-09-17 | b | PASS |\n", encoding="utf-8")
     (tmp_path / "NOTES.md").write_text("- first\n- second\n", encoding="utf-8")
-    (tmp_path / "LESSONS.md").write_text("# one lesson\ntext\n# another\n", encoding="utf-8")
+    # The REAL format, as LESSONS.md states in its own header: one lesson per BULLET. The previous
+    # version of this test wrote "# one lesson" headings, so it passed against a counter that read 1
+    # lesson where the file holds 17 - the test encoded the bug and protected it.
+    (tmp_path / "LESSONS.md").write_text(
+        "# Lessons (append-only)\n\nFormat: `- YYYY-MM-DD [area]: what went wrong`\n\n"
+        "- 2026-09-12 [setup]: first thing that went wrong\n"
+        "- 2026-09-13 [data]: second thing that went wrong\n"
+        "- 2026-09-14 [costs]: third thing that went wrong\n", encoding="utf-8")
     (tmp_path / "BACKLOG.md").write_text("- [ ] open item\n- [x] done item\n", encoding="utf-8")
     memory = pilot.memory(tmp_path)
     assert memory["available"] and memory["baseline_rows"] == 2, "the header row is not a result"
-    assert memory["lesson_count"] == 2 and memory["open_backlog_count"] == 1
+    assert memory["lesson_count"] == 3, "one lesson per bullet, not per heading"
+    assert memory["open_backlog_count"] == 1
+    assert not any(line.startswith("- [ ]") for line in memory["lessons"]), "backlog items are not lessons"
     assert memory["recent_notes"][-1] == "- second"
     missing = pilot.memory(tmp_path / "nothing")
     assert missing["available"] is False and "no memory folder" in missing["reason"]
@@ -170,3 +179,40 @@ def test_activity_merges_sources_newest_first_and_drops_never_run_tasks():
     assert all("1999" not in s for s in stamps), "a task that never ran is not an event"
     assert {e["source"] for e in trail["events"]} == {"breakout", "schedule", "learning"}
     assert pilot._as_iso("30/11/1999 00:00:00") is None and pilot._as_iso("") is None
+
+
+def test_the_brain_reports_the_doctors_open_findings_rather_than_its_own_subset(tmp_path):
+    """Measured 20 Sep 2026: the doctor reported overall "warnings" with a live model-drift warn on both
+    traded symbols at 18:28, while the pilot's 17:40 brief said "Everything the pilot can check is
+    running." A green control room over an open warning is the flattering label the owner forbids."""
+    report = {"generated_at": "2026-09-20 18:28:02", "overall": "warnings",
+              "counts": {"ok": 17, "info": 1, "warn": 1, "fail": 0},
+              "checks": [{"name": "App server", "area": "app", "status": "ok", "summary": "fine"},
+                         {"name": "Model drift", "area": "models", "status": "warn",
+                          "summary": "XAUUSD, BTCUSD: trained on a different price source than the feed serves"}]}
+    path = tmp_path / "doctor_latest.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    found = pilot.health(path)
+    assert found["available"] and found["overall"] == "warnings"
+    assert found["checks_read"] == 2 and len(found["open"]) == 1, "only warn/fail/error are open findings"
+    assert found["open"][0]["level"] == "warn", "the doctor's field is 'status'; reading 'level' silently found none"
+
+    out = pilot.attention({"health": found})
+    drift = [i for i in out["items"] if "Model drift" in i["what"]]
+    assert len(drift) == 1, "the doctor's open finding must reach the attention list"
+    assert drift[0]["severity"] == "warn" and drift[0]["where"] == "/system-doctor"
+    # a warn outranks the informational items, so the headline can no longer claim all is well
+    assert out["worst"] == "warn"
+    assert out["headline"] != "Everything the pilot can check is running."
+
+
+def test_a_missing_doctor_report_says_so_instead_of_claiming_health(tmp_path):
+    """Unknown is not the same as healthy, and it is not the same as a finding either: a missing report
+    must add no attention item, and must not let the pilot claim the doctor said everything was fine."""
+    missing = pilot.health(tmp_path / "nothing.json")
+    assert missing["available"] is False and missing["open"] == []
+    assert "overall" not in missing, "a missing report has no verdict to report"
+    items = pilot.attention({"health": missing})["items"]
+    assert not any("/system-doctor" == i["where"] and "drift" in i["what"].lower() for i in items)
+    assert all(i["severity"] != "bad" for i in items), "a missing report is not itself a failure"

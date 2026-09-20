@@ -128,7 +128,11 @@ def memory(memory_dir: Optional[Path] = None) -> dict:
     baseline = directory / "BASELINE.md"
     rows = [line for line in _tail(baseline, 10_000) if line.startswith("|") and not line.startswith("|---")]
     notes = _tail(directory / "NOTES.md", 6)
-    lessons = [line for line in _tail(directory / "LESSONS.md", 10_000) if line.startswith("#")]
+    # LESSONS.md stores one lesson per BULLET ("- YYYY-MM-DD [area]: ..."), stated in its own header line.
+    # Counting "#" lines instead reported 1 lesson where there are 17 - the memory pillar undercounting
+    # itself by seventeen times, in the one section the owner named first.
+    lessons = [line for line in _tail(directory / "LESSONS.md", 10_000)
+               if line.strip().startswith("- ") and not line.strip().startswith("- [ ]")]
     backlog = [line for line in _tail(directory / "BACKLOG.md", 10_000) if line.strip().startswith(("- [ ]", "* [ ]"))]
     return {"available": True, "folder": str(directory),
             "baseline_rows": max(0, len(rows) - 1),          # the header row is not a result
@@ -252,6 +256,32 @@ def _as_iso(value) -> Optional[str]:
 ATTENTION_ORDER = {"bad": 0, "warn": 1, "info": 2}
 
 
+def health(path: Optional[Path] = None) -> dict:
+    """The System Doctor's own latest verdict, read rather than re-derived.
+
+    The doctor runs 19 checks every 30 minutes and is the richest health source the system has. Until
+    20 Sep 2026 the pilot ignored it and worked out a thin subset for itself, so the two could disagree -
+    and did: at 18:28 the doctor reported overall "warnings" with a live model-drift warn on both traded
+    symbols, while the pilot's 17:40 brief said "Everything the pilot can check is running."
+    """
+    path = Path(path or ROOT / "data" / "system_health" / "doctor_latest.json")
+    if not path.exists():
+        return {"available": False, "reason": f"no {path.name} yet", "open": []}
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"available": False, "reason": f"unreadable: {exc}", "open": []}
+    checks = report.get("checks") or []
+    # The doctor's field is "status", not "level" - reading the wrong one silently returned zero open
+    # findings while the report said "warnings", which is the same class of mistake this fix exists to stop.
+    open_items = [{"name": c.get("name"), "area": c.get("area"), "level": c.get("status"),
+                   "summary": c.get("summary") or c.get("message") or "",
+                   "detail": (str(c.get("detail")) if c.get("detail") else "")[:300]}
+                  for c in checks if c.get("status") in ("warn", "fail", "error")]
+    return {"available": True, "generated_at": report.get("generated_at"), "overall": report.get("overall"),
+            "counts": report.get("counts"), "checks_read": len(checks), "open": open_items}
+
+
 def attention(brief: dict) -> dict:
     """What is wrong, in the order it deserves attention - the point of the page.
 
@@ -296,6 +326,16 @@ def attention(brief: dict) -> dict:
     positioning = ((brief.get("context") or {}).get("positioning") or {})
     if not positioning.get("available"):
         add("info", "positioning has no data", positioning.get("reason") or "", "/positioning")
+
+    # The System Doctor runs 19 checks every 30 minutes and is the richest health source in the system.
+    # Until 20 Sep 2026 the pilot ignored its findings and re-derived a thin subset, so the two disagreed:
+    # at 18:28 the doctor reported overall "warnings" with a live model-drift warn on BOTH traded symbols,
+    # while the pilot's 17:40 brief said "Everything the pilot can check is running." A green control room
+    # sitting on top of an open warning is exactly the flattering label the owner's standing rule forbids.
+    for check in (brief.get("health") or {}).get("open") or []:
+        severity = {"fail": "bad", "error": "bad", "warn": "warn"}.get(check.get("level"), "info")
+        add(severity, f"{check.get('name')}: {check.get('summary')}",
+            check.get("detail") or "raised by the System Doctor", "/system-doctor")
 
     items.sort(key=lambda item: ATTENTION_ORDER.get(item["severity"], 3))
     worst = items[0]["severity"] if items else "ok"
@@ -409,6 +449,7 @@ def build_brief(url_map=None, get: Optional[Callable] = None, now=None, csv_text
         "skills": skills(),
         "tools": tools(url_map),
         "loop": loop(now),
+        "health": health(),
     }
     brief["attention"] = attention(brief)
     brief["activity"] = activity(brief)
