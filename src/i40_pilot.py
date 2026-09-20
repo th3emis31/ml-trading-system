@@ -184,6 +184,37 @@ def schedule(csv_text: Optional[str] = None) -> dict:
             "note": "Tasks only run while the owner is logged in; a missing task means that job is not happening."}
 
 
+DOCSTRING_MARKERS = (chr(34) * 3, chr(39) * 3)
+
+
+def discovered_commands() -> list[dict]:
+    """Every module in src/ that can actually be run, found rather than remembered.
+
+    The curated list below named 11 entry points; src/ holds 84 runnable modules. A hand-written list goes
+    stale the moment a module is added, and the pilot then cannot tell the owner the tool exists - the
+    opposite of what the tools pillar is for. The curated entries stay because they carry a written
+    description; everything else is listed with its own docstring first line so nothing is hidden.
+    """
+    found = []
+    src_dir = Path(__file__).resolve().parent
+    for path in sorted(src_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "__main__" not in text:
+            continue
+        summary, stripped = "", text.lstrip()
+        for marker in DOCSTRING_MARKERS:
+            if stripped.startswith(marker):
+                summary = stripped[len(marker):].split("\n", 1)[0].strip()
+                break
+        found.append({"command": "python -m src." + path.stem, "does": summary[:150]})
+    return found
+
+
 def tools(url_map=None) -> dict:
     """What the system can be asked to do: its command-line entry points and its HTTP endpoints."""
     commands = [
@@ -199,6 +230,8 @@ def tools(url_map=None) -> dict:
         {"command": "python -m src.daily_report", "does": "writes today's market and system report"},
         {"command": "python -m src.i40_pilot", "does": "this brief"},
     ]
+    described = {c["command"] for c in commands}
+    commands += [c for c in discovered_commands() if c["command"] not in described]
     endpoints = []
     if url_map is not None:
         try:

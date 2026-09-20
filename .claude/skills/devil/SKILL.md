@@ -1,3 +1,8 @@
+---
+name: devil
+description: Build the strongest honest case that a strategy loses money live, so a result is attacked before it is trusted
+---
+
 # Devil's advocate
 
 Given a strategy doc, a backtest result or a BASELINE row, build the **strongest honest case that it

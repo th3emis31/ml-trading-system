@@ -22717,6 +22717,7 @@ def demo_trading_status_api():
 # Volatility Trend Breakout (4H) on the same demo account, beside the pullback (src/demo_volatility_breakout.py, magic
 # 440603). Same guards: local request plus control secret for cycle / STOP / resume; the hourly task calls the cycle.
 _demo_breakout_lock = threading.Lock()
+_demo_plan_lock = threading.Lock()   # the daily plan executor runs one cycle at a time
 
 
 @app.route('/api/demo-breakout/cycle', methods=['POST'])
@@ -22734,6 +22735,27 @@ def demo_breakout_cycle_api():
   with _demo_breakout_lock:
     summary = demo_volatility_breakout.breakout_cycle(MT5_ENGINE, get_bars, calendar_events)
   return jsonify(summary)
+
+
+@app.route('/api/demo-plan/cycle', methods=['POST'])
+def demo_plan_cycle_api():
+  """One daily-plan decision on the demo account. dry_run in its config means it places nothing."""
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_plan_trader
+  from src.tradingview_plan import build_daily_plan
+  if MT5_ENGINE is None:
+    return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
+  with _demo_plan_lock:
+    summary = demo_plan_trader.plan_cycle(MT5_ENGINE, lambda symbol: build_daily_plan(symbol))
+  return jsonify(summary)
+
+
+@app.route('/api/demo-plan/status')
+def demo_plan_status_api():
+  from src import demo_plan_trader
+  return jsonify(demo_plan_trader.plan_status())
 
 
 @app.route('/api/demo-breakout/stop', methods=['POST'])
