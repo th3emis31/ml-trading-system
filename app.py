@@ -718,6 +718,7 @@ MAIN_NAV_GROUPS = [
     ('/history', 'History'),
     ('/analytics', 'Analytics'),
     ('/performance', 'Performance'),
+    ('/system-calendar', 'Calendar'),
     ('/positioning', 'Positioning'),
     ('/i40-pilot', 'i40 Pilot'),
     ('/keel', 'KEEL'),
@@ -22150,6 +22151,214 @@ PERFORMANCE_TEMPLATE = r"""
 </body>
 </html>
 """
+
+
+
+SYSTEM_CALENDAR_TEMPLATE = """<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>System calendar</title>
+{{ theme_css|safe }}
+<style>
+  .cal-scroll{overflow-x:auto;padding:4px 2px 10px}
+  .cal-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,14px);gap:3px;width:max-content}
+  .why{font-size:12px;line-height:1.45;color:var(--muted);margin-top:6px;display:block}
+  .cal-months{display:flex;width:max-content;height:18px;
+              font-size:11px;color:var(--muted);letter-spacing:.04em}
+  .cal-days{display:grid;grid-template-rows:repeat(7,14px);gap:3px;font-size:10px;color:var(--muted);
+            margin-right:6px;align-items:center;text-align:right;width:26px}
+  .cal-row{display:flex;align-items:flex-start}
+  .cell{width:14px;height:14px;border-radius:3px;background:var(--bg-1);border:1px solid var(--line);
+        cursor:pointer;transition:transform .08s var(--ease),box-shadow .08s var(--ease)}
+  .cell:hover{transform:scale(1.35);box-shadow:var(--shadow-sm);z-index:2}
+  .cell.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .h0{background:#121a27;border-color:#1c2737}
+  .h1{background:#0e4429;border-color:#13532f}
+  .h2{background:#006d32;border-color:#0a7c3c}
+  .h3{background:#26a641;border-color:#2fb84c}
+  .h4{background:#39d353;border-color:#4ee066}
+  .cell.off{background:repeating-linear-gradient(45deg,#0f141d,#0f141d 3px,#151c28 3px,#151c28 6px);
+            border-style:dashed;cursor:default}
+  .cell.off:hover{transform:none;box-shadow:none}
+  .cell.traded{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold-soft)}
+  .stat{padding:16px 18px}
+  .stat .lbl{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .stat .val{font-size:30px;font-weight:700;line-height:1.15;margin:6px 0 4px;
+             font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+  .stat .why{font-size:12px;line-height:1.5;color:var(--muted);letter-spacing:0}
+  .legend{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap;margin-top:8px}
+  .legend .cell{cursor:default}
+  .legend .cell:hover{transform:none;box-shadow:none}
+  .daycard{margin-top:14px}
+  .daycard h3{margin:0 0 4px;font-size:15px}
+  .dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-top:10px}
+  .dl div{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px}
+  .dl span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .dl b{font-size:19px;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+  table.cal{width:100%;border-collapse:collapse;font-size:13px}
+  table.cal th,table.cal td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  table.cal th:first-child,table.cal td:first-child{text-align:left}
+  table.cal tbody tr:hover{background:var(--bg-1)}
+  table.cal th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+</style></head><body>
+<div class="container">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Whole system</div>
+      <h1>System calendar</h1>
+      <p class="muted" id="sub">Loading&hellip;</p>
+    </div>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="section">
+    <div class="cal-scroll">
+      <div style="margin-left:32px"><div class="cal-months" id="months"></div></div>
+      <div class="cal-row">
+        <div class="cal-days"><span></span><span>Mon</span><span></span><span>Wed</span>
+             <span></span><span>Fri</span><span></span></div>
+        <div class="cal-grid" id="cal"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span>Quieter</span>
+      <i class="cell h0"></i><i class="cell h1"></i><i class="cell h2"></i><i class="cell h3"></i><i class="cell h4"></i>
+      <span>Busier</span>
+      <span style="margin-left:12px"><i class="cell off"></i> not recording yet</span>
+      <span style="margin-left:12px"><i class="cell h2 traded"></i> a trade closed</span>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:6px" id="heatnote"></p>
+  </div>
+
+  <div class="section card daycard" id="daycard" style="display:none">
+    <h3 id="dayTitle"></h3>
+    <p class="muted" id="daySub" style="font-size:12px"></p>
+    <div class="dl" id="dayDetail"></div>
+  </div>
+
+  <div class="section">
+    <h2>Day by day</h2>
+    <div class="table-wrap">
+      <table class="cal" id="tbl"><thead><tr>
+        <th>Date</th><th>Learn</th><th>Promo</th><th>Results</th><th>Cands</th>
+        <th>Signals</th><th>W/L</th><th>Cycles</th><th>Orders</th><th>Closed</th><th>Net R</th><th>Health</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <p class="muted" style="font-size:12px" id="note"></p>
+  </div>
+</div>
+<script>
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const n=(v,d=0)=>(v===null||v===undefined)?'-':Number(v).toFixed(d);
+let ROWS=[];
+
+function selectDay(i){
+  const r=ROWS[i]; if(!r||!r.recording) return;
+  document.querySelectorAll('.cell.sel').forEach(e=>e.classList.remove('sel'));
+  const el=document.querySelector('[data-i="'+i+'"]'); if(el) el.classList.add('sel');
+  document.getElementById('daycard').style.display='';
+  document.getElementById('dayTitle').textContent=r.date;
+  document.getElementById('daySub').textContent =
+    (r.strategies_active&&r.strategies_active.length? 'Active: '+r.strategies_active.join(', ') : 'No strategy cycled')
+    + (r.health? '  \u00b7  doctor: '+r.health : '') + (r.report? '  \u00b7  daily report written':'');
+  document.getElementById('dayDetail').innerHTML=[
+    ['Learning runs',r.learning_runs],['Promotions',r.promotions],
+    ['Recorded results',r.research_results],['Candidates scored',r.candidates_evaluated],
+    ['Signals',r.signals],['Signal W/L',r.signals?(r.signal_wins+' / '+r.signal_losses):'-'],
+    ['Cycles',r.cycles],['Orders placed',r.orders_placed],
+    ['Trades closed',r.trades_closed],['Net R',n(r.net_r,2)],
+  ].map(([k,v])=>'<div><span>'+k+'</span><b>'+v+'</b></div>').join('');
+}
+
+fetch('/api/system-calendar?days=182').then(r=>r.json()).then(d=>{
+  ROWS=d.rows||[];
+  const t=d.totals||{};
+  document.getElementById('sub').textContent =
+    t.days_recording+' recording days since '+d.first_recorded+'  \u00b7  generated '+d.generated_at;
+  document.getElementById('heatnote').textContent=(d.legend||{}).activity||'';
+  document.getElementById('note').textContent=d.note||'';
+
+  document.getElementById('cards').innerHTML=[
+    ['Promotions',t.promotions,'the learning gate replacing a live model'],
+    ['Recorded results',t.research_results,'rows written to BASELINE'],
+    ['Candidates scored',t.candidates_evaluated,'strategy lab evaluations'],
+    ['Signals',t.signals+'  ('+t.signal_wins+'W / '+t.signal_losses+'L)','generated, with resolved outcomes'],
+    ['Orders placed',t.orders_placed,'real orders sent to the demo account'],
+    ['Trades closed',t.trades_closed,'forward and demo fills that finished'],
+    ['Net R',n(t.net_r,2),'closed trades only - never backtests'],
+    ['Days with a trade',t.days_with_a_closed_trade,'of '+t.days_recording+' recording days'],
+  ].map(([k,v,why])=>'<div class="card stat"><div class="lbl">'+k+'</div>'
+      +'<div class="val">'+v+'</div><div class="why">'+why+'</div></div>').join('');
+
+  // Pad to a Monday start so weeks line up as columns.
+  const first=new Date(ROWS[0].date+'T00:00:00Z');
+  const pad=(first.getUTCDay()+6)%7;
+  const cells=[];
+  for(let i=0;i<pad;i++) cells.push('<div class="cell off" style="visibility:hidden"></div>');
+  ROWS.forEach((r,i)=>{
+    if(!r.recording){ cells.push('<div class="cell off" title="'+r.date+' \u2014 not recording yet"></div>'); return; }
+    const tip=[r.date+'  ·  heat '+r.activity+'/4',
+      'learning '+r.learning_runs+' (promotions '+r.promotions+')',
+      'results '+r.research_results+', candidates '+r.candidates_evaluated,
+      'signals '+r.signals+' ('+r.signal_wins+'W/'+r.signal_losses+'L)',
+      'cycles '+r.cycles+', orders '+r.orders_placed,
+      'closed '+r.trades_closed+', net R '+n(r.net_r,2),
+      'health '+(r.health||'-')].join(String.fromCharCode(10));
+    cells.push('<div class="cell h'+r.activity+(r.trades_closed?' traded':'')+'" data-i="'+i+'" title="'+tip+'"></div>');
+  });
+  document.getElementById('cal').innerHTML=cells.join('');
+  document.querySelectorAll('.cell[data-i]').forEach(el=>
+    el.addEventListener('click',()=>selectDay(parseInt(el.dataset.i,10))));
+
+  // One label per month, sized to the weeks that month actually spans, so nothing repeats or collides.
+  const weeks=Math.ceil((pad+ROWS.length)/7);
+  const spans=[];
+  ROWS.forEach((r,i)=>{
+    const w=Math.floor((i+pad)/7), m=new Date(r.date+'T00:00:00Z').getUTCMonth();
+    const last=spans[spans.length-1];
+    if(!last || last.m!==m){ spans.push({m:m,from:w,to:w}); } else { last.to=w; }
+  });
+  document.getElementById('months').innerHTML=spans.map(sp=>{
+    const w=(sp.to-sp.from+1)*17;
+    return '<div style="width:'+w+'px;overflow:hidden;white-space:nowrap">'
+      +(w>=26?MONTHS[sp.m]:'')+'</div>';
+  }).join('');
+
+  const live=ROWS.filter(r=>r.recording).slice().reverse();
+  document.querySelector('#tbl tbody').innerHTML=live.map(r=>{
+    const cls=r.net_r>0?'positive':(r.net_r<0?'negative':'muted');
+    return '<tr><td>'+r.date+'</td><td>'+r.learning_runs+'</td><td>'+r.promotions+'</td><td>'
+      +r.research_results+'</td><td>'+r.candidates_evaluated+'</td><td>'+r.signals+'</td><td>'
+      +(r.signals?r.signal_wins+'/'+r.signal_losses:'-')+'</td><td>'+r.cycles+'</td><td>'
+      +r.orders_placed+'</td><td>'+r.trades_closed+'</td><td class="'+cls+'">'+n(r.net_r,2)
+      +'</td><td>'+(r.health||'-')+'</td></tr>';
+  }).join('');
+
+  const lastTraded=ROWS.map((r,i)=>[r,i]).filter(([r])=>r.recording&&r.trades_closed).pop();
+  if(lastTraded) selectDay(lastTraded[1]); else {
+    const lastLive=ROWS.map((r,i)=>[r,i]).filter(([r])=>r.recording).pop();
+    if(lastLive) selectDay(lastLive[1]);
+  }
+});
+</script></body></html>"""
+
+@app.route('/api/system-calendar')
+def system_calendar_api():
+  """One row per day for the whole system. Read-only; it never writes to any source."""
+  from src import system_calendar
+  try:
+    days = max(7, min(365, int(request.args.get('days', 120))))
+  except (TypeError, ValueError):
+    days = 120
+  try:
+    return jsonify(system_calendar.build_calendar(days))
+  except Exception as exc:  # a reporting page must degrade, never 500
+    return jsonify({'available': False, 'reason': f'{type(exc).__name__}: {exc}', 'rows': []})
+
+
+@app.route('/system-calendar')
+def system_calendar_page():
+  return render_template_string(SYSTEM_CALENDAR_TEMPLATE, theme_css=THEME_CSS)
 
 
 @app.route('/performance')
