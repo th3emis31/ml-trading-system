@@ -78,7 +78,13 @@ def fetch_mt5_bars(symbol: str, timeframe: str, count: int = MT5_MAX_BARS) -> pd
         import MetaTrader5 as mt5  # type: ignore
     except Exception:
         return pd.DataFrame(columns=OHLCV)
-    if not mt5.initialize():
+    # Two MT5 terminals run on this machine: the system's Vantage demo 11581419 under
+    # AppData\Roaming\MetaTrader, and 25446287 under Program Files, which carries the ATOMIC ANALYST
+    # indicator and the SwingTrendPullback expert. initialize() with no path binds to whichever
+    # Windows offers, so bars could come from either. MT5_PATH is the same variable
+    # trading/mt5_service.py already honours; the app sets it in start_trading.bat.
+    terminal_path = os.environ.get("MT5_PATH", "").strip()
+    if not (mt5.initialize(path=terminal_path) if terminal_path else mt5.initialize()):
         return pd.DataFrame(columns=OHLCV)
     try:
         for name in MT5_SYMBOLS.get(symbol.upper(), [symbol.upper()]):

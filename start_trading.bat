@@ -9,6 +9,14 @@ echo  Dashboard: http://192.168.1.65:5000
 echo ========================================
 echo.
 
+rem Two MT5 terminals run on this machine and MetaTrader5.initialize() with no path binds to
+rem whichever Windows offers. That is why the demo strategies kept halting with "logged-in
+rem account 25446287 is not the configured demo account 11581419": 25446287 is the Program
+rem Files terminal, which runs the ATOMIC ANALYST indicator and the SwingTrendPullback expert.
+rem Pinning the path keeps the system on its own account. The Atomic panel is unaffected - it
+rem is read from that terminal's MQL5\Files folder on disk, not over this connection.
+set MT5_PATH=C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe
+
 C:\Users\th_em\AppData\Local\Programs\Python\Python310\python.exe app.py
 
 echo.
