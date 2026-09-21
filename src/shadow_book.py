@@ -43,12 +43,23 @@ TRACKED_STATUSES = ("watchlist", "approved_for_demo")
 
 
 def book_entries(path: Optional[str] = None) -> list:
-    """The strategies the book is keeping, each with the spec that defines it."""
+    """Every strategy the book holds a spec for, whatever its status.
+
+    This used to return only the ``TRACKED_STATUSES`` watchlist - 56 of the book's 1,069 entries,
+    leaving 1,010 archived and 3 demoted strategies generating no forward evidence at all. Nothing
+    was gained by excluding them: a shadow test places no order and risks nothing, so the only
+    effect was less evidence. Measured at about 35 ms per strategy, the whole book costs under a
+    minute a run.
+
+    An archived strategy is one the book stopped favouring, which makes its forward record *more*
+    interesting rather than less: if the ones it archived go on to lose, that is the book's ranking
+    being confirmed, and if they do not, that is worth knowing. ``book_status`` is recorded on every
+    record so the two groups stay tellable apart.
+    """
     raw = forward_evidence._read_json_or_none(path or BOOK_PATH) or {}
     entries = raw.get("entries") or {}
     rows = list(entries.values()) if isinstance(entries, dict) else list(entries)
-    return [r for r in rows
-            if isinstance(r, dict) and r.get("status") in TRACKED_STATUSES and r.get("spec")]
+    return [r for r in rows if isinstance(r, dict) and r.get("spec")]
 
 
 def _market_parts(market: str) -> tuple:

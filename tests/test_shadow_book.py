@@ -37,7 +37,14 @@ def _shadow_bars(n=1200, start="2026-01-01", freq="4h", seed=3):
 
 # --- what is tracked -------------------------------------------------------------
 
-def test_only_kept_strategies_are_tracked(tmp_path):
+def test_every_strategy_with_a_spec_is_tracked_whatever_its_status(tmp_path):
+    """Shadow tests place no order, so excluding a strategy only costs evidence.
+
+    This asserts the opposite of what it once did. Restricting the shadow book to the watchlist
+    left 1,010 archived and 3 demoted strategies in the real book generating no forward record at
+    all, and dropped the record of any strategy the book later archived. Status is still carried on
+    every entry so the groups stay tellable apart.
+    """
     book = tmp_path / "book.json"
     book.write_text(json.dumps(_book([
         _entry(eid="keep", status="watchlist"),
@@ -45,8 +52,9 @@ def test_only_kept_strategies_are_tracked(tmp_path):
         _entry(eid="gone", status="archived"),
         _entry(eid="down", status="demoted"),
     ])), encoding="utf-8")
-    ids = {e["id"] for e in sb.book_entries(str(book))}
-    assert ids == {"keep", "approved"}
+    entries = sb.book_entries(str(book))
+    assert {e["id"] for e in entries} == {"keep", "approved", "gone", "down"}
+    assert {e["id"]: e["status"] for e in entries}["gone"] == "archived"
 
 
 def test_an_entry_without_a_spec_is_skipped_rather_than_guessed(tmp_path):
