@@ -34,6 +34,7 @@ import json
 import math
 import os
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -869,6 +870,16 @@ def _register_extra_builders() -> None:
             _EXTRA_LOADED.add(module)
         except Exception:
             continue
+    # ``python -m src.strategy_lab`` - how the hourly task runs - executes this file as ``__main__``.
+    # The modules imported above do ``from . import strategy_lab as lab``, which loads a SECOND copy
+    # under its real name, and they register their builders on that copy's ORDER_BUILDERS, not this
+    # one. The search then draws a family whose builder is missing here and dies on a KeyError in
+    # ``strategy_orders``. Adopting the twin's entries costs nothing when there is no twin, which is
+    # the case whenever the lab is imported rather than run as a script.
+    twin = sys.modules.get(f"{__package__}.strategy_lab")
+    if twin is not None and twin is not sys.modules[__name__]:
+        for family, builder in getattr(twin, "ORDER_BUILDERS", {}).items():
+            ORDER_BUILDERS.setdefault(family, builder)
 
 
 _EXTRA_LOADED: set = set()
