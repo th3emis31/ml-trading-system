@@ -22917,6 +22917,44 @@ def demo_trading_resume_api():
   return jsonify(event)
 
 
+@app.route('/api/active-account')
+def active_account_status_api():
+  """Which account the system is allowed to trade, and whether it is the logged-in one."""
+  from src import active_account
+  chosen = active_account.selected()
+  live = MT5_ENGINE.account_snapshot() if hasattr(MT5_ENGINE, 'account_snapshot') else None
+  logged_in = (live or {}).get('login')
+  chosen['logged_in_account'] = logged_in
+  chosen['matches'] = (logged_in is not None and int(logged_in) == int(chosen['login']))
+  chosen['note'] = ('Strategies refuse any account but this one. No password is stored: the terminal '
+                    'holds its own login and the system only chooses which terminal to attach to.')
+  return jsonify(chosen)
+
+
+@app.route('/api/active-account/select', methods=['POST'])
+def active_account_select_api():
+  """Choose the account the strategies may trade. Needs the control secret.
+
+  A live account additionally needs allow_live AND confirm_live repeating the login, so it cannot be
+  armed by a stray click. Selecting an account never logs anything in and stores no credentials.
+  """
+  from src import active_account, execution_guard
+  payload = request.get_json(silent=True) or request.form.to_dict() or {}
+  if not execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                        execution_guard.load_or_create_secret()):
+    return jsonify({'ok': False, 'reason': f'missing or wrong control secret ({execution_guard.SECRET_HEADER})'}), 403
+  result = active_account.select(
+    login=payload.get('login'),
+    terminal=payload.get('terminal_path') or payload.get('terminal'),
+    server=payload.get('server'),
+    label=payload.get('label'),
+    allow_live=bool(payload.get('allow_live')),
+    confirm_live=payload.get('confirm_live'),
+    platform=str(payload.get('platform') or 'mt5'),
+  )
+  return jsonify(result), (200 if result.get('ok') else 400)
+
+
 @app.route('/api/demo-trading/status')
 def demo_trading_status_api():
   from src import demo_session_pullback
@@ -22926,7 +22964,8 @@ def demo_trading_status_api():
 # Volatility Trend Breakout (4H) on the same demo account, beside the pullback (src/demo_volatility_breakout.py, magic
 # 440603). Same guards: local request plus control secret for cycle / STOP / resume; the hourly task calls the cycle.
 _demo_breakout_lock = threading.Lock()
-_demo_plan_lock = threading.Lock()   # the daily plan executor runs one cycle at a time
+_demo_plan_lock = threading.Lock()
+_demo_sweep_lock = threading.Lock()   # the manipulation-candle executor runs one cycle at a time   # the daily plan executor runs one cycle at a time
 
 
 @app.route('/api/demo-breakout/cycle', methods=['POST'])
@@ -22944,6 +22983,26 @@ def demo_breakout_cycle_api():
   with _demo_breakout_lock:
     summary = demo_volatility_breakout.breakout_cycle(MT5_ENGINE, get_bars, calendar_events)
   return jsonify(summary)
+
+
+@app.route('/api/demo-sweep/cycle', methods=['POST'])
+def demo_sweep_cycle_api():
+  """One manipulation-candle decision on the demo account. dry_run in its config means it places nothing."""
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_sweep_trader
+  if MT5_ENGINE is None:
+    return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
+  with _demo_sweep_lock:
+    summary = demo_sweep_trader.sweep_cycle(MT5_ENGINE, get_bars)
+  return jsonify(summary)
+
+
+@app.route('/api/demo-sweep/status')
+def demo_sweep_status_api():
+  from src import demo_sweep_trader
+  return jsonify(demo_sweep_trader.sweep_status())
 
 
 @app.route('/api/demo-plan/cycle', methods=['POST'])

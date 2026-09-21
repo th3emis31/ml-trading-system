@@ -49,7 +49,7 @@ from .event_defence import (load_historical_events, tier1_events_from_calendar, 
 from .gold_session_pullback_lab import RULES, session_pullback_exit, session_pullback_setups
 from .runtime_paths import smartentry_data_dir
 
-DEMO_ACCOUNT_LOGIN = 11581419          # hard-coded: any other account is refused, whatever the config says
+DEMO_ACCOUNT_LOGIN = 11581419          # the default; src/active_account.py lets the owner choose another
 MAGIC = 440502                         # unused on the account (checked 2026-09-16 against every magic in its history)
 SYMBOL = "XAUUSD"
 VOLUME_PER_LEG = 0.01
@@ -124,10 +124,26 @@ def log(kind: str, now, reason: str, *, sink: Optional[dict] = None, **details) 
 
 # ----------------------------------------------------------------------------------------------- account guard
 def check_demo_account(account: Optional[dict]) -> tuple[bool, str]:
-    """True only for login 11581419 on a demo server with MT5 trade_mode demo. Not configurable."""
-    ok, reason = demo_executor.is_demo_account(account, DEMO_ACCOUNT_LOGIN)
-    if ok and int((account or {}).get("login") or 0) != DEMO_ACCOUNT_LOGIN:
-        return False, f"account {account.get('login')} is not demo account {DEMO_ACCOUNT_LOGIN}"
+    """True only for the OWNER'S SELECTED account, on a demo server with MT5 trade_mode demo.
+
+    The login used to be the constant above and nothing else. The owner asked on 21 September for
+    the account to be something they choose from the system rather than something edited in source,
+    so it now comes from ``src/active_account.py`` - which defaults to that same constant, so an
+    absent or unreadable selection changes nothing.
+
+    **The refusal itself is unchanged.** Any account that is not the selected one is still refused,
+    and a demo server with ``trade_mode`` demo is still required by ``is_demo_account``, so
+    selecting a live account does not on its own let this strategy trade it.
+    """
+    from . import active_account
+
+    try:
+        expected = active_account.expected_login()
+    except Exception:
+        expected = DEMO_ACCOUNT_LOGIN      # a broken selection falls back, it never opens anything up
+    ok, reason = demo_executor.is_demo_account(account, expected)
+    if ok and int((account or {}).get("login") or 0) != expected:
+        return False, f"account {account.get('login')} is not demo account {expected}"
     return ok, reason
 
 
