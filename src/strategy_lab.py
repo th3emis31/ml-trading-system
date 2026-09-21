@@ -1072,9 +1072,13 @@ def run_search(markets=DEFAULT_MARKETS, minutes: float = 45.0, max_candidates: O
         attempts, index = 0, 0
         limit_attempts = (max_candidates or 100_000) * 20 + 1000
         while keys and attempts < limit_attempts:
+            # Whichever limit comes first. The time budget used to be ignored entirely whenever a
+            # candidate ceiling was given, so the hourly run (35 minutes, 1,000 candidates) stopped
+            # after about ten and left the Lab idle for the rest of the hour. Both now apply, which
+            # lets the ceiling be raised without risking a run that overruns its slot.
             if max_candidates is not None and evaluated >= max_candidates:
                 break
-            if max_candidates is None and time.monotonic() - started > minutes * 60:
+            if minutes and time.monotonic() - started > minutes * 60:
                 break
             attempts += 1
             market = contexts[keys[index % len(keys)]]
