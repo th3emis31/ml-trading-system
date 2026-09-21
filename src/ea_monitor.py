@@ -71,10 +71,19 @@ _INPUTS_RE = re.compile(
 
 # ----------------------------------------------------------------------------- files
 def _write_json_atomic(path, payload) -> None:
+    """Write JSON through a temporary file, so a reader never sees a half-written one.
+
+    ``default=str`` is not cosmetic. Payloads here are built from pandas and numpy, whose scalar
+    types are not JSON serializable: a ``numpy.bool_`` in a daily plan crashed the SmartEntry Daily
+    Agent every run with "Object of type bool is not JSON serializable" (seen 21 September 2026, task
+    exit code 1). Without a fallback the whole agent aborts and writes nothing, which is a large
+    consequence for a value that only needed rendering. Every other writer in this project already
+    passes it.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(payload, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
     os.replace(tmp, path)
 
 

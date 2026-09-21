@@ -6742,7 +6742,22 @@ def _build_signal_payload_uncached():
         signal = engine_result["signal"]
         model_accuracy = metrics.get("accuracy", 0.5)
         lstm_accuracy = lstm_metrics.get("accuracy") if lstm_metrics.get("accuracy") is not None else model_accuracy
-        confidence = round(min(0.99, max(0.55, (model_accuracy * 0.55 + lstm_accuracy * 0.35 + ensemble_probability * 0.1))), 2)
+        # Confidence = how sure the blend is about THIS signal, which is the predicted class's own
+        # probability. max(p, 1-p): a 0.90 BUY and a 0.10 SELL are both 0.90 confident.
+        #
+        # It used to be `model_accuracy*0.55 + lstm_accuracy*0.35 + probability*0.10` - 90 % of the
+        # number was the model's historical average and only 10 % was the signal in front of it.
+        # Measured 21 Sep 2026, that capped the BEST POSSIBLE reading at 0.573 on XAUUSD and 0.603 on
+        # BTCUSD, while the autonomy gate asks for 0.72. No signal that could ever exist could clear
+        # it, so automated execution was wired to a threshold it could not reach. The two numbers
+        # were on incompatible scales.
+        #
+        # On this definition the gate means what it says: 0.72 requires the blend to be 72 % sure.
+        # That is a real bar - the models average 51.5 % and 56.4 % accuracy, so they clear it only
+        # on genuinely strong setups - but it is reachable, which the old one never was. Model
+        # accuracy is not mixed in here: it belongs in whether a model should be trusted at all, not
+        # in how sure it is about one bar, and blending the two made both unreadable.
+        confidence = round(min(0.99, max(float(ensemble_probability), 1.0 - float(ensemble_probability))), 2)
         profile = get_adaptive_pip_profile(
           symbol,
           volatility_pct=float(latest.iloc[-1].get("volatility_5d", 0) or 0.0),
@@ -12907,6 +12922,45 @@ AUTO_TRADER_TEMPLATE = """
       </div>
     </div>
 
+    <!-- BROKER ACCOUNTS: which accounts the system is allowed to trade -->
+    <div class='grid grid-wide'>
+      <div class='card accent sec sec-blue'>
+        <h2>🔐 Broker Accounts</h2>
+        <p class='eyebrow' style='margin:0 0 10px'>The system attaches to a terminal that is already
+          logged in. No password is asked for or stored here - log the terminal in yourself, then
+          point the system at it.</p>
+        <div class='row col3'>
+          <div>
+            <label>MT5 account the strategies may trade</label>
+            <input id='acc-mt5-login' type='number' placeholder='11581419'>
+          </div>
+          <div>
+            <label>MT5 terminal path</label>
+            <input id='acc-mt5-terminal' type='text' placeholder='C:\...\terminal64.exe'>
+          </div>
+          <div>
+            <label>MT4 account the bridge must report</label>
+            <input id='acc-mt4-login' type='number' placeholder='12755139'>
+          </div>
+        </div>
+        <div class='row col3' style='margin-top:10px'>
+          <div>
+            <label>Label (optional)</label>
+            <input id='acc-label' type='text' placeholder='Vantage demo'>
+          </div>
+          <div>
+            <label>Live account (needs the login repeated)</label>
+            <input id='acc-confirm-live' type='number' placeholder='repeat login to arm live'>
+          </div>
+          <div style='display:flex; align-items:flex-end; gap:8px'>
+            <button class='btn' onclick='saveAccounts()'>Save accounts</button>
+            <button class='btn ghost' onclick='loadAccounts()'>Refresh</button>
+          </div>
+        </div>
+        <div id='acc-status' style='margin-top:12px'></div>
+      </div>
+    </div>
+
     <!-- RISK MANAGEMENT & TRADING CONTROLS -->
     <div class='grid grid-wide'>
       <div class='card sec sec-amber'>
@@ -14301,6 +14355,59 @@ AUTO_TRADER_TEMPLATE = """
       await loadStatus();
     }
 
+    // --- Broker accounts -------------------------------------------------------------
+    // Selecting an account never logs anything in: each MetaTrader terminal already holds its own
+    // credentials, so this only tells the system WHICH terminal to attach to and which login to
+    // accept. There is deliberately no password field here and there must never be one.
+    async function loadAccounts() {
+      const box = document.getElementById('acc-status');
+      try {
+        const r = await fetch('/api/active-account');
+        const d = await r.json();
+        document.getElementById('acc-mt5-login').value = d.login || '';
+        document.getElementById('acc-mt5-terminal').value = d.terminal_path || '';
+        document.getElementById('acc-mt4-login').value = d.mt4_login || '';
+        document.getElementById('acc-label').value = d.label || '';
+        const ok = d.matches === true;
+        const live = d.logged_in_account == null ? 'not connected' : d.logged_in_account;
+        box.innerHTML =
+          "<div style='display:flex;gap:18px;flex-wrap:wrap;align-items:center'>" +
+          "<span>MT5 selected <b>" + (d.login || '-') + "</b></span>" +
+          "<span>terminal logged in <b>" + live + "</b></span>" +
+          "<span style='color:" + (ok ? '#4ade80' : '#f87171') + "'>" +
+          (ok ? 'match - strategies may trade' : 'MISMATCH - strategies will refuse') + "</span>" +
+          "<span>MT4 expects <b>" + (d.mt4_login || '-') + "</b></span>" +
+          (d.allow_live ? "<span style='color:#fbbf24'>LIVE ARMED</span>" : '') +
+          "</div>";
+      } catch (e) {
+        box.textContent = 'could not read the active account: ' + e;
+      }
+    }
+
+    async function saveAccounts() {
+      const box = document.getElementById('acc-status');
+      const confirmLive = document.getElementById('acc-confirm-live').value;
+      const payload = {
+        login: n(document.getElementById('acc-mt5-login').value, 0),
+        terminal_path: document.getElementById('acc-mt5-terminal').value || null,
+        mt4_login: n(document.getElementById('acc-mt4-login').value, 0) || null,
+        label: document.getElementById('acc-label').value || null
+      };
+      if (confirmLive) { payload.allow_live = true; payload.confirm_live = n(confirmLive, 0); }
+      try {
+        const r = await fetch('/api/active-account/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Control-Secret': SMARTENTRY_CONTROL_SECRET },
+          body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!d.ok) { box.innerHTML = "<span style='color:#f87171'>" + (d.reason || 'refused') + "</span>"; return; }
+        await loadAccounts();
+      } catch (e) {
+        box.textContent = 'save failed: ' + e;
+      }
+    }
+
     async function startSession() {
       const payload = {
         platform: document.getElementById('at-platform').value,
@@ -14578,6 +14685,7 @@ AUTO_TRADER_TEMPLATE = """
     }
 
     window.addEventListener('load', () => {
+      loadAccounts();                       // show which accounts the system is allowed to trade
       document.getElementById('at-start')?.addEventListener('click', startSession);
       document.getElementById('at-analyze')?.addEventListener('click', runAnalysis);
       document.getElementById('at-execute')?.addEventListener('click', executeTrade);
