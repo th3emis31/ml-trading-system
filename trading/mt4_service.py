@@ -52,6 +52,7 @@ class MT4Service:
             for index in range(max(1, int(port_fallback_sets)))
         ]
         self._last_error = "not initialized"
+        self._preferred_port = None      # set by _try_port; see _scan_order
         self._last_connect_attempt = 0.0
         self._reconnect_cooldown_sec = 5.0
         # Flask serves requests on several threads and ZeroMQ sockets are not
@@ -137,7 +138,30 @@ class MT4Service:
             'currency': response.get('currency'),
         }
         self._last_error = "connected"
+        self._preferred_port = command_port
         return True
+
+    def _scan_order(self) -> list:
+        """Candidate ports, with the one that last verified tried first.
+
+        One MetaTrader terminal can end up running SEVERAL bridge experts: the expert steps to the
+        next port set when its own is taken, so three copies on one terminal claim 32768, 32778 and
+        32788. Measured on this machine 21 Sep 2026, a single terminal held all nine ports.
+
+        They all serve the SAME account, so the account check passes on any of them and the plain
+        in-order scan is free to land on a different one after any dropped heartbeat. That is what
+        happened: the client moved from 32768 to 32778, leaving the first expert's panel reading
+        "Client: idle" while the app correctly reported itself connected - which is a confusing thing
+        to be looking at, and it leaves a failed reply behind on the abandoned bridge each time.
+
+        Sticking to the port that last verified keeps the client on one bridge for the life of the
+        process. It is only an ORDER, not a pin: every other port is still tried, so a bridge that
+        really has gone away is still replaced rather than clung to.
+        """
+        preferred = getattr(self, "_preferred_port", None)
+        if preferred is None or preferred not in self._candidate_ports:
+            return list(self._candidate_ports)
+        return [preferred] + [p for p in self._candidate_ports if p != preferred]
 
     def _connect(self) -> bool:
         """Find and attach to the DWX bridge, scanning the fallback port sets."""
@@ -145,7 +169,7 @@ class MT4Service:
         if not self.available:
             return False
         errors = []
-        for candidate in self._candidate_ports:
+        for candidate in self._scan_order():
             try:
                 if self._try_port(candidate):
                     logger.info(
