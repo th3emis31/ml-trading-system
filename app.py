@@ -22743,12 +22743,22 @@ def demo_plan_cycle_api():
   refused = _demo_pullback_refused()
   if refused:
     return refused
-  from src import demo_plan_trader
-  from src.tradingview_plan import build_daily_plan
+  from src import demo_plan_trader, tradingview_plan
   if MT5_ENGINE is None:
     return jsonify({'decision': 'refused', 'reason': 'MT5 engine unavailable'}), 503
+
+  def _plan_for(symbol):
+    # build_daily_plan takes the H4 and DAILY frames first, then the symbol - the same call the
+    # /api/tradingview/plan route makes. Passing the symbol alone raised every hour from 01:07 on
+    # 2026-09-21 until this was fixed; I assumed the signature instead of reading it.
+    h4, _ = get_bars(symbol, '4h', 1500)
+    daily, _ = get_bars(symbol, '1d', 400)
+    if h4 is None or h4.empty or daily is None or daily.empty:
+      return {'available': False, 'symbol': symbol, 'reason': 'No broker candles right now.'}
+    return tradingview_plan.build_daily_plan(h4, daily, symbol)
+
   with _demo_plan_lock:
-    summary = demo_plan_trader.plan_cycle(MT5_ENGINE, lambda symbol: build_daily_plan(symbol))
+    summary = demo_plan_trader.plan_cycle(MT5_ENGINE, _plan_for)
   return jsonify(summary)
 
 
