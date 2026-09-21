@@ -895,15 +895,27 @@ def random_spec(rng: random.Random, families: Optional[list] = None) -> dict:
             return spec
 
 
-def mutate_spec(spec: dict, rng: random.Random) -> dict:
-    for _ in range(50):
+def mutate_spec(spec: dict, rng: random.Random, seen: Optional[set] = None) -> dict:
+    """A neighbour of ``spec``: one knob moved, or more when the near neighbourhood is used up.
+
+    ``seen`` is the set of spec ids this market has already evaluated. Without it every draw
+    around a long-standing parent comes back as something already tested: measured on XAUUSD:4h
+    after 18,371 evaluations, **every** single-knob neighbour of the top twenty parents had been
+    tried, so half the hourly budget was producing nothing at all. Widening the radius after each
+    failure keeps the search learning around what survived instead of circling it.
+    """
+    radius = 1
+    for attempt in range(60):
         child = copy.deepcopy({k: spec[k] for k in ("family", "params", "exits")})
-        group = rng.choice(["params", "exits"])
-        grid = FAMILIES[child["family"]] if group == "params" else EXIT_GRID
-        key = rng.choice(sorted(k for k, v in grid.items() if len(v) > 1))
-        child[group][key] = rng.choice([v for v in grid[key] if v != child[group].get(key)])
-        if _valid_spec(child):
+        for _ in range(radius):
+            group = rng.choice(["params", "exits"])
+            grid = FAMILIES[child["family"]] if group == "params" else EXIT_GRID
+            key = rng.choice(sorted(k for k, v in grid.items() if len(v) > 1))
+            child[group][key] = rng.choice([v for v in grid[key] if v != child[group].get(key)])
+        if _valid_spec(child) and (seen is None or spec_id(child) not in seen):
             return child
+        if attempt % 12 == 11:                 # the neighbourhood at this radius looks exhausted
+            radius = min(radius + 1, 4)
     return random_spec(rng)
 
 
@@ -1086,7 +1098,8 @@ def run_search(markets=DEFAULT_MARKETS, minutes: float = 45.0, max_candidates: O
             parents = tops[market.key]
             if families:
                 parents = [parent for parent in parents if parent["family"] in families]
-            spec = mutate_spec(rng.choice(parents), rng) if parents and rng.random() < 0.5 else random_spec(rng, families)
+            spec = (mutate_spec(rng.choice(parents), rng, seen_ids[market.key])
+                    if parents and rng.random() < 0.5 else random_spec(rng, families))
             candidate_id = spec_id(spec)
             if candidate_id in seen_ids[market.key]:
                 continue
