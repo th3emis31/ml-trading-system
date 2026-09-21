@@ -102,6 +102,17 @@ FAMILIES = {
                         "refresh_bars": [20, 40], "ma_period": [0, 200, 600],
                         "entry_points": [0, 130], "sl_atr_mult": [1.5, 2.5, 4.45],
                         "tp_atr_mult_ratio": [1.0, 1.5, 2.0, 3.0]},
+    # The owner's 4H CRT: sweep -> displacement -> body close (src/crt_displacement.py, declared
+    # 20 Sep 2026 from their written specification before any result). It is here because the five
+    # indicator families have had about 148,000 evaluations between them without one candidate
+    # clearing the holdout, while the only rule to come out positive in all three windows AND beat
+    # its own inverse was a structural one of exactly this shape. "wick" and the require_* switches
+    # are kept in the grid on purpose: the specification says a wick-only break is a fakeout, so the
+    # search should be able to measure that claim rather than assume it.
+    "crt_displacement": {"mode": ["body", "wick"], "swing_lookback": [2, 3, 5],
+                         "sweep_window": [10, 20, 30], "displacement_factor": [1.2, 1.5, 2.0],
+                         "rr": [1.0, 1.5, 2.0, 3.0], "require_displacement": [True, False],
+                         "require_sweep": [True, False], "inverse": [False]},
 }
 EXIT_GRID = {"stop": ["atr", "swing"], "sl_atr": [1.0, 1.5, 2.0, 3.0], "rr": [1.0, 1.5, 2.0, 3.0, 0.0],
              "trail_atr": [0.0, 2.0, 3.5], "max_bars": [12, 24, 50, 150], "swing_lookback": [5]}
@@ -862,7 +873,7 @@ def _register_extra_builders() -> None:
     Imported lazily and tolerantly: if either module is unavailable the lab still runs on the five
     original families rather than failing to start, which matters because it runs hourly.
     """
-    for module in ("candle_pattern_lab", "aurum_flow_lab"):
+    for module in ("candle_pattern_lab", "aurum_flow_lab", "crt_displacement"):
         if module in _EXTRA_LOADED:
             continue
         try:

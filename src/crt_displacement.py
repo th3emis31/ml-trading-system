@@ -113,15 +113,20 @@ def displacement_orders(ind: lab.Indicators, spec: dict):
 
     # Origin sweep: within the preceding window, some bar took out the swing level on the far side and
     # price came back. For a bullish break the sweep is of an old LOW, and vice versa.
-    swept_low = np.zeros(n, dtype=bool)
-    swept_high = np.zeros(n, dtype=bool)
-    for i in range(n):
-        start = max(0, i - sweep_window)
-        for k in range(start, i + 1):
-            if np.isfinite(prior_low[k]) and l[k] < prior_low[k]:
-                swept_low[i] = True
-            if np.isfinite(prior_high[k]) and h[k] > prior_high[k]:
-                swept_high[i] = True
+    # "some bar in the window took the level out" is a rolling OR, which is what this is. It was
+    # written as a Python double loop over every bar and every bar in its window, which cost 1.3 s
+    # per candidate on 4H gold and 3.6 s on hourly - against about 0.36 s for the indicator
+    # families - and that is the whole reason this mechanism could not be afforded in the hourly
+    # search. The window is the same: sweep_window bars back plus the bar itself, with min_periods
+    # covering the short window at the start of the series exactly as max(0, i - sweep_window) did.
+    with np.errstate(invalid="ignore"):
+        took_low = np.isfinite(prior_low) & (l < prior_low)
+        took_high = np.isfinite(prior_high) & (h > prior_high)
+    window = sweep_window + 1
+    swept_low = (pd.Series(took_low, dtype=float).rolling(window, min_periods=1).max()
+                 .to_numpy() > 0)
+    swept_high = (pd.Series(took_high, dtype=float).rolling(window, min_periods=1).max()
+                  .to_numpy() > 0)
     if not require_sweep:
         swept_low = np.ones(n, dtype=bool)
         swept_high = np.ones(n, dtype=bool)
