@@ -910,11 +910,23 @@ MT5_ENGINE = MT5Service()
 # could place orders on the wrong account. Override with MT4_ACCOUNT=0 to
 # accept any bridge, or set it to a different login.
 def _mt4_expected_account() -> int | None:
-  raw = str(os.environ.get('MT4_ACCOUNT', '12755139') or '').strip()
+  """The account the MT4 bridge must report, from the owner's selection.
+
+  It used to be an environment variable with 12755139 baked in as the default, which meant MT4's
+  account lived somewhere different from MT5's and changing either was a separate job. Both now come
+  from src/active_account.py, so one file answers "which accounts is the system using". MT4_ACCOUNT
+  in the environment still wins, and the old constant is still the fallback, so nothing changes
+  until the owner selects something.
+  """
   try:
-    value = int(raw)
-  except ValueError:
-    return None
+    from src import active_account
+    value = int(active_account.mt4_expected_login())
+  except Exception:
+    raw = str(os.environ.get('MT4_ACCOUNT', '12755139') or '').strip()
+    try:
+      value = int(raw)
+    except ValueError:
+      return None
   return value or None
 
 

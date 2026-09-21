@@ -97,3 +97,29 @@ def test_a_broken_selection_falls_back_to_the_default_login(monkeypatch):
     assert ok is True
     refused, _ = pullback.check_demo_account(_demo(25446287))
     assert refused is False
+
+
+# --- MT4 lives in the same file as MT5 ---------------------------------------
+
+def test_mt4_account_defaults_to_the_bridge_account(data_dir):
+    assert active_account.selected(data_dir)["mt4_login"] == active_account.DEFAULT_MT4_LOGIN == 12755139
+
+
+def test_mt4_account_can_be_chosen_alongside_mt5(data_dir):
+    """One selection answers both platforms, so changing broker is one act, not two."""
+    active_account.select(11581419, mt4_login=777888, data_dir=data_dir)
+    chosen = active_account.selected(data_dir)
+    assert chosen["login"] == 11581419
+    assert chosen["mt4_login"] == 777888
+
+
+def test_changing_only_mt5_leaves_the_mt4_account_alone(data_dir):
+    active_account.select(11581419, mt4_login=777888, data_dir=data_dir)
+    active_account.select(22223333, data_dir=data_dir)
+    assert active_account.selected(data_dir)["mt4_login"] == 777888
+
+
+def test_the_mt4_environment_override_still_wins(data_dir, monkeypatch):
+    active_account.select(11581419, mt4_login=777888, data_dir=data_dir)
+    monkeypatch.setenv("MT4_ACCOUNT", "999000")
+    assert active_account.mt4_expected_login(data_dir) == 999000

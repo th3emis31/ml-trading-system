@@ -49,7 +49,18 @@ from .system_doctor import _read_json as _read_json_or_none
 DEFAULT_LOGIN = 11581419
 DEFAULT_TERMINAL = r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe"
 DEFAULT_SERVER = "VantageMarkets-Demo"
+# MT4 is a separate connection with its own account: the bridge expert serves whichever account its
+# terminal is logged into. Kept in this same file so one place answers "which accounts am I using",
+# rather than MT5 living here and MT4 living in an environment variable nobody remembers setting.
+DEFAULT_MT4_LOGIN = 12755139
 DEFAULT_LABEL = "Vantage demo 11581419 (the system's own account)"
+
+
+def _as_int(value, fallback: int) -> int:
+    try:
+        return int(value) if value not in (None, "") else fallback
+    except (TypeError, ValueError):
+        return fallback
 
 
 def config_path(data_dir: Optional[Path] = None) -> Path:
@@ -69,6 +80,7 @@ def selected(data_dir: Optional[Path] = None) -> dict:
         "terminal_path": str(raw.get("terminal_path") or DEFAULT_TERMINAL),
         "server": str(raw.get("server") or DEFAULT_SERVER),
         "label": str(raw.get("label") or (DEFAULT_LABEL if login == DEFAULT_LOGIN else f"account {login}")),
+        "mt4_login": _as_int(raw.get("mt4_login"), DEFAULT_MT4_LOGIN),
         "allow_live": bool(raw.get("allow_live")),
         "platform": str(raw.get("platform") or "mt5").lower(),
         "updated_at": raw.get("updated_at"),
@@ -81,6 +93,11 @@ def expected_login(data_dir: Optional[Path] = None) -> int:
     return int(selected(data_dir)["login"])
 
 
+def mt4_expected_login(data_dir: Optional[Path] = None) -> int:
+    """The account the MT4 bridge must report. MT4_ACCOUNT in the environment still wins if set."""
+    return _as_int(os.environ.get("MT4_ACCOUNT"), int(selected(data_dir)["mt4_login"]))
+
+
 def terminal_path(data_dir: Optional[Path] = None) -> str:
     """The MetaTrader terminal to attach to. MT5_PATH in the environment still wins if set."""
     return os.environ.get("MT5_PATH", "").strip() or selected(data_dir)["terminal_path"]
@@ -89,7 +106,7 @@ def terminal_path(data_dir: Optional[Path] = None) -> str:
 def select(login: int, terminal: Optional[str] = None, server: Optional[str] = None,
            label: Optional[str] = None, allow_live: bool = False,
            confirm_live: Optional[int] = None, platform: str = "mt5",
-           data_dir: Optional[Path] = None) -> dict:
+           mt4_login: Optional[int] = None, data_dir: Optional[Path] = None) -> dict:
     """Record the owner's choice. Returns {"ok": bool, "reason": str, "selection": {...}}.
 
     ``allow_live`` alone is not enough to arm a live account: ``confirm_live`` must repeat the same
@@ -115,6 +132,7 @@ def select(login: int, terminal: Optional[str] = None, server: Optional[str] = N
         "terminal_path": str(terminal or current["terminal_path"]),
         "server": str(server or ("" if login != current["login"] else current["server"])),
         "label": str(label or f"account {login}"),
+        "mt4_login": _as_int(mt4_login, current["mt4_login"]),
         "allow_live": bool(allow_live),
         "platform": str(platform or "mt5").lower(),
         "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -139,6 +157,7 @@ def main(argv=None) -> int:
     pick.add_argument("--server", default=None)
     pick.add_argument("--label", default=None)
     pick.add_argument("--platform", default="mt5")
+    pick.add_argument("--mt4-login", type=int, default=None, help="the account the MT4 bridge must report")
     pick.add_argument("--allow-live", action="store_true", help="a live account also needs --confirm-live")
     pick.add_argument("--confirm-live", type=int, default=None)
     args = parser.parse_args(argv)
@@ -147,7 +166,8 @@ def main(argv=None) -> int:
         print(json.dumps(selected(), indent=1))
         return 0
     result = select(args.login, terminal=args.terminal, server=args.server, label=args.label,
-                    allow_live=args.allow_live, confirm_live=args.confirm_live, platform=args.platform)
+                    allow_live=args.allow_live, confirm_live=args.confirm_live, platform=args.platform,
+                    mt4_login=args.mt4_login)
     print(json.dumps(result, indent=1))
     return 0 if result["ok"] else 1
 
