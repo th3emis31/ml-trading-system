@@ -3,6 +3,8 @@
 A spy wraps predict_signal: every out-of-sample bar must be predicted by it with the live config, and every simulated
 trade must enter on a bar where it returned that side. The legacy RF-probability path stays available by flag.
 """
+import threading
+
 import pytest
 
 from src import signal_engine
@@ -16,12 +18,28 @@ def data():
 
 
 def test_every_trade_comes_from_predict_signal_in_live_mode(data, monkeypatch):
+    """The backtest must reach the live engine on every out-of-sample bar, and with the live config.
+
+    The spy records calls made on THIS thread only. It has to: tests/test_system_doctor.py requests
+    /system-doctor through the test client, which fires @app.before_request and starts
+    _jarvis_autonomy_loop as a daemon for the rest of the pytest process. That loop wakes every 180 s
+    and computes a signal, this test takes about 167 s, and the spy patches a module attribute that
+    the loop reads too - so it was catching one stray call from another thread and asserting
+    690 == 689. It only began failing on 22 September, the first deep run after the owner armed
+    autonomy: before that the loop woke and returned immediately because it was disabled.
+
+    Filtering by thread keeps the guard exactly as strict for the thing it guards - every test bar
+    going through predict_signal with the live config - while ignoring activity that is not this
+    test's.
+    """
     calls = {}
     original = signal_engine.predict_signal
+    test_thread = threading.get_ident()
 
     def spy(bars, models=None, config=None, features=None):
         result = original(bars, models, config, features=features)
-        calls[wf._iso(result["signal_time"])] = (result["signal"], result["config"])
+        if threading.get_ident() == test_thread:
+            calls[wf._iso(result["signal_time"])] = (result["signal"], result["config"])
         return result
 
     monkeypatch.setattr(signal_engine, "predict_signal", spy)
