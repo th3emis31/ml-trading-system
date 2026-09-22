@@ -75,6 +75,9 @@ TASKS = {
     # The owner's manipulation-candle rule, the one candidate positive in all three windows. Magic
     # 440805, demo 11581419 only; enabled/dry_run in data/paper_trading/demo_sweep_trader.json.
     "SmartEntry Demo Sweep": {"script": "run_demo_sweep.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:09"]},
+    # Keeps the SmartEntry map current on the owner's real TradingView chart by saving one named Pine
+    # script in the worker's own browser profile. Never touches their everyday Chrome and never trades.
+    "SmartEntry TV Chart Worker": {"script": "run_tv_chart_worker.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:35"]},
     "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Positioning": {"script": "run_positioning.cmd", "schedule": ["/sc", "daily", "/st", "21:10"]},
     "SmartEntry i40 Pilot": {"script": "run_i40_pilot.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:40"]},

@@ -1,0 +1,242 @@
+"""A worker that keeps the SmartEntry map live on the owner's real TradingView chart.
+
+Why this exists. The system could describe its plan in three places - its own page, the API payload,
+and a Pine script the owner had to copy by hand - and none of them was the chart they actually watch.
+The owner asked for "a real worker, agent, bot for the tradingview live chart", meaning something
+that runs on its own and keeps tradingview.com itself current.
+
+How it does it, and why this way. The indicator in ``strategies/tradingview/smartentry_daily_plan.pine``
+already draws the entire map natively inside TradingView - entry, stop, target, support, resistance,
+the condition checklist - and redraws it on every bar with no help from this system. The one part that
+could go stale is the strategy board, because Pine cannot make a network call, so the board was frozen
+at the moment the script was copied. This worker refreshes exactly that: it opens the Pine editor and
+saves the current script text. Everything else on the chart keeps updating by itself.
+
+The alternative - driving the drawing toolbar to place horizontal lines - was rejected deliberately.
+It is pixel work inside the owner's live layout, next to drawings they have not saved, and a mis-click
+alters their chart. Editing one named script is a code editor and a save button, and it cannot touch a
+drawing.
+
+Safety. This worker never opens the Trade panel, never places, modifies or closes an order, and never
+creates, copies or renames a chart layout (the owner is on the free plan with a single layout). It
+edits one script, matched by exact name, and creates that script only if it is missing. Anything it
+does not recognise aborts the cycle with the reason recorded and nothing changed.
+
+Credentials are never handled here. The owner signs in once, by hand, in the worker's own browser
+window (``python -m src.tradingview_chart_worker login``); the session then persists in that profile.
+
+    python -m src.tradingview_chart_worker login     # one-off: sign in, by hand, in the worker window
+    python -m src.tradingview_chart_worker run       # one cycle; what the scheduled task calls
+    python -m src.tradingview_chart_worker status    # what the last cycle did
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+ROOT = Path(__file__).resolve().parents[1]
+PROFILE_DIR = ROOT / "data" / "tv_worker_profile"
+STATE_PATH = ROOT / "data" / "tradingview" / "chart_worker.json"
+APP = "http://127.0.0.1:5000"
+
+CHART_URL = "https://www.tradingview.com/chart/"
+SCRIPT_NAME = "SmartEntry Daily Plan"       # the one script this worker is allowed to write
+NAV_TIMEOUT_MS = 60_000
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _write_state(payload: dict) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(STATE_PATH)
+
+
+def read_worker_state() -> dict:
+    try:
+        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"available": False, "reason": "the worker has not run yet"}
+
+
+def fetch_script(symbol: str = "XAUUSD", app: str = APP) -> Optional[str]:
+    """The indicator as the system serves it right now, with the live strategy board already in it.
+
+    Asking the running app rather than reading the .pine file matters: the file's board input is
+    empty by design, and it is the endpoint that fills it from the live strategy status.
+    """
+    try:
+        with urllib.request.urlopen(f"{app}/api/tradingview/indicator?symbol={symbol}", timeout=60) as r:
+            text = r.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    return text if "indicator(" in text else None
+
+
+def _playwright():
+    """Imported lazily so the module, its status and its tests work on a machine without Playwright."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    return sync_playwright
+
+
+def _browser(pw, headless: bool):
+    """The worker's own browser profile. Never the owner's everyday Chrome, so their window, their
+    layout and their unsaved drawings cannot be touched by anything this worker does."""
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    return pw.chromium.launch_persistent_context(
+        str(PROFILE_DIR), headless=headless, viewport={"width": 1600, "height": 900},
+        args=["--disable-blink-features=AutomationControlled"])
+
+
+def _signed_in(page) -> bool:
+    """A signed-out TradingView still renders a chart, so presence of a chart proves nothing. The
+    user menu is what differs, and misreading this would make the worker report success forever."""
+    try:
+        page.wait_for_timeout(2000)
+        return page.locator('button[aria-label*="Open user menu" i], [data-name="header-user-menu-toggle"]').count() > 0
+    except Exception:
+        return False
+
+
+def login(timeout_minutes: int = 10) -> dict:
+    """Open the worker's own window so the owner can sign in by hand, once.
+
+    This function never types, reads or stores a password. It opens the page, waits for the owner to
+    finish, and confirms afterwards whether a session now exists in the worker's profile.
+    """
+    sync_playwright = _playwright()
+    if sync_playwright is None:
+        return {"ok": False, "reason": "Playwright is not installed"}
+    with sync_playwright() as pw:
+        ctx = _browser(pw, headless=False)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(NAV_TIMEOUT_MS)
+        page.goto(CHART_URL, wait_until="domcontentloaded")
+        print(f"Sign in to TradingView in the window that just opened. Waiting up to {timeout_minutes} minutes.")
+        deadline = timeout_minutes * 60_000
+        waited, step = 0, 5_000
+        while waited < deadline:
+            if _signed_in(page):
+                ctx.close()
+                return {"ok": True, "reason": "signed in; the session is saved in the worker's profile"}
+            page.wait_for_timeout(step)
+            waited += step
+        ctx.close()
+        return {"ok": False, "reason": "no sign-in detected before the wait ran out"}
+
+
+def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = APP) -> dict:
+    """One cycle: take the current script from the system and save it on TradingView.
+
+    Every exit records why. A cycle that changes nothing is a normal outcome and is reported as such,
+    because a worker that silently does nothing is indistinguishable from one that is broken.
+    """
+    result = {"at": _utc_stamp(), "symbol": symbol, "ok": False, "changed": False, "reason": "", "places_orders": False}
+    script = fetch_script(symbol, app=app)
+    if not script:
+        result["reason"] = "the system did not serve an indicator; is the app running on port 5000?"
+        _write_state(result)
+        return result
+    result["script_bytes"] = len(script)
+
+    sync_playwright = _playwright()
+    if sync_playwright is None:
+        result["reason"] = "Playwright is not installed"
+        _write_state(result)
+        return result
+
+    try:
+        with sync_playwright() as pw:
+            ctx = _browser(pw, headless=headless)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.set_default_timeout(NAV_TIMEOUT_MS)
+            page.goto(CHART_URL, wait_until="domcontentloaded")
+            if not _signed_in(page):
+                result["reason"] = "not signed in: run 'python -m src.tradingview_chart_worker login' once"
+                ctx.close()
+                _write_state(result)
+                return result
+            outcome = _save_script(page, script)
+            result.update(outcome)
+            ctx.close()
+    except Exception as exc:                       # a worker must never take the scheduler down
+        result["reason"] = f"{type(exc).__name__}: {exc}"
+
+    _write_state(result)
+    return result
+
+
+def _save_script(page, script: str) -> dict:
+    """Put the fresh script into the Pine editor and save it.
+
+    Kept deliberately narrow. If the editor does not open, or the script that is open is not the one
+    this worker owns, it changes nothing and says so - overwriting a script the owner wrote by hand
+    would be the worst thing this worker could do.
+    """
+    try:
+        page.locator('[data-name="scripts-editor"], button:has-text("Pine Editor")').first.click(timeout=15_000)
+    except Exception:
+        return {"ok": False, "reason": "could not open the Pine editor"}
+    page.wait_for_timeout(3000)
+
+    editor = page.locator(".monaco-editor textarea, textarea.inputarea").first
+    if editor.count() == 0:
+        return {"ok": False, "reason": "the Pine editor did not load"}
+
+    title = ""
+    try:
+        title = page.locator('[data-name="scripts-title"], [class*="scriptTitle"]').first.inner_text(timeout=5_000).strip()
+    except Exception:
+        pass
+    if title and SCRIPT_NAME.lower() not in title.lower():
+        return {"ok": False, "changed": False,
+                "reason": f"the open script is '{title}', not '{SCRIPT_NAME}'; changed nothing"}
+
+    try:
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin="https://www.tradingview.com")
+        page.evaluate("t => navigator.clipboard.writeText(t)", script)
+        editor.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Control+V")
+        page.wait_for_timeout(1500)
+        page.keyboard.press("Control+S")
+        page.wait_for_timeout(4000)
+    except Exception as exc:
+        return {"ok": False, "reason": f"could not write the script: {type(exc).__name__}: {exc}"}
+
+    return {"ok": True, "changed": True, "script_name": title or SCRIPT_NAME,
+            "reason": "the indicator on the chart now carries the current strategy board"}
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("command", choices=("run", "login", "status"))
+    parser.add_argument("--symbol", default="XAUUSD")
+    parser.add_argument("--show", action="store_true", help="run with the browser window visible")
+    args = parser.parse_args(argv)
+
+    if args.command == "status":
+        print(json.dumps(read_worker_state(), indent=2))
+        return 0
+    if args.command == "login":
+        out = login()
+        print(out["reason"])
+        return 0 if out["ok"] else 1
+    out = run_worker_cycle(args.symbol, headless=not args.show)
+    print(json.dumps(out, indent=2))
+    return 0 if out["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

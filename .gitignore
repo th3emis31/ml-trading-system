@@ -22,3 +22,5 @@ telegram_config.py
 .claude.json
 ntuser*
 *.log
+data/tv_worker_profile/
+data/tradingview/chart_worker.log
