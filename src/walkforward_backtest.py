@@ -58,12 +58,35 @@ BACKTEST_COSTS = {
     # These figures are the 90th-percentile spread DOUBLED, so half the charge is spread at a bad
     # moment and the other half is a slippage allowance. That is still well under the old constants
     # and it is deliberately conservative rather than optimistic.
-    "XAUUSD": {"round_trip_pct": 0.00009,
-               "note": "0.20 spread at the 90th percentile on a 4,400 price, doubled for slippage; "
-                       "measured 2026-09-19 over 66,000 bars (was 0.0004, about 6x too high)"},
-    "BTCUSD": {"round_trip_pct": 0.0009,
-               "note": "36 spread at the 90th percentile on an 80,000 price, doubled for slippage; "
-                       "measured 2026-09-19 over 66,000 bars (was 0.0012)"},
+    # Re-measured 22 Sep 2026 on M1 bars exported from the owner's own Vantage terminal, which carry
+    # the broker's per-minute <SPREAD> column: 100,850 gold minutes (10 Jun - 22 Sep) and 100,912
+    # bitcoin minutes (14 Jul - 22 Sep). That is finer than the 4h/1h bar spreads used on 19 Sep.
+    #
+    # THE CONVENTION IS UNCHANGED - 90th-percentile spread DOUBLED - so this corrects the measurement
+    # and not the method. Changing both at once is how an optimistic cost arrives wearing the label
+    # of a correction.
+    #
+    #   XAUUSD  p50 0.0053 %  p90 0.0057 %  p99 0.0069 %  worst minute 0.0075 %
+    #   BTCUSD  p50 0.0257 %  p90 0.0267 %  p99 0.0270 %  worst minute 0.0272 %
+    #
+    # Gold goes UP. Its spread has widened since September (p90 23 points against the 20 measured
+    # then), so the honest figure is dearer than the one it replaces. Bitcoin goes down by 41 %: it
+    # was being charged roughly three times what the broker takes, which suppressed real results.
+    #
+    # Tested for widening under stress, because a calm sample would hide it: in the top 1 % of
+    # minutes by range, gold widens 1.04x and bitcoin 0.84x - bitcoin is TIGHTER when active. Gold's
+    # first bar after a session break costs 0.0065 % against a 0.0053 % norm, still inside the figure.
+    #
+    # Caveat that limits this: three months of gold and two of bitcoin, no NFP spike and no stressed
+    # Monday gap in the window. The doubling is what carries that risk, which is why it stays.
+    "XAUUSD": {"round_trip_pct": 0.000115,
+               "note": "0.0057 % spread at the 90th percentile, doubled for slippage; measured "
+                       "2026-09-22 over 100,850 M1 bars with the broker's own spread column "
+                       "(was 0.00009, measured on coarser 4h/1h bars when the spread was tighter)"},
+    "BTCUSD": {"round_trip_pct": 0.000534,
+               "note": "0.0267 % spread at the 90th percentile, doubled for slippage; measured "
+                       "2026-09-22 over 100,912 M1 bars (was 0.0009, about 3.4x the real spread, "
+                       "which was suppressing genuinely profitable bitcoin candidates)"},
     "default": {"round_trip_pct": 0.001, "note": "generic assumption for an unmeasured symbol"},
 }
 
@@ -225,6 +248,10 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
         streak = streak + 1 if r <= 0 else 0
         longest_losing_streak = max(longest_losing_streak, streak)
     net_r = [t["net_r"] for t in trades if t.get("net_r") is not None]
+    # A strategy with NO STOP has no risk unit, so it has no R - the MetaQuotes Moving Average sample
+    # is exactly that (OrderSend(..., 0, 0, ...), exit only on the opposite signal). Demanding
+    # r_multiple raised a KeyError on it; inventing an R for it would be worse. Absent means absent.
+    gross_r = [t["r_multiple"] for t in trades if t.get("r_multiple") is not None]
     # Trades whose exit bar reached BOTH the stop and the target. A single bar cannot say which came first, so the
     # engine books the stop; that is the safe choice but it is a choice. Reported here with the expectancy the
     # strategy would have if every one of them had gone the other way instead - not a result, a bound. When the
@@ -257,7 +284,7 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
         "win_rate_pct": round(len(wins) / count * 100, 2) if count else None,
         "profit_factor": round(float(wins.sum()) / abs(float(losses.sum())), 3) if count and losses.sum() < 0 else None,
         "expectancy_pct": round(float(np.mean(net)) * 100, 4) if count else None,
-        "avg_r": round(float(np.mean([t["r_multiple"] for t in trades])), 3) if count else None,
+        "avg_r": round(float(np.mean(gross_r)), 3) if gross_r else None,
         "expectancy_r": round(float(np.mean(net_r)), 4) if net_r else None,
         "longest_losing_streak": int(longest_losing_streak),
         "total_return_pct": round((equity - 1.0) * 100, 3),
