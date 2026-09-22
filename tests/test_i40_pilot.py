@@ -284,3 +284,38 @@ def test_learning_decisions_reach_the_activity_trail():
     learning = [e for e in out["events"] if e["source"] == "learning"]
     assert {e["at"] for e in learning} == {"2026-09-20 05:30:12", "2026-09-20 05:30:34"}
     assert "promoted" in [e["detail"] for e in learning if "BTCUSD" in e["what"]][0]
+
+
+# --- the brief must see every strategy that can place an order -----------------------------------
+
+def _stub_get(bodies):
+    def get(path, timeout=20):
+        for key, body in bodies.items():
+            if key in path:
+                return 200, body
+        return 404, {}
+    return get
+
+
+def test_every_order_placing_strategy_appears_in_the_brief():
+    """On 22 Sep 2026 the brief reported "2 of 2 readable, 1 sending" while FOUR strategies were live
+    and THREE were sending. The sweep (440805) and daily plan (440704) were simply never asked for."""
+    get = _stub_get({
+        "demo-trading":  {"magic": 440502, "sending_orders": False},
+        "demo-breakout": {"magic": 440603, "sending_orders": True},
+        "demo-sweep":    {"magic": 440805, "dry_run": False},
+        "demo-plan":     {"magic": 440704, "dry_run": False},
+    })
+    strategies = pilot.context(get=get)["strategies"]
+    assert {v["magic"] for v in strategies.values()} == {440502, 440603, 440805, 440704}
+
+
+def test_dry_run_is_read_as_not_sending():
+    """The newer strategies report dry_run, the older ones sending_orders. Both must be understood,
+    or a live strategy is silently reported as not sending."""
+    get = _stub_get({"demo-trading": {"magic": 440502, "dry_run": True},
+                     "demo-breakout": {"magic": 440603, "dry_run": False}})
+    strategies = pilot.context(get=get)["strategies"]
+    by_magic = {v["magic"]: v for v in strategies.values() if v.get("magic")}
+    assert by_magic[440502]["sending_orders"] is False
+    assert by_magic[440603]["sending_orders"] is True

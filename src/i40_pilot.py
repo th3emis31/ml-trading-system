@@ -471,14 +471,26 @@ def context(get: Optional[Callable] = None) -> dict:
         return {"available": True, **body}
 
     strategies = {}
+    # Every strategy that can place an order, not a subset. The sweep (440805) and the daily plan
+    # (440704) were live, cycling hourly and SENDING orders while this brief reported "2 of 2
+    # readable" and "1 sending" - so the module whose job is to state what the system is doing was
+    # silently missing half of it. Both endpoints already existed and answered 200; nothing asked.
     for key, path in (("gold_session_pullback", "/api/demo-trading/status"),
-                      ("volatility_trend_breakout", "/api/demo-breakout/status")):
+                      ("volatility_trend_breakout", "/api/demo-breakout/status"),
+                      ("sweep_reversal", "/api/demo-sweep/status"),
+                      ("daily_plan", "/api/demo-plan/status")):
         body = endpoint(path)
         if not body.get("available"):
             strategies[key] = body
             continue
+        # Two shapes in the wild: the older strategies report ``sending_orders``, the newer two report
+        # ``dry_run``. Reading only the first called a live strategy "not sending" because the key was
+        # absent, which is exactly the kind of quiet under-report this module exists to prevent.
+        sending = body.get("sending_orders")
+        if sending is None and body.get("dry_run") is not None:
+            sending = not bool(body.get("dry_run"))
         strategies[key] = {"available": True, "magic": body.get("magic"), "symbol": body.get("symbol"),
-                           "sending_orders": body.get("sending_orders"), "halted": body.get("halted"),
+                           "sending_orders": sending, "halted": body.get("halted"),
                            "account": body.get("account"), "cycle_health": body.get("cycle_health"),
                            "expectancy": body.get("expectancy"), "last_cycle": body.get("last_cycle"),
                            "open_trade": body.get("open_trade"), "today_trades": len(body.get("today_trades") or []),
