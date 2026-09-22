@@ -73,12 +73,29 @@ def test_state_reads_cleanly_before_the_worker_has_ever_run(tmp_path, monkeypatc
     assert w.read_worker_state()["available"] is False
 
 
-def test_the_worker_uses_its_own_profile_not_the_owners_chrome():
-    """The owner chose a separate browser precisely so their live layout and unsaved drawings are
-    out of reach. A change that pointed this at their Chrome profile must fail here."""
-    assert w.PROFILE_DIR.name == "tv_worker_profile"
-    assert "ml_trading_system" in str(w.PROFILE_DIR)
-    assert _code_only(w.__file__).count("remote-debugging-port") == 0, "must not attach to the owner's Chrome"
+def test_the_worker_attaches_and_never_closes_the_owners_browser():
+    """The worker runs inside the owner's own Edge, so the danger is no longer a stray profile - it
+    is disturbing a browser they are using. It must open its own tab and close only that tab.
+
+    This replaced a test asserting the opposite. The first build used a separate Chromium with no
+    TradingView session, which asked them to sign in twice; they said "using wrong broweser", and
+    their browser is Edge. The guard has to follow the design, not outlive it.
+    """
+    code = _code_only(w.__file__)
+    assert "ctx.new_page()" in code, "must open its own tab rather than reuse one of theirs"
+    assert "page.close()" in code, "must close the tab it opened"
+    assert "ctx.close()" not in code, "closing the context would take the owner's browser with it"
+    assert "9222" in w.CDP_URL
+
+
+def test_an_unreachable_browser_is_its_own_reason(tmp_path, monkeypatch):
+    """'Changed nothing' and 'could not reach the browser' are different problems with different
+    fixes, and collapsing them would hide a worker that is simply dead."""
+    monkeypatch.setattr(w, "STATE_PATH", tmp_path / "s.json")
+    monkeypatch.setattr(w, "fetch_script", lambda *a, **k: "//@version=5\nindicator('x')")
+    monkeypatch.setattr(w, "_browser_reachable", lambda: False)
+    out = w.run_worker_cycle()
+    assert out["ok"] is False and "debug port" in out["reason"]
 
 
 def test_no_executable_line_can_reach_an_order():
