@@ -18257,8 +18257,44 @@ TRADINGVIEW_CENTER_TEMPLATE = r"""
             <span>Last closed candle</span><span>${escPlan(plan.last_closed_candle)} UTC</span>
           </div>
           <ul class='plan-check'>${(plan.checklist || []).map(c => `<li><span class='${c.ok ? 'yes' : 'no'}'>${c.ok ? '✔' : '✖'}</span> ${escPlan(c.name)}</li>`).join('')}</ul>
+          ${readinessLine(plan.readiness)}
+          ${boardBlock(plan.strategy_board)}
           ${plan.last_closed_trade ? `<p class='muted-small'>Last closed trade: ${escPlan(plan.last_closed_trade.opened)} → ${escPlan(plan.last_closed_trade.closed)} UTC, ${escPlan(plan.last_closed_trade.reason)}, ${escPlan(plan.last_closed_trade.result_pct)}%</p>` : ''}
           <p class='muted-small'>${escPlan(plan.note)}</p>`;
+      }
+
+      // How close the checklist is, on a scale, beside the unchanged pass/fail gate above. A plan that
+      // only ever says NO TRADE hides the difference between one condition short and five.
+      function readinessLine(r) {
+        if (!r || !r.total) return '';
+        const pct = Math.round((r.share || 0) * 100);
+        const colour = pct >= 80 ? '#22c55e' : pct >= 50 ? '#fbbf24' : '#94a3b8';
+        return `<div class='muted-small' style='margin:6px 0 2px;'>
+          <span style='display:inline-block;width:120px;height:6px;border-radius:3px;background:rgba(148,176,222,0.18);vertical-align:middle;margin-right:8px;'>
+            <span style='display:block;width:${pct}%;height:6px;border-radius:3px;background:${colour};'></span></span>
+          Readiness ${escPlan(r.met)} of ${escPlan(r.total)} conditions · ${escPlan(r.reading)}</div>`;
+      }
+
+      // Every strategy that can place an order, not just the rule this plan describes. The card used to
+      // show SwingTrendPullback alone while four strategies ran live, including the only one with a
+      // winning forward record - so the page hid the thing actually making money.
+      function boardBlock(board) {
+        const rows = (board && board.strategies) || [];
+        if (!rows.length) return '';
+        const cells = rows.map(s => {
+          if (!s.available) return `<li><span class='no'>✖</span> ${escPlan(s.name)} — unreachable (${escPlan(s.reason || 'no status')})</li>`;
+          const state = s.halted ? `<span class='no'>HALTED</span>`
+            : s.sending_orders ? `<span class='yes'>sending orders</span>` : `<span style='color:#94a3b8;'>dry run</span>`;
+          const money = (s.realised_money === null || s.realised_money === undefined) ? ''
+            : ` · banked ${Number(s.realised_money).toFixed(2)}`;
+          const trades = (s.closed_trades === null || s.closed_trades === undefined) ? '' : ` · ${escPlan(s.closed_trades)} closed`;
+          return `<li><b>${escPlan(s.name)}</b> — ${state}${money}${trades}
+            <div class='muted-small' style='margin-left:14px;'>${escPlan(s.waiting_for || s.decision || 'no reason reported')}</div></li>`;
+        }).join('');
+        return `<div style='margin-top:10px;border-top:1px solid rgba(148,176,222,0.18);padding-top:8px;'>
+          <div class='muted-small' style='margin-bottom:4px;'>Strategies that can place an order right now
+            (${escPlan(board.sending ?? 0)} sending${board.unreachable ? `, ${escPlan(board.unreachable)} unreachable` : ''})</div>
+          <ul class='plan-check'>${cells}</ul></div>`;
       }
 
       async function loadPlan(refresh) {
