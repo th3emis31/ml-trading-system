@@ -55,6 +55,10 @@ tablePosIn = input.string("Top right", "Table position", options=["Top right", "
 tableCompact = input.bool(false, "Compact table (tiny text)", tooltip="Smaller text so the table covers less price action.", group=grpL)
 tableFade = input.int(25, "Table background transparency", minval=0, maxval=90, tooltip="Higher lets the candles show through.", group=grpL)
 showCountdown = input.bool(true, "Show time to the next 4H close", group=grpL)
+// The strategies that can actually place an order, written in by the system's chart worker when it
+// saves this script. Pine cannot fetch it, so it arrives as text; empty simply hides the section.
+boardText = input.string("", "Strategy board (written by the SmartEntry worker)", group=grpL)
+showBoard = input.bool(true, "Show the strategy board", group=grpL)
 
 // ---------------------------------------------------------------- closed-candle offset
 // 1 while the last candle is still forming (use the previous, closed one), 0 once it has closed.
@@ -186,7 +190,7 @@ addLevel(float price, color col, string caption, string style, int width) =>
 
 tPos = tablePosIn == "Top left" ? position.top_left : tablePosIn == "Bottom right" ? position.bottom_right : tablePosIn == "Bottom left" ? position.bottom_left : position.top_right
 tTxt = tableCompact ? size.tiny : size.small
-var table mm = table.new(tPos, 3, 25, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+var table mm = table.new(tPos, 3, 30, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
 table.set_bgcolor(mm, color.new(#0b1220, tableFade))
 row(int r, string k, string a, color ca, string b, color cb) =>
     table.cell(mm, 0, r, k, text_color=color.new(#94a3b8, 0), text_size=tTxt, text_halign=text.align_left)
@@ -315,5 +319,15 @@ if barstate.islast
     row(18, "Nearest support", na(nSup) ? "-" : nSupName + " " + fmt(nSup), color.new(#86efac, 0), na(nSup) ? "" : "-" + fmtN((cClose - nSup) / cAtrB, "#.0") + " ATR", color.new(#86efac, 0))
     row(19, "Prev week high / low", fmt(wH) + " / " + fmt(wL), color.white, "", color.white)
     row(20, "Pivots S2 S1 P R1 R2", fmt(pvS2) + "  " + fmt(pvS1) + "  " + fmt(pvP), color.white, fmt(pvR1) + "  " + fmt(pvR2), color.white)
-    row(21, "Daily trend (this chart)", biasText(dC, dEma50, dEma200) + " · RSI " + fmtN(dRsi, "#.0"), biasColor(biasText(dC, dEma50, dEma200)), "", color.white)
+    row(21, "Daily trend (this chart)", biasText(dC, dEma50, dEma200) + " - RSI " + fmtN(dRsi, "#.0"), biasColor(biasText(dC, dEma50, dEma200)), "", color.white)
     row(22, "Note", "Research map, not advice. Demo first.", color.new(#94a3b8, 0), "", color.white)
+    // What is actually running. This map showed two markets in detail while saying nothing about
+    // which strategies were live, or which one was earning - the thing the owner most needs to see.
+    if showBoard and str.length(boardText) > 0
+        brows = str.split(boardText, " || ")
+        header(23, "Strategies that can place an order")
+        for i = 0 to math.min(array.size(brows) - 1, 3)
+            bparts = str.split(array.get(brows, i), " :: ")
+            bk = array.size(bparts) > 0 ? array.get(bparts, 0) : ""
+            bv = array.size(bparts) > 1 ? array.get(bparts, 1) : ""
+            row(24 + i, bk, bv, str.contains(bv, "SENDING") ? color.lime : color.new(#94a3b8, 0), "", color.white)

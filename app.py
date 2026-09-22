@@ -19154,12 +19154,23 @@ def tradingview_plan_api():
 
 @app.route('/api/tradingview/indicator')
 def tradingview_indicator_api():
-  """The SmartEntry Plan Pine Script, as plain text for the copy button."""
+  """A SmartEntry Pine script as plain text, with the live strategy board already written into it.
+
+  ?script=daily_plan (the default, what the copy button uses) or market_map, which is the indicator
+  actually on the owner's chart and what the chart worker refreshes.
+  """
   from flask import Response
   from src import tradingview_plan
-  text = tradingview_plan.pine_script_text()
+  key = (request.args.get('script') or 'daily_plan').strip().lower()
+  entry = tradingview_plan.PINE_SCRIPTS.get(key)
+  if entry is None:
+    return Response(f"Unknown script '{key}'. Use one of: {', '.join(tradingview_plan.PINE_SCRIPTS)}.",
+                    status=404, mimetype='text/plain')
+  name, path = entry
+  symbol = (request.args.get('symbol') or 'XAUUSD').strip().upper()
+  text = tradingview_plan.pine_script_text(path=path, symbol=symbol)
   if not text:
-    return Response('Indicator file strategies/tradingview/smartentry_daily_plan.pine is missing.', status=404, mimetype='text/plain')
+    return Response(f'Indicator file for {name} is missing.', status=404, mimetype='text/plain')
   return Response(text, mimetype='text/plain; charset=utf-8')
 
 

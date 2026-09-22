@@ -97,3 +97,25 @@ def test_playwright_absence_is_a_status_not_an_import_error(tmp_path, monkeypatc
     monkeypatch.setattr(w, "fetch_script", lambda *a, **k: "//@version=5\nindicator('x')")
     out = w.run_worker_cycle()
     assert out["ok"] is False and "Playwright" in out["reason"]
+
+
+def test_the_worker_targets_the_script_that_is_actually_on_the_chart():
+    """The first version aimed at 'SmartEntry Daily Plan', which is not on the owner's chart - the
+    indicator there is the market map. Every cycle would have refused and changed nothing, for ever,
+    while reporting a tidy reason. A worker that can never succeed is worse than no worker."""
+    from src import tradingview_plan as tp
+    assert w.SCRIPT_KEY in tp.PINE_SCRIPTS
+    assert tp.PINE_SCRIPTS[w.SCRIPT_KEY][0] == w.SCRIPT_NAME
+    assert tp.PINE_SCRIPTS[w.SCRIPT_KEY][1].exists()
+
+
+def test_both_indicators_accept_the_board():
+    """The injection used to anchor on the daily plan's input label. The map calls its input something
+    else, so anchoring on a label would have silently left the map's board empty."""
+    from src import tradingview_plan as tp
+    board = {"strategies": [{"name": "VTB", "available": True, "sending_orders": True,
+                             "waiting_for": "no breakout"}]}
+    for key, (name, path) in tp.PINE_SCRIPTS.items():
+        text = tp.pine_script_text(path=path, board=board)
+        line = [l for l in text.splitlines() if l.startswith("boardText = input.string(")]
+        assert line and "VTB :: SENDING" in line[0], f"{key} did not receive the board"

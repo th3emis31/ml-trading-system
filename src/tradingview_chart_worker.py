@@ -45,7 +45,11 @@ STATE_PATH = ROOT / "data" / "tradingview" / "chart_worker.json"
 APP = "http://127.0.0.1:5000"
 
 CHART_URL = "https://www.tradingview.com/chart/"
-SCRIPT_NAME = "SmartEntry Daily Plan"       # the one script this worker is allowed to write
+# The script this worker is allowed to write. It defaults to the market map because that is the
+# indicator actually on the owner's chart - the first version of this worker targeted the daily plan,
+# which is not on it, so every cycle would have correctly refused and changed nothing forever.
+SCRIPT_KEY = "market_map"
+SCRIPT_NAME = "SmartEntry Market Map"
 NAV_TIMEOUT_MS = 60_000
 
 
@@ -67,14 +71,14 @@ def read_worker_state() -> dict:
         return {"available": False, "reason": "the worker has not run yet"}
 
 
-def fetch_script(symbol: str = "XAUUSD", app: str = APP) -> Optional[str]:
+def fetch_script(symbol: str = "XAUUSD", app: str = APP, script: str = SCRIPT_KEY) -> Optional[str]:
     """The indicator as the system serves it right now, with the live strategy board already in it.
 
     Asking the running app rather than reading the .pine file matters: the file's board input is
     empty by design, and it is the endpoint that fills it from the live strategy status.
     """
     try:
-        with urllib.request.urlopen(f"{app}/api/tradingview/indicator?symbol={symbol}", timeout=60) as r:
+        with urllib.request.urlopen(f"{app}/api/tradingview/indicator?script={script}&symbol={symbol}", timeout=60) as r:
             text = r.read().decode("utf-8", "replace")
     except Exception:
         return None
@@ -136,19 +140,20 @@ def login(timeout_minutes: int = 10) -> dict:
         return {"ok": False, "reason": "no sign-in detected before the wait ran out"}
 
 
-def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = APP) -> dict:
+def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = APP,
+                     script: str = SCRIPT_KEY) -> dict:
     """One cycle: take the current script from the system and save it on TradingView.
 
     Every exit records why. A cycle that changes nothing is a normal outcome and is reported as such,
     because a worker that silently does nothing is indistinguishable from one that is broken.
     """
     result = {"at": _utc_stamp(), "symbol": symbol, "ok": False, "changed": False, "reason": "", "places_orders": False}
-    script = fetch_script(symbol, app=app)
-    if not script:
+    text = fetch_script(symbol, app=app, script=script)
+    if not text:
         result["reason"] = "the system did not serve an indicator; is the app running on port 5000?"
         _write_state(result)
         return result
-    result["script_bytes"] = len(script)
+    result["script"], result["script_bytes"] = SCRIPT_NAME, len(text)
 
     sync_playwright = _playwright()
     if sync_playwright is None:
@@ -167,7 +172,7 @@ def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = A
                 ctx.close()
                 _write_state(result)
                 return result
-            outcome = _save_script(page, script)
+            outcome = _save_script(page, text)
             result.update(outcome)
             ctx.close()
     except Exception as exc:                       # a worker must never take the scheduler down
@@ -223,6 +228,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("run", "login", "status"))
     parser.add_argument("--symbol", default="XAUUSD")
+    parser.add_argument("--script", default=SCRIPT_KEY, choices=("market_map", "daily_plan"))
     parser.add_argument("--show", action="store_true", help="run with the browser window visible")
     args = parser.parse_args(argv)
 
@@ -233,7 +239,7 @@ def main(argv=None) -> int:
         out = login()
         print(out["reason"])
         return 0 if out["ok"] else 1
-    out = run_worker_cycle(args.symbol, headless=not args.show)
+    out = run_worker_cycle(args.symbol, headless=not args.show, script=args.script)
     print(json.dumps(out, indent=2))
     return 0 if out["ok"] else 1
 

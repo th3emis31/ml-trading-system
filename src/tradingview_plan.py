@@ -26,6 +26,10 @@ from .paper_trader import drop_forming_bars
 ROOT = Path(__file__).resolve().parents[1]
 PLAN_DIR = ROOT / "data" / "tradingview_plans"
 PINE_PATH = ROOT / "strategies" / "tradingview" / "smartentry_daily_plan.pine"
+MAP_PINE_PATH = ROOT / "strategies" / "tradingview" / "smartentry_market_map.pine"
+# The two indicators the system publishes. "market_map" is the one on the owner's chart.
+PINE_SCRIPTS = {"daily_plan": ("SmartEntry Daily Plan", PINE_PATH),
+                "market_map": ("SmartEntry Market Map", MAP_PINE_PATH)}
 PLAN_SPEC = lab.EA_SPECS["tradingview"]
 H4_MINUTES, DAY_MINUTES = 240, 1440
 TIME_FORMAT = "%Y-%m-%d %H:%M"
@@ -311,8 +315,12 @@ def pine_script_text(path: Path = PINE_PATH, symbol: str = "XAUUSD", board: Opti
         # printable ASCII rather than trusting whatever a status endpoint happens to return.
         snapshot = " || ".join(rows).replace('"', "'").replace("\\", "/")
         snapshot = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in snapshot)
-        text = text.replace('boardText = input.string("", "Strategy board (filled on copy)"',
-                            f'boardText = input.string("{snapshot}", "Strategy board (filled on copy)"', 1)
+        # Matched on the empty default alone, so both indicators work: the daily plan calls its input
+        # "filled on copy" and the market map "written by the SmartEntry worker". Anchoring on either
+        # label would have silently done nothing to the other script.
+        anchor = 'boardText = input.string("", '
+        if anchor in text:
+            text = text.replace(anchor, f'boardText = input.string("{snapshot}", ', 1)
     except Exception:
         pass            # the script still copies; the board input just stays empty
     return text
