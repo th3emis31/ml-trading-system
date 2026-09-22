@@ -233,7 +233,7 @@ def check() -> dict:
         return _record({"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
 
-def signin(timeout_minutes: int = 20) -> dict:
+def signin(timeout_minutes: int = 600) -> dict:
     """Open Edge visibly, on the worker's profile, so the owner signs in once by hand.
 
     Never types, reads or stores a password: it opens the page, waits, and afterwards confirms
