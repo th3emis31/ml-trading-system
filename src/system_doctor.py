@@ -72,6 +72,9 @@ TASKS = {
     # The daily plan's executor, added 20 Sep 2026 when the plan finally got an execution path. Magic 440704,
     # demo account 11581419 only; enabled/dry_run live in data/paper_trading/demo_plan_trader.json.
     "SmartEntry Demo Plan": {"script": "run_demo_plan.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
+    # The owner's manipulation-candle rule, the one candidate positive in all three windows. Magic
+    # 440805, demo 11581419 only; enabled/dry_run in data/paper_trading/demo_sweep_trader.json.
+    "SmartEntry Demo Sweep": {"script": "run_demo_sweep.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:09"]},
     "SmartEntry Plan Journal": {"script": "run_plan_journal.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:07"]},
     "SmartEntry Positioning": {"script": "run_positioning.cmd", "schedule": ["/sc", "daily", "/st", "21:10"]},
     "SmartEntry i40 Pilot": {"script": "run_i40_pilot.cmd", "schedule": ["/sc", "hourly", "/mo", "1", "/st", "00:40"]},
