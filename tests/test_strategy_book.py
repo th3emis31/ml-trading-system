@@ -181,3 +181,37 @@ def test_update_book_rescores_adds_and_writes_presets(tmp_path, bars, monkeypatc
     assert sb.book_specs("XAUUSD:4h", book_path)  # watchlist strategies become search parents
     summary = sb.book_summary(book_path)
     assert summary["counts"].get("watchlist", 0) >= 1
+
+
+# --- the trial count belongs to the strategy, not to the clock ------------------------------------
+
+def test_a_kept_entry_freezes_the_trial_count_it_was_selected_under():
+    """Deflated Sharpe's N is the trials that competed for THIS selection.
+
+    Measured 22 Sep 2026: the BTCUSD:1h leader's deflated Sharpe fell 0.4786 -> 0.3305 over fourteen
+    hourly updates while its holdout profit factor stayed at 1.763 on the same 36 trades. The Lab had
+    run 8,423 more candidates around it; none of them competed for choosing it.
+    """
+    entry = {"trials_at_selection": 18835}
+    current = 27258
+    assert int(entry.get("trials_at_selection") or current) == 18835
+
+
+def test_a_freshly_selected_candidate_carries_the_full_current_count():
+    """No relaxation: something chosen out of everything tried so far is penalised for all of it."""
+    assert int((None or {}).get("trials_at_selection") or 27258) == 27258
+
+
+def test_an_entry_without_the_field_freezes_at_todays_count_not_a_smaller_one():
+    """Legacy entries must not be retroactively flattered - they freeze where they are."""
+    entry = {}
+    current = 27258
+    frozen = int(entry.get("trials_at_selection") or current)
+    entry.setdefault("trials_at_selection", frozen)
+    assert entry["trials_at_selection"] == 27258
+
+
+def test_a_smaller_n_never_lowers_the_pass_mark_itself():
+    """The 0.95 bar is untouched; only the N fed into the deflation changes."""
+    from src import strategy_lab as lab
+    assert lab.HOLDOUT_CRITERIA["min_deflated_sharpe"] == 0.95

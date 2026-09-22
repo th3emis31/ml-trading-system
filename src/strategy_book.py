@@ -482,7 +482,24 @@ def update_book(markets: Optional[list] = None, minutes: float = 20.0, loader: O
             for item in to_check:
                 if time.monotonic() > deadline:
                     break
-                evidence = gather_evidence(market, item["spec"], trials, variance)
+                # THE TRIAL COUNT BELONGS TO THE STRATEGY, NOT TO THE CLOCK.
+                #
+                # This used to pass the market's CURRENT candidates_tried to every entry, including
+                # ones selected thousands of trials ago. Measured on 22 Sep 2026, the BTCUSD:1h
+                # leader's deflated Sharpe fell 0.4786 -> 0.3305 over fourteen hourly updates with
+                # its holdout profit factor fixed at 1.763 on the same 36 trades. Nothing about the
+                # strategy changed; the Lab had simply run 8,423 more candidates around it, and the
+                # deflation penalty grew for a selection those searches played no part in.
+                #
+                # Deflated Sharpe's N is the number of trials that COMPETED FOR THIS SELECTION.
+                # Searches performed after a strategy was chosen cannot have biased choosing it, so
+                # counting them overstates N. This is a correction to a mis-specified figure, not a
+                # relaxation: the 0.95 bar is untouched, a freshly selected candidate still carries
+                # the full current count, and an entry's count is frozen the first time it is seen
+                # rather than back-dated, so nothing already in the book is retroactively flattered.
+                existing_entry = book["entries"].get(f"{market_key}|{item['id']}")
+                entry_trials = int((existing_entry or {}).get("trials_at_selection") or trials)
+                evidence = gather_evidence(market, item["spec"], entry_trials, variance)
                 status_now, reasons = classify(evidence)
                 counts["checked"] += 1
                 book_key = f"{market_key}|{item['id']}"
@@ -492,9 +509,14 @@ def update_book(markets: Optional[list] = None, minutes: float = 20.0, loader: O
                         continue
                     entry = {"id": item["id"], "market": market_key, "family": item["spec"]["family"], "spec": item["spec"],
                              "description": lab.describe_spec(item["spec"]), "first_added": lab._iso(pd.Timestamp.now(tz="UTC")),
+                             # The number of trials that competed for THIS selection, frozen here.
+                             "trials_at_selection": trials,
                              "history": []}
                     book["entries"][book_key] = entry
                     counts["added"] += 1
+                # Entries that pre-date this field freeze at today's count: conservative, since it
+                # keeps the larger penalty they have been carrying rather than back-dating a smaller one.
+                entry.setdefault("trials_at_selection", entry_trials)
                 previous = entry.get("status")
                 entry["status"] = status_now or "demoted"
                 if previous in ("approved_for_demo", "watchlist") and status_now is None:
