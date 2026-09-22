@@ -123,6 +123,18 @@ def manage_breakout_trade(engine, state: dict, trade: dict, candles: list, confi
         for deal in history.get("deals") or []:
             deals.setdefault(int(deal["position_id"]), []).append(deal)
 
+    # Record money a leg has already banked, for reporting only. state["closed_money"] still moves
+    # only when the whole signal settles below, and the trade count is still one per SIGNAL - this
+    # writes nothing the settlement reads. Without it the page showed +45.38 while the broker held
+    # +61.34, because a leg had banked +15.28 and its sibling runner was still open (22 Sep 2026).
+    for leg in trade.get("legs") or []:
+        if int(leg["ticket"]) in live or leg.get("realised") is not None:
+            continue
+        leg_deals = deals.get(int(leg["ticket"])) or []
+        exits = [d for d in leg_deals if float(d.get("net") or 0.0) or d.get("comment")]
+        if leg_deals and exits:
+            leg["realised"] = round(sum(float(d.get("net") or 0.0) for d in leg_deals), 2)
+
     since = [c for c in candles if c.ts >= trade["signal_bar"]]
     bars_after_entry = max(0, len(since) - 1)
     a_deals = deals.get(int(legs["A"]["ticket"])) or []
@@ -443,6 +455,43 @@ def resume_breakout(now=None) -> dict:
     return event
 
 
+def _money_view(state: dict, positions: Optional[list] = None) -> dict:
+    """Realised money, including legs already banked by a signal that has not finished.
+
+    Why this exists. ``state["closed_money"]`` only moves when a whole signal resolves - both the TP1
+    leg and the runner - which is correct for the TRADE COUNT and wrong for the money. Measured on
+    22 September 2026: the broker held +61.34 realised across three closed legs while the page showed
+    +45.38, because position 2060045161 banked +15.28 and its sibling runner was still open. A
+    strategy built around a TP1 leg plus a runner has a runner open most of the time, so the figure
+    understated a working strategy by 26 % and would keep doing so.
+
+    NOTHING ABOUT THE TRADE COUNT CHANGES. A trade is still one SIGNAL, recorded only when every leg
+    has resolved, with R weighted 0.5 per leg. Counting legs as trades would turn two signals into
+    four and inflate the sample - the same distortion as a partial take-profit scoring as a win, which
+    is what produces a flattering win rate in vendor scripts. The ladder still needs five real
+    signals; this only reports money that is already in the account.
+
+    ``banked_open`` is summed from ``leg["realised"]``, written by the manage step when it sees a
+    leg's exit deal. It is read-only: no state is recomputed and no existing value is altered.
+    """
+    settled = float(state.get("closed_money") or 0.0)
+    banked_open = 0.0
+    for trade in (state.get("trades") or {}).values():
+        if trade.get("status") == "closed":
+            continue
+        for leg in trade.get("legs") or []:
+            if leg.get("realised") is not None:
+                banked_open += float(leg["realised"])
+    floating = sum(float(p.get("profit") or 0.0) for p in (positions or []))
+    return {"settled_trades": round(settled, 2),
+            "banked_open_legs": round(banked_open, 2),
+            "realised_total": round(settled + banked_open, 2),
+            "floating": round(floating, 2),
+            "including_open": round(settled + banked_open + floating, 2),
+            "note": ("realised_total is money in the account; settled_trades counts only signals whose "
+                     "every leg has closed, which is the unit the evidence ladder uses")}
+
+
 def breakout_status(engine=None, now=None) -> dict:
     now = utc_timestamp(now)
     config = demo_executor.load_config(breakout_paths()["config"], DEFAULT_CONFIG)
@@ -473,6 +522,7 @@ def breakout_status(engine=None, now=None) -> dict:
         "today_trades": [t for t in trades.values() if str(t.get("opened_at", "")).startswith(today)],
         "expectancy": {"trades": len(r), "expectancy_r": round(sum(r) / len(r), 4) if r else None, "total_r": round(sum(r), 3),
                        "wins": sum(1 for x in r if x > 0)},
+        "money": _money_view(state, positions),
         "recent_trades": list(reversed(memory))[:30],
         "log": list(reversed(shared.read_jsonl(breakout_paths()["log"], limit=60))),
         "last_cycle": state.get("last_cycle"),
