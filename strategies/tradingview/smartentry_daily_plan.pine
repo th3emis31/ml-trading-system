@@ -38,6 +38,11 @@ pivotKeep = input.int(3, "Swing levels kept on each side", minval=1, maxval=10, 
 grpD = "Display"
 showZone = input.bool(true, "Pullback buy zone (fast EMA +/- tolerance)", group=grpD)
 showTable = input.bool(true, "Daily plan table", group=grpD)
+// Filled in by /api/tradingview/indicator when you copy the script, so the chart shows the same
+// strategies the system does. Pine cannot call an API, so this is a snapshot at copy time:
+// re-copy the indicator to refresh it. Rows are separated by " || ".
+boardText = input.string("", "Strategy board (filled on copy)", group=grpD)
+showBoard = input.bool(true, "Show strategy board", group=grpD)
 tablePos = input.string("Top right", "Table position", options=["Top right", "Top left", "Bottom right", "Bottom left"], group=grpD)
 
 // ---------------------------------------------------------------- strategy conditions (closed bars, like the EA)
@@ -144,7 +149,7 @@ fmtPrice(float value) =>
     na(value) ? "-" : str.tostring(value, format.mintick)
 
 tPos = tablePos == "Top left" ? position.top_left : tablePos == "Bottom right" ? position.bottom_right : tablePos == "Bottom left" ? position.bottom_left : position.top_right
-var table plan = table.new(tPos, 2, 14, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
+var table plan = table.new(tPos, 2, 20, bgcolor=color.new(#0b1220, 5), border_color=color.new(#334155, 0), border_width=1, frame_color=color.new(#38bdf8, 40), frame_width=1)
 
 planRow(int row, string key, string value, color valueColor) =>
     table.cell(plan, 0, row, key, text_color=color.new(#94a3b8, 0), text_size=size.small, text_halign=text.align_left)
@@ -236,3 +241,12 @@ if barstate.islast
         planRow(11, "Conditions (last bar)", checks, color.white)
         planRow(12, "Timeframe", timeframe.period == "240" ? "H4: same as the EA" : "Switch to H4 to match the EA", timeframe.period == "240" ? color.lime : color.yellow)
         planRow(13, "Note", "Research plan, not advice · demo first", color.new(#94a3b8, 0))
+        // The other strategies the system runs. The plan above describes ONE rule; these are the
+        // ones that can actually place an order, including whichever is currently earning.
+        if showBoard and str.length(boardText) > 0
+            rows = str.split(boardText, " || ")
+            for i = 0 to math.min(array.size(rows) - 1, 5)
+                parts = str.split(array.get(rows, i), " :: ")
+                k = array.size(parts) > 0 ? array.get(parts, 0) : ""
+                v = array.size(parts) > 1 ? array.get(parts, 1) : ""
+                planRow(14 + i, k, v, str.contains(v, "SENDING") ? color.lime : color.new(#94a3b8, 0))

@@ -19102,6 +19102,13 @@ def tradingview_plan_api():
       return jsonify({'available': False, 'symbol': symbol, 'reason': 'No broker candles right now.', 'places_orders': False})
     plan = tradingview_plan.build_daily_plan(h4, daily, symbol)
     plan['data_source'] = h4_source
+    # Every strategy that can place an order, not just the rule this plan describes. The chart used to
+    # show SwingTrendPullback alone while four strategies ran live, including the only one with a
+    # winning forward record. Read-only, and it never fails the page.
+    try:
+      plan['strategy_board'] = tradingview_plan.strategy_board(symbol)
+    except Exception as exc:
+      plan['strategy_board'] = {'strategies': [], 'note': f'board unavailable: {exc}'}
     tradingview_plan.save_daily_plan(plan)
   except Exception as exc:  # optional feature: report, never a 500 page
     return jsonify({'available': False, 'symbol': symbol, 'reason': f'Plan unavailable: {exc}', 'places_orders': False})

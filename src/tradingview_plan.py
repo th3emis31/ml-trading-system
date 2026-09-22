@@ -12,7 +12,7 @@ A research plan: it places no orders and no strategy has passed the system's ful
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -84,6 +84,89 @@ def follow_trades(ind: lab.Indicators, side, stop, target, atr, exits: dict, loo
                                 "initial_stop": float(stop[t]), "target": float(target[t]),
                                 "extreme": float(h[t] if s == 1 else l[t])}
     return {"open": position, "last_closed": last_closed, "pending": pending}
+
+
+def strategy_board(symbol: str = "XAUUSD", get: Optional[Callable] = None) -> dict:
+    """Every strategy that can place an order, and what each is waiting for right now.
+
+    Why this exists. The chart plan described ONE rule - SwingTrendPullback, whose own holdout profit
+    factor is 0.975 - while four strategies run live and the one with a winning forward record
+    (Volatility Trend Breakout, +60.66 realised on bitcoin) appeared nowhere on it. Reading a plan
+    that omits the strategy actually making money is worse than reading no plan.
+
+    Read-only. It asks each strategy's own status endpoint, the same ones /demo-trading uses, and
+    places nothing. A strategy that cannot be reached is reported as unreachable rather than skipped,
+    because a silently missing strategy is the failure this is fixing.
+    """
+    import json as _json
+    import urllib.request as _url
+
+    def _get(path: str) -> tuple:
+        if get is not None:
+            return get(path, 10)
+        try:
+            with _url.urlopen(f"http://127.0.0.1:5000{path}", timeout=10) as r:
+                return r.status, _json.loads(r.read().decode() or "{}")
+        except Exception as exc:                      # never raise into a page render
+            return 0, {"error": str(exc)}
+
+    wanted = str(symbol or "").upper()
+    board = []
+    for name, path in (("Gold session pullback", "/api/demo-trading/status"),
+                       ("Volatility trend breakout", "/api/demo-breakout/status"),
+                       ("Sweep reversal", "/api/demo-sweep/status"),
+                       ("Daily plan executor", "/api/demo-plan/status")):
+        code, body = _get(path)
+        if code != 200 or not isinstance(body, dict):
+            board.append({"name": name, "available": False,
+                          "reason": f"{path} returned {code}", "trades_this_symbol": None})
+            continue
+        symbols = [str(x).upper() for x in (body.get("symbols") or ([body.get("symbol")] if body.get("symbol") else []))]
+        symbols = [x for part in symbols for x in part.replace(",", " ").split()]
+        sending = body.get("sending_orders")
+        if sending is None and body.get("dry_run") is not None:
+            sending = not bool(body.get("dry_run"))
+        cycle = body.get("last_cycle") or {}
+        money = body.get("money") or {}
+        board.append({
+            "name": name, "available": True, "magic": body.get("magic"),
+            "symbols": symbols, "trades_this_symbol": (wanted in symbols) if symbols else None,
+            "sending_orders": bool(sending), "halted": bool(body.get("halted")),
+            "decision": cycle.get("decision"), "waiting_for": cycle.get("reason"),
+            "last_cycle": cycle.get("at"),
+            "closed_trades": (body.get("expectancy") or {}).get("trades"),
+            "expectancy_r": (body.get("expectancy") or {}).get("expectancy_r"),
+            "realised_money": money.get("realised_total"),
+        })
+    live = [b for b in board if b.get("available")]
+    return {"strategies": board,
+            "covering_this_symbol": sum(1 for b in live if b.get("trades_this_symbol")),
+            "sending": sum(1 for b in live if b.get("sending_orders")),
+            "unreachable": sum(1 for b in board if not b.get("available")),
+            "note": "read-only: this board places no orders and changes no strategy"}
+
+
+def readiness(checklist: list) -> dict:
+    """How close the setup is, on a scale, rather than a closed door.
+
+    "NO TRADE" with four of six conditions met tells the owner nothing they can act on. The standing
+    rule is that confidence belongs on a scale that moves and a gate decides money, not whether
+    anything may be read. This changes no gate: ``status`` and ``entry`` are untouched, and a plan
+    that is not valid still produces no entry.
+    """
+    items = [c for c in (checklist or []) if isinstance(c, dict)]
+    if not items:
+        return {"met": 0, "total": 0, "share": None, "missing": [], "reading": "no checklist"}
+    met = [c for c in items if c.get("ok")]
+    missing = [c.get("name") for c in items if not c.get("ok")]
+    share = round(len(met) / len(items), 2)
+    if not missing:
+        reading = "every condition met"
+    elif len(missing) == 1:
+        reading = f"one condition short: {missing[0]}"
+    else:
+        reading = f"{len(missing)} conditions short, nearest being {missing[0]}"
+    return {"met": len(met), "total": len(items), "share": share, "missing": missing, "reading": reading}
 
 
 def build_daily_plan(h4: pd.DataFrame, daily: pd.DataFrame, symbol: str = "XAUUSD", now=None, spec: dict = PLAN_SPEC) -> dict:
@@ -167,6 +250,9 @@ def build_daily_plan(h4: pd.DataFrame, daily: pd.DataFrame, symbol: str = "XAUUS
         "reward_risk": rr, "trailing_stop_atr": exits.get("trail_atr"), "max_bars": exits.get("max_bars"), "detail": detail,
         "atr": _price(atr[last]), "rsi": _price(cond["rsi"][last]), "fast_ema": _price(fast[last]), "slow_ema": _price(cond["slow"][last]),
         "checklist": checklist,
+        # How close the setup is, on a scale. The gate is unchanged: status and entry below are
+        # untouched, and a plan that is not valid still produces no entry.
+        "readiness": readiness(checklist),
         "bias": {"label": bias, "daily_close": _price(last_day_close), "ema50": _price(ema50), "ema200": _price(ema200),
                  "rsi_14": momentum.get("rsi_14")},
         "levels": levels.get("levels"), "swings": levels.get("swings"),
@@ -193,8 +279,40 @@ def save_daily_plan(plan: dict, plan_dir: Path = PLAN_DIR) -> Optional[Path]:
     return dated
 
 
-def pine_script_text(path: Path = PINE_PATH) -> Optional[str]:
+def pine_script_text(path: Path = PINE_PATH, symbol: str = "XAUUSD", board: Optional[dict] = None) -> Optional[str]:
+    """The indicator, with the live strategy board written into its input default.
+
+    Pine cannot call an API, so the chart can only be told what the system knows at the moment the
+    script is copied. The board is therefore a SNAPSHOT, and the indicator says so on the chart: it
+    is refreshed by copying the script again. That is a real limitation and it is better than the
+    chart describing one rule while four strategies run.
+
+    A board that cannot be built leaves the default empty, and the indicator simply shows the plan as
+    it did before - this never prevents the script from being copied.
+    """
     try:
-        return Path(path).read_text(encoding="utf-8")
+        text = Path(path).read_text(encoding="utf-8")
     except OSError:
         return None
+    try:
+        data = board if board is not None else strategy_board(symbol)
+        rows = []
+        for s in data.get("strategies") or []:
+            if not s.get("available"):
+                rows.append(f"{s.get('name', 'strategy')} :: UNREACHABLE")
+                continue
+            state = "SENDING" if s.get("sending_orders") else "dry run"
+            if s.get("halted"):
+                state = "HALTED"
+            waiting = str(s.get("waiting_for") or s.get("decision") or "-")
+            rows.append(f"{s.get('name')} :: {state} - {waiting[:58]}")
+        # A Pine string literal is one line: a quote, backslash, newline or non-ASCII byte in a
+        # broker's reason text would break the script the owner pastes into the chart. Keep only
+        # printable ASCII rather than trusting whatever a status endpoint happens to return.
+        snapshot = " || ".join(rows).replace('"', "'").replace("\\", "/")
+        snapshot = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in snapshot)
+        text = text.replace('boardText = input.string("", "Strategy board (filled on copy)"',
+                            f'boardText = input.string("{snapshot}", "Strategy board (filled on copy)"', 1)
+    except Exception:
+        pass            # the script still copies; the board input just stays empty
+    return text

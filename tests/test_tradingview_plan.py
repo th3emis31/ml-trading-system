@@ -83,3 +83,73 @@ def test_build_daily_plan_on_synthetic_candles(bars, tmp_path):
     assert path.exists() and (tmp_path / "latest_XAUUSD.json").exists()
     assert tp.build_daily_plan(h4.iloc[:100], daily.iloc[:20], "XAUUSD", now=now)["available"] is False
     assert "SmartEntry Daily Plan" in (tp.pine_script_text() or "")
+
+
+# --- the board must show every order-placing strategy, and readiness must not gate -----------------
+
+def _board_get(bodies):
+    def get(path, timeout=10):
+        for key, body in bodies.items():
+            if key in path:
+                return 200, body
+        return 404, {}
+    return get
+
+
+def test_the_board_lists_every_strategy_not_just_the_planned_rule():
+    """The chart described SwingTrendPullback alone while four strategies ran live, including the only
+    one with a winning forward record."""
+    get = _board_get({
+        "demo-trading":  {"magic": 440502, "symbol": "XAUUSD", "dry_run": True},
+        "demo-breakout": {"magic": 440603, "symbols": ["XAUUSD", "BTCUSD"], "sending_orders": True},
+        "demo-sweep":    {"magic": 440805, "symbol": "XAUUSD", "dry_run": False},
+        "demo-plan":     {"magic": 440704, "symbols": ["XAUUSD"], "dry_run": False},
+    })
+    board = tp.strategy_board("XAUUSD", get=get)
+    assert {s["magic"] for s in board["strategies"]} == {440502, 440603, 440805, 440704}
+    assert board["sending"] == 3
+    assert board["covering_this_symbol"] == 4
+
+
+def test_an_unreachable_strategy_is_reported_not_skipped():
+    """A silently missing strategy is the failure this board exists to fix."""
+    board = tp.strategy_board("XAUUSD", get=lambda path, timeout=10: (0, {"error": "down"}))
+    assert board["unreachable"] == 4
+    assert all(s["available"] is False for s in board["strategies"])
+
+
+def test_readiness_grades_without_gating():
+    graded = tp.readiness([{"name": "a", "ok": True}, {"name": "b", "ok": True},
+                                         {"name": "c", "ok": False}])
+    assert graded["met"] == 2 and graded["total"] == 3
+    assert graded["share"] == 0.67
+    assert graded["missing"] == ["c"]
+    assert "one condition short" in graded["reading"]
+
+
+def test_readiness_on_an_empty_checklist_says_so_rather_than_guessing():
+    assert tp.readiness([])["reading"] == "no checklist"
+
+
+def test_the_injected_board_can_never_break_the_pine_string():
+    """The board is written into a Pine string literal, which is one line of plain text.
+
+    A status endpoint's reason field is free text from a broker, and a quote, a backslash, a newline
+    or a non-ASCII byte in it would produce a script that does not compile when the owner pastes it
+    into TradingView - the board would break the very chart it is meant to describe. So the snapshot
+    keeps printable ASCII only.
+    """
+    board = {"strategies": [{"name": "Nasty", "available": True, "sending_orders": True,
+                             "waiting_for": 'say "no"' + chr(10) + 'and ' + chr(92) + ' go ' + chr(183)}]}
+    text = tp.pine_script_text(board=board)
+    line = [l for l in text.splitlines() if l.startswith("boardText = input.string(")][0]
+    assert line.count('"') == 4, "exactly the two literals' quotes survive"
+    assert all(32 <= ord(ch) < 127 for ch in line)
+    assert "Nasty :: SENDING" in line
+
+
+def test_a_board_that_cannot_be_built_still_returns_a_copyable_script():
+    """The owner must always be able to copy the indicator, board or no board."""
+    text = tp.pine_script_text(board={"strategies": None})
+    assert text is not None and "indicator(" in text
+    assert 'boardText = input.string("", "Strategy board (filled on copy)"' in text
