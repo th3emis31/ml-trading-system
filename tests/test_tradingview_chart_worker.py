@@ -84,18 +84,18 @@ def test_the_worker_attaches_and_never_closes_the_owners_browser():
     code = _code_only(w.__file__)
     assert "ctx.new_page()" in code, "must open its own tab rather than reuse one of theirs"
     assert "page.close()" in code, "must close the tab it opened"
-    assert "ctx.close()" not in code, "closing the context would take the owner's browser with it"
+    assert "channel='msedge'" in code.replace('"', "'"), "must be Edge, the browser the owner uses"
     assert "9222" in w.CDP_URL
 
 
-def test_an_unreachable_browser_is_its_own_reason(tmp_path, monkeypatch):
-    """'Changed nothing' and 'could not reach the browser' are different problems with different
-    fixes, and collapsing them would hide a worker that is simply dead."""
-    monkeypatch.setattr(w, "STATE_PATH", tmp_path / "s.json")
-    monkeypatch.setattr(w, "fetch_script", lambda *a, **k: "//@version=5\nindicator('x')")
-    monkeypatch.setattr(w, "_browser_reachable", lambda: False)
-    out = w.run_worker_cycle()
-    assert out["ok"] is False and "debug port" in out["reason"]
+def test_it_uses_edge_and_never_copies_the_owners_profile():
+    """The tempting way to keep the owner signed in was to copy their Edge profile into the worker's.
+    That copies authentication cookies, which is exactly what the browser's own default-profile
+    debugging restriction exists to prevent, so it must not appear here."""
+    code = _code_only(w.__file__)
+    for forbidden in ("shutil.copytree", "copy2", "Cookies", "Local State", "User Data"):
+        assert forbidden not in code, f"must not touch the owner's browser profile ({forbidden})"
+    assert "tv_worker_profile" in str(w.PROFILE_DIR)
 
 
 def test_no_executable_line_can_reach_an_order():

@@ -22,14 +22,21 @@ creates, copies or renames a chart layout (the owner is on the free plan with a 
 edits one script, matched by exact name, and creates that script only if it is missing. Anything it
 does not recognise aborts the cycle with the reason recorded and nothing changed.
 
-Which browser, and why. It attaches to the owner's OWN Edge over its debug port, because that is
-where they are already signed in to TradingView. An earlier version used a separate Chromium with
-its own profile; that browser had no session and asked them to sign in a second time, which they
-rejected - "using wrong broweser". Edge has to be started by ``scripts\start_edge_debug.cmd`` for
-the port to exist. Credentials are never handled here, and the worker opens and closes only its own
-tab: it never quits their browser or touches another tab.
+Which browser, and why. It runs Microsoft Edge - the owner's actual browser. The first build used a
+separate Chromium and they said "using wrong broweser"; Chrome is not even running on this machine.
 
-    python -m src.tradingview_chart_worker check     # can it reach the owner's Edge, and is it signed in?
+Attaching to their everyday Edge would have been better still, and it is tried first, but it is not
+possible: since Chromium 136 both Edge and Chrome ignore ``--remote-debugging-port`` while running on
+the default profile. That was measured, not assumed - Edge was restarted with the flag, nothing
+listened on 9222 and no DevToolsActivePort file appeared. The restriction exists precisely to stop
+anything attaching to a browser holding live logins.
+
+So the worker runs Edge on a profile of its own, signed in once by hand (``signin``). The other way
+to carry the session across - copying their Edge profile - means copying authentication cookies, the
+very thing that protection prevents, and is deliberately not done. No password is ever handled here.
+
+    python -m src.tradingview_chart_worker signin    # one-off: sign in by hand, in Edge, on the worker's profile
+    python -m src.tradingview_chart_worker check     # is that profile signed in to TradingView?
     python -m src.tradingview_chart_worker run       # one cycle; what the scheduled task calls
     python -m src.tradingview_chart_worker status    # what the last cycle did
 """
@@ -112,20 +119,43 @@ def _playwright():
 
 
 def _attach(pw):
-    """Attach to the owner's OWN browser, where they are already signed in to TradingView.
+    """Attach to a browser already listening on the debug port, if one is.
 
-    This replaced a separate Chromium profile. That profile was a fresh browser with no session, so
-    it asked them to sign in a second time - "using wrong broweser", as they put it. Their browser
-    is Edge: Chrome is not even running on this machine, and the whole point of using theirs is that
-    the session is already in it.
-
-    It attaches over the debug port rather than launching Edge itself, because a second Edge started
-    against a profile the running one holds open simply hands over and exits. Attaching also means
-    the worker gets its own tab and leaves every other tab, and their chart, untouched.
+    Kept as the preferred route because it disturbs nothing, but it is usually not available: since
+    Chromium 136 both Edge and Chrome IGNORE --remote-debugging-port when the browser is running on
+    its default profile. That is a deliberate protection - it is what stops anything attaching to a
+    browser that holds live logins - and it was measured here, not assumed: Edge restarted with the
+    flag, nothing listened on 9222, and no DevToolsActivePort file appeared.
     """
     browser = pw.chromium.connect_over_cdp(CDP_URL, timeout=15_000)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
     return browser, ctx
+
+
+def _launch(pw, headless: bool):
+    """Edge - the owner's actual browser - running on the worker's own profile.
+
+    Two constraints meet here. The owner said "using wrong broweser" when the worker ran a separate
+    Chromium, so it must be Edge. But Edge will not expose a debug port on their everyday profile,
+    and the alternative - copying their profile so the session comes with it - means copying
+    authentication cookies, which is the exact thing that protection exists to prevent, so it is not
+    done. What is left is Edge on a profile of its own, signed in once by hand.
+
+    That sign-in persists: it is a real profile on disk, so it is a one-off, not a daily chore.
+    """
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    ctx = pw.chromium.launch_persistent_context(
+        str(PROFILE_DIR), channel="msedge", headless=headless,
+        viewport={"width": 1600, "height": 900},
+        args=["--disable-blink-features=AutomationControlled"])
+    return None, ctx
+
+
+def _open_browser(pw, headless: bool):
+    """Attach if a debug port is genuinely there, otherwise launch Edge on the worker's profile."""
+    if _browser_reachable():
+        return _attach(pw)
+    return _launch(pw, headless)
 
 
 def _browser_reachable() -> bool:
@@ -171,22 +201,55 @@ def check() -> dict:
     sync_playwright = _playwright()
     if sync_playwright is None:
         return _record({"ok": False, "reason": "Playwright is not installed"})
-    if not _browser_reachable():
-        return _record({"ok": False, "reason": "Edge is not reachable on the debug port; "
-                                               "start it with scripts\\start_edge_debug.cmd"})
     try:
         with sync_playwright() as pw:
-            browser, ctx = _attach(pw)
+            browser, ctx = _open_browser(pw, headless=True)
             page = ctx.new_page()
             try:
                 page.set_default_timeout(NAV_TIMEOUT_MS)
                 page.goto(CHART_URL, wait_until="domcontentloaded")
                 ok = _signed_in(page)
-                return _record({"ok": ok, "reason": "Edge is attached and signed in to TradingView" if ok
-                                else "Edge is attached but not signed in to TradingView"})
+                return _record({"ok": ok, "reason": "Edge is signed in to TradingView" if ok
+                                else "Edge is reachable but not signed in to TradingView"})
             finally:
                 page.close()
-                browser.close()
+                (browser.close() if browser is not None else ctx.close())
+    except Exception as exc:
+        return _record({"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+
+
+def signin(timeout_minutes: int = 20) -> dict:
+    """Open Edge visibly, on the worker's profile, so the owner signs in once by hand.
+
+    Never types, reads or stores a password: it opens the page, waits, and afterwards confirms
+    whether a session now exists. It reports through a file because a visible browser started from a
+    background job dies immediately with no console output - measured, after one such failure.
+    """
+    def _record(payload: dict) -> dict:
+        payload["at"] = _utc_stamp()
+        LOGIN_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOGIN_STATE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return payload
+
+    sync_playwright = _playwright()
+    if sync_playwright is None:
+        return _record({"ok": False, "reason": "Playwright is not installed"})
+    _record({"ok": False, "reason": "waiting for the owner to sign in"})
+    try:
+        with sync_playwright() as pw:
+            _, ctx = _launch(pw, headless=False)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.set_default_timeout(NAV_TIMEOUT_MS)
+            page.goto(CHART_URL, wait_until="domcontentloaded")
+            waited, step = 0, 5_000
+            while waited < timeout_minutes * 60_000:
+                if _signed_in(page):
+                    ctx.close()
+                    return _record({"ok": True, "reason": "signed in; the worker's Edge profile keeps it"})
+                page.wait_for_timeout(step)
+                waited += step
+            ctx.close()
+            return _record({"ok": False, "reason": "no sign-in detected before the wait ran out"})
     except Exception as exc:
         return _record({"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
@@ -212,26 +275,22 @@ def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = A
         _write_state(result)
         return result
 
-    if not _browser_reachable():
-        result["reason"] = ("the owner's Edge is not reachable on the debug port; "
-                            "start it with scripts\\start_edge_debug.cmd")
-        _write_state(result)
-        return result
-
     try:
         with sync_playwright() as pw:
-            browser, ctx = _attach(pw)
+            browser, ctx = _open_browser(pw, headless=headless)
             page = ctx.new_page()                  # our own tab; the owner's tabs are never touched
             try:
                 page.set_default_timeout(NAV_TIMEOUT_MS)
                 page.goto(CHART_URL, wait_until="domcontentloaded")
                 if not _signed_in(page):
-                    result["reason"] = "Edge is reachable but not signed in to TradingView"
+                    result["reason"] = ("the worker's Edge profile is not signed in to TradingView; "
+                                        "run 'python -m src.tradingview_chart_worker signin' once")
                 else:
                     result.update(_save_script(page, text))
             finally:
-                page.close()                       # close only our tab, never the owner's browser
-                browser.close()                    # detaches; it does not quit their Edge
+                page.close()                       # close only our tab
+                # Detach from an attached browser; close one we launched. Never quit the owner's Edge.
+                (browser.close() if browser is not None else ctx.close())
     except Exception as exc:                       # a worker must never take the scheduler down
         result["reason"] = f"{type(exc).__name__}: {exc}"
 
@@ -283,7 +342,7 @@ def _save_script(page, script: str) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("run", "check", "status"))
+    parser.add_argument("command", choices=("run", "check", "signin", "status"))
     parser.add_argument("--symbol", default="XAUUSD")
     parser.add_argument("--script", default=SCRIPT_KEY, choices=("market_map", "daily_plan"))
     parser.add_argument("--show", action="store_true", help="run with the browser window visible")
@@ -292,6 +351,10 @@ def main(argv=None) -> int:
     if args.command == "status":
         print(json.dumps({"cycle": read_worker_state(), "login": _read_login()}, indent=2))
         return 0
+    if args.command == "signin":
+        out = signin()
+        print(out["reason"])
+        return 0 if out["ok"] else 1
     if args.command == "check":
         out = check()
         print(out["reason"])
