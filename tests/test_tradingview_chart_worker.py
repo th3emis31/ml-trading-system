@@ -136,3 +136,29 @@ def test_both_indicators_accept_the_board():
         text = tp.pine_script_text(path=path, board=board)
         line = [l for l in text.splitlines() if l.startswith("boardText = input.string(")]
         assert line and "VTB :: SENDING" in line[0], f"{key} did not receive the board"
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("/chart/FzdNFpuX/", True),    # measured on the owner's signed-in chart: /chart/ redirects here
+    ("/chart/FzdNFpuX", True),
+    ("/chart/", False),            # measured anonymously with curl: no redirect, stays put
+    ("/", False),
+    ("/accounts/signin/", False),
+])
+def test_signed_in_is_decided_by_the_redirect_that_was_actually_measured(path, expected):
+    """The first detector looked for a user-menu button and matched ZERO elements on the owner's own
+    signed-in chart, so the worker would have said "not signed in" for ever - a permanent silent
+    failure wearing a tidy reason. Both sides of this one were measured before it was written."""
+    class FakePage:
+        url = "https://www.tradingview.com" + path
+        def wait_for_timeout(self, ms): pass
+    assert w._signed_in(FakePage()) is expected
+
+
+def test_an_unreadable_page_is_not_treated_as_signed_in():
+    """The failure direction must stay safe: unsure means do nothing, never assume success."""
+    class BrokenPage:
+        def wait_for_timeout(self, ms): raise RuntimeError("page gone")
+        @property
+        def url(self): raise RuntimeError("page gone")
+    assert w._signed_in(BrokenPage()) is False

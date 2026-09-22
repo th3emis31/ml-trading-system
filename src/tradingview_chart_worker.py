@@ -44,7 +44,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -172,13 +174,26 @@ def _browser_reachable() -> bool:
 
 
 def _signed_in(page) -> bool:
-    """A signed-out TradingView still renders a chart, so presence of a chart proves nothing. The
-    user menu is what differs, and misreading this would make the worker report success forever."""
+    """Signed in if https://www.tradingview.com/chart/ redirected to a saved layout.
+
+    A signed-out TradingView still renders a chart, so a chart proves nothing. The first version of
+    this looked for a user-menu button, and that was wrong: measured against the owner's own
+    signed-in chart it matched ZERO elements, so the worker would have reported "not signed in" for
+    ever, even after they signed in - a permanent silent failure behind a tidy-looking reason.
+
+    What actually differs was measured on both sides. Signed in, /chart/ redirects to /chart/<id>/
+    (their layout). Anonymous, it stays on /chart/ - confirmed by fetching the page with no cookies.
+
+    The one false negative this can give is a signed-in account with no saved layout, which stays on
+    /chart/. That direction is the safe one: the worker reports not-signed-in and changes nothing,
+    rather than believing it is signed in and acting.
+    """
     try:
-        page.wait_for_timeout(2000)
-        return page.locator('button[aria-label*="Open user menu" i], [data-name="header-user-menu-toggle"]').count() > 0
+        page.wait_for_timeout(4000)
+        path = urllib.parse.urlparse(page.url).path
     except Exception:
         return False
+    return bool(re.match(r"^/chart/[^/]+/?$", path))
 
 
 def check() -> dict:
