@@ -121,7 +121,12 @@ class DailyLearner:
                 holdout = promotion.challenger_holdout(features)
                 challenger_eval = promotion.evaluate_rf(rf_model, holdout, self.symbol)
                 champion_eval = promotion.evaluate_rf(champion_rf, holdout, self.symbol) if champion_rf is not None else None
-                rf_promoted, rf_reason = promotion.decide_rf(champion_eval, challenger_eval, archive.get("rf_age_days"))
+                # The training sources decide a comparison the returns cannot: a champion fitted to a
+                # different price series than the account trades is not measuring the instrument.
+                rf_promoted, rf_reason = promotion.decide_rf(
+                    champion_eval, challenger_eval, archive.get("rf_age_days"),
+                    champion_source=promotion.champion_training_source(self.symbol),
+                    challenger_source=data.attrs.get("source"))
             except Exception as exc:
                 rf_promoted = champion_rf is None
                 rf_reason = f"Evaluation failed ({exc}); " + (

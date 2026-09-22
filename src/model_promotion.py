@@ -186,7 +186,17 @@ def accuracy_chance_band(rows: Optional[int]) -> float:
     return 1.96 * 0.5 * math.sqrt(2.0 / n)
 
 
-def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age_days: Optional[float]) -> tuple[bool, str]:
+TRADED_SOURCES = ("broker", "mt5")
+
+
+def _trades_the_live_series(source: Optional[str]) -> bool:
+    """True when a model was trained on the prices the system actually trades."""
+    text = str(source or "").strip().lower()
+    return text.startswith(TRADED_SOURCES)
+
+
+def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age_days: Optional[float],
+              *, champion_source: Optional[str] = None, challenger_source: Optional[str] = None) -> tuple[bool, str]:
     """Which model serves live, decided on MONEY rather than on accuracy.
 
     Changed 20 Sep 2026 after measuring the old gate against its own record. It compared accuracy first and
@@ -227,6 +237,24 @@ def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age
             and challenger["max_drawdown_pct"] > champion["max_drawdown_pct"] + DRAWDOWN_TOLERANCE_PCT):
         return False, (f"Challenger drawdown {challenger['max_drawdown_pct']:.1f}% is worse than the champion's "
                        f"{champion['max_drawdown_pct']:.1f}% on the same bars; champion restored.")
+
+    # 2b. SOURCE MATCH. A champion trained on a different price series than the system trades is not
+    #     measuring the instrument. On 22 Sep 2026 the BTCUSD champion, trained on Yahoo's BTC-USD,
+    #     was kept over a broker-trained challenger because it returned -13.069 % against -14.115 %
+    #     on 578 unseen bars - a one-point difference on a sample swinging fourteen, which is noise -
+    #     while Yahoo serves its own exchange mix rather than this broker's book. Keeping it means
+    #     knowingly trading a model fitted to prices that do not exist on the account.
+    #
+    #     This does NOT lower the bar: the accuracy-collapse check and the drawdown guard above both
+    #     still apply, so a genuinely broken challenger is still refused. It resolves a comparison the
+    #     return figures cannot settle, in favour of the model that at least describes the right
+    #     series. It only fires when the champion's source is known to be wrong AND the challenger's
+    #     is known to be right; unknown sources change nothing.
+    if _trades_the_live_series(challenger_source) and champion_source and not _trades_the_live_series(champion_source):
+        return True, (f"Champion was trained on {champion_source} while the system trades broker prices, so its "
+                      f"accuracy and return describe another series; the challenger is trained on "
+                      f"{challenger_source} and cleared the accuracy and drawdown checks, so it is promoted on "
+                      f"source match rather than on a return comparison that cannot settle it.")
 
     # 3. With no money to compare, fall back to the original contract: equal or better accuracy is promoted,
     #    with the stale-champion tolerance. This path exists for scored-but-untraded holdouts.
@@ -310,6 +338,19 @@ def record_decision(entry: dict) -> None:
     tmp = DECISIONS_PATH.with_name(DECISIONS_PATH.name + ".tmp")
     tmp.write_text(json.dumps(decisions, indent=1), encoding="utf-8")
     tmp.replace(DECISIONS_PATH)
+
+
+def champion_training_source(symbol: str) -> Optional[str]:
+    """The price source the live champion was TRAINED on: the source of the run that promoted it.
+
+    Not the most recent run's source. src/drift_watch.py makes the same distinction and its comment
+    says why: reading the latest row would call a Yahoo-trained accuracy "broker-measured" and report
+    an edge that does not exist. Returns None when nothing has promoted yet, which means "unknown"
+    and must not be treated as a mismatch.
+    """
+    rows = [r for r in load_decisions(limit=None)
+            if r.get("symbol") == symbol and r.get("rf_promoted") and r.get("data_source")]
+    return str(rows[-1]["data_source"]) if rows else None
 
 
 def load_decisions(limit: Optional[int] = 20) -> list:

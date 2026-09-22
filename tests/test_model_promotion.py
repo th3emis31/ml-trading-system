@@ -144,3 +144,63 @@ def test_learner_restores_champion_when_challenger_is_worse(tmp_path, monkeypatc
     assert entry["accuracy"] == 0.56
     assert entry["challenger_accuracy"] == 0.50
     assert mp.load_decisions()[-1]["rf_promoted"] is False
+
+
+# --- source match: a champion fitted to another price series is not measuring the instrument ------
+
+def _pair(champ_return: float, chall_return: float, rows: int = 578) -> tuple[dict, dict]:
+    """Champion and challenger that differ only in after-cost return, both otherwise sound."""
+    base = {"accuracy": 0.517, "rows": rows, "trades": 40, "max_drawdown_pct": 10.0}
+    return {**base, "total_return_pct": champ_return}, {**base, "total_return_pct": chall_return}
+
+
+def test_a_yahoo_trained_champion_loses_to_a_broker_trained_challenger():
+    """The 22 Sep 2026 BTCUSD case: -13.069% kept over -14.115%, a one-point gap on a 14-point swing,
+    while the champion was fitted to Yahoo's BTC-USD rather than the broker's book."""
+    champion, challenger = _pair(-13.069, -14.115)
+    promoted, reason = mp.decide_rf(champion, challenger, 1.0,
+                                           champion_source="yahoo", challenger_source="broker")
+    assert promoted is True
+    assert "another series" in reason
+
+
+def test_matching_sources_still_decide_on_return():
+    """When both describe the right series, nothing changes: the better return wins."""
+    champion, challenger = _pair(-13.069, -14.115)
+    promoted, _ = mp.decide_rf(champion, challenger, 1.0,
+                                      champion_source="broker", challenger_source="broker")
+    assert promoted is False
+
+
+def test_an_unknown_champion_source_is_not_treated_as_a_mismatch():
+    champion, challenger = _pair(-13.069, -14.115)
+    promoted, _ = mp.decide_rf(champion, challenger, 1.0,
+                                      champion_source=None, challenger_source="broker")
+    assert promoted is False
+
+
+def test_a_yahoo_challenger_never_wins_on_source():
+    """The rule only promotes TOWARDS the traded series, never away from it."""
+    champion, challenger = _pair(-13.069, -14.115)
+    promoted, _ = mp.decide_rf(champion, challenger, 1.0,
+                                      champion_source="broker", challenger_source="yahoo_fallback")
+    assert promoted is False
+
+
+def test_source_match_does_not_bypass_the_drawdown_guard():
+    """The guard runs first, so a riskier challenger is still refused however right its source is."""
+    champion, challenger = _pair(-13.069, -14.115)
+    challenger["max_drawdown_pct"] = champion["max_drawdown_pct"] + 25.0
+    promoted, reason = mp.decide_rf(champion, challenger, 1.0,
+                                           champion_source="yahoo", challenger_source="broker")
+    assert promoted is False
+    assert "drawdown" in reason
+
+
+def test_source_match_does_not_bypass_an_accuracy_collapse():
+    champion, challenger = _pair(-13.069, -14.115)
+    challenger["accuracy"] = champion["accuracy"] - 0.30
+    promoted, reason = mp.decide_rf(champion, challenger, 1.0,
+                                           champion_source="yahoo", challenger_source="broker")
+    assert promoted is False
+    assert "chance band" in reason
