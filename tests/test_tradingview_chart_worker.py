@@ -162,3 +162,17 @@ def test_an_unreadable_page_is_not_treated_as_signed_in():
         @property
         def url(self): raise RuntimeError("page gone")
     assert w._signed_in(BrokenPage()) is False
+
+
+def test_a_cycle_skips_cleanly_while_the_signin_window_holds_the_profile(tmp_path, monkeypatch):
+    """A browser profile has one holder, so the hourly cycle and the sign-in window cannot both use
+    it. The 19:35 cycle really did die of TargetClosedError with three kilobytes of launch log while
+    that window sat open - the worker looked broken when it was only queueing behind itself."""
+    monkeypatch.setattr(w, "STATE_PATH", tmp_path / "s.json")
+    monkeypatch.setattr(w, "fetch_script", lambda *a, **k: "//@version=5\nindicator('x')")
+    monkeypatch.setattr(w, "_browser_reachable", lambda: False)
+    monkeypatch.setattr(w, "_profile_in_use", lambda: True)
+    out = w.run_worker_cycle()
+    assert out["ok"] is False and out["changed"] is False
+    assert "open elsewhere" in out["reason"]
+    assert "TargetClosedError" not in out["reason"], "a known collision must not surface as a stack trace"

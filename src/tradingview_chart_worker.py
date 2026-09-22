@@ -53,7 +53,11 @@ from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_DIR = ROOT / "data" / "tv_worker_profile"
+# Deliberately OUTSIDE the repository. It first lived in data/, and a live browser profile there
+# broke the entire test suite: conftest copies the repo to a temp directory, and Chromium holds its
+# caches, cookie store and lockfile open, so every copy raised "Permission denied". A browser profile
+# is machine state, not project data, and it does not belong under version control's tree at all.
+PROFILE_DIR = Path.home() / "AppData" / "Local" / "SmartEntry" / "tv_worker_profile"
 STATE_PATH = ROOT / "data" / "tradingview" / "chart_worker.json"
 # The sign-in runs as a detached desktop process, because a headful browser launched from a
 # background job dies immediately with no output. It therefore reports through this file rather
@@ -151,6 +155,19 @@ def _launch(pw, headless: bool):
         viewport={"width": 1600, "height": 900},
         args=["--disable-blink-features=AutomationControlled"])
     return None, ctx
+
+
+def _profile_in_use() -> bool:
+    """Whether something already holds the worker's Edge profile.
+
+    A browser profile is a single-holder lock, so the hourly cycle and the sign-in window cannot both
+    have it. That collision is not theoretical: the 19:35 cycle died with TargetClosedError and three
+    kilobytes of Playwright launch log while the sign-in window sat open waiting - the worker looked
+    broken when it was merely queueing behind itself.
+
+    Checked by the lock file Chromium keeps, so the cycle can say so in one line and skip.
+    """
+    return any((PROFILE_DIR / name).exists() for name in ("SingletonLock", "lockfile"))
 
 
 def _open_browser(pw, headless: bool):
@@ -287,6 +304,12 @@ def run_worker_cycle(symbol: str = "XAUUSD", headless: bool = True, app: str = A
     sync_playwright = _playwright()
     if sync_playwright is None:
         result["reason"] = "Playwright is not installed"
+        _write_state(result)
+        return result
+
+    if not _browser_reachable() and _profile_in_use():
+        result["reason"] = ("the worker's Edge profile is open elsewhere (the sign-in window); "
+                            "skipped this cycle and changed nothing")
         _write_state(result)
         return result
 
