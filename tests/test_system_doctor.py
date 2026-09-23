@@ -323,3 +323,38 @@ def test_the_drift_warning_cannot_be_read_as_the_accounts_performance():
     assert "SIMULATED" in block, "the warning must say the figure is simulated"
     assert "not the account" in block, "it must say plainly that this is not the account's result"
     assert "RF MODEL" in block, "it must name whose accuracy it is talking about"
+
+
+def test_an_acknowledged_armed_state_becomes_info_but_never_disappears(tmp_path, monkeypatch):
+    """The check asks "confirm this is intended", so once confirmed it must stop asking - a warning
+    repeated after it has been answered is noise, and noise is what makes real warnings get skipped.
+    It must stay visible, and it must revert the moment the armed set changes."""
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"jarvis": {"autonomy": {"enabled": True, "auto_execute": True}},
+                                 "session": {"active": True},
+                                 "settings": {"asset_settings": {"XAUUSD": {"auto_enabled": True},
+                                                                 "BTCUSD": {"auto_enabled": True}}}}), encoding="utf-8")
+    assert doc.check_autonomy(state)["status"] == "warn", "unconfirmed armed must warn"
+
+    (tmp_path / "data" / "autonomy_acknowledged.json").write_text(
+        json.dumps({"armed": ["BTCUSD", "XAUUSD"], "confirmed_at": "2026-09-23"}), encoding="utf-8")
+    ack = doc.check_autonomy(state)
+    assert ack["status"] == "info" and "ARMED" in ack["summary"], "still visible, just not shouting"
+    assert "2026-09-23" in ack["summary"], "it must say when it was confirmed"
+
+
+def test_confirming_two_markets_does_not_confirm_a_third(tmp_path, monkeypatch):
+    """Arming something new is a new decision and must warn again."""
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "autonomy_acknowledged.json").write_text(
+        json.dumps({"armed": ["XAUUSD", "BTCUSD"], "confirmed_at": "2026-09-23"}), encoding="utf-8")
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"jarvis": {"autonomy": {"enabled": True, "auto_execute": True}},
+                                 "session": {"active": True},
+                                 "settings": {"asset_settings": {"XAUUSD": {"auto_enabled": True},
+                                                                 "BTCUSD": {"auto_enabled": True},
+                                                                 "SP500": {"auto_enabled": True}}}}), encoding="utf-8")
+    assert doc.check_autonomy(state)["status"] == "warn", "a newly armed market must warn again"

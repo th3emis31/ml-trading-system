@@ -207,6 +207,17 @@ def check_autonomy(state_path: Path = ROOT / "data" / "auto_trader_state.json") 
     # app._autonomy_should_execute needs an active session, auto_execute and the asset switch; the loop needs autonomy on.
     armed = [sym for sym, on in assets.items() if on] if (flags["autonomy_enabled"] and flags["auto_execute"] and session_active) else []
     if armed:
+        # The check asks "confirm this is intended", so once the owner has confirmed it should stop
+        # asking - a warning repeated after it has been answered is noise, and noise is what makes
+        # real warnings get skipped. It does NOT go away: it stays visible as an info line naming the
+        # markets and the date it was confirmed, and it reverts to a warning the moment the armed set
+        # changes, because confirming bitcoin and gold is not confirming whatever is added next.
+        ack = _read_json(ROOT / "data" / "autonomy_acknowledged.json") or {}
+        if isinstance(ack, dict) and sorted(ack.get("armed") or []) == sorted(armed):
+            return _result("App auto-trading flags", "safety", "info",
+                           f"App automatic execution is ARMED for {', '.join(armed)} - confirmed by the owner on "
+                           f"{ack.get('confirmed_at', 'an unrecorded date')}. {ack.get('note', '')}".strip(),
+                           acknowledged=True, **flags)
         return _result("App auto-trading flags", "safety", "warn",
                        f"App automatic execution is ARMED for {', '.join(armed)}: autonomy, auto-execute, an active session "
                        "and the asset switch are all on. Confirm this is intended.", **flags)
