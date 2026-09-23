@@ -204,3 +204,42 @@ def test_source_match_does_not_bypass_an_accuracy_collapse():
                                            champion_source="yahoo", challenger_source="broker")
     assert promoted is False
     assert "chance band" in reason
+
+
+def _pair(champ_ret, chal_ret, rows=600):
+    base = {"accuracy": 0.52, "rows": rows, "trades": 60, "max_drawdown_pct": 10.0}
+    return ({**base, "total_return_pct": champ_ret}, {**base, "total_return_pct": chal_ret})
+
+
+def test_a_fallback_trained_challenger_never_takes_the_live_model():
+    """On 23 September 2026 the machine rebooted, the app never restarted, and the 05:30 learner - which
+    reads broker candles THROUGH the app - fell back to Yahoo and promoted a new BTCUSD champion on it.
+    An outage silently swapped the live model for one fitted to prices the account cannot trade."""
+    champion, challenger = _pair(-9.3, -8.2)          # challenger "wins" on return
+    ok, why = mp.decide_rf(champion, challenger, 5,
+                           champion_source="broker", challenger_source="yahoo_fallback")
+    assert ok is False
+    assert "yahoo_fallback" in why and "champion stays live" in why
+
+
+def test_the_refusal_says_training_still_happened():
+    """Learning is never blocked - only the live swap is refused. The wording has to say so, or this
+    reads as the system having stopped learning."""
+    champion, challenger = _pair(-9.3, -8.2)
+    _, why = mp.decide_rf(champion, challenger, 5,
+                          champion_source="broker", challenger_source="yahoo_fallback")
+    assert "still trained and recorded" in why
+
+
+def test_a_broker_challenger_is_unaffected_by_the_new_rule():
+    champion, challenger = _pair(-9.3, -8.2)
+    ok, _ = mp.decide_rf(champion, challenger, 5,
+                         champion_source="broker", challenger_source="broker")
+    assert ok is True
+
+
+def test_an_unknown_source_still_changes_nothing():
+    """Unknown sources must stay neutral, exactly as the champion-side rule already promises."""
+    champion, challenger = _pair(-9.3, -8.2)
+    ok, _ = mp.decide_rf(champion, challenger, 5, champion_source=None, challenger_source=None)
+    assert ok is True

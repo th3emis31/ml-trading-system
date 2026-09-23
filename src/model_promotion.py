@@ -256,6 +256,22 @@ def decide_rf(champion: Optional[dict], challenger: Optional[dict], champion_age
                       f"{challenger_source} and cleared the accuracy and drawdown checks, so it is promoted on "
                       f"source match rather than on a return comparison that cannot settle it.")
 
+    # 2c. The same rule facing the other way, which was missing and cost a champion. The learner reads the
+    #     broker's candles THROUGH THE RUNNING APP, so when the app is down it silently falls back to Yahoo
+    #     and tags the run "yahoo_fallback". On 23 Sep 2026 the machine had rebooted overnight, the app never
+    #     restarted, and the 05:30 run trained both markets on Yahoo - then PROMOTED a new BTCUSD champion on
+    #     it. An outage quietly replaced the live model with one fitted to a price series the account cannot
+    #     trade, and nothing objected, because 2b only refuses a bad CHAMPION and never a bad challenger.
+    #
+    #     Training still happens and is still recorded: learning is never blocked, and a fallback run is
+    #     evidence about the model even when it is not evidence about the instrument. What it must not do is
+    #     change what trades live. That is the standing rule - money follows evidence, and evidence measured
+    #     on prices that do not exist on the account is not evidence about this account.
+    if challenger_source and not _trades_the_live_series(challenger_source):
+        return False, (f"Challenger was trained on {challenger_source}, not the broker series the account "
+                       f"trades, so its accuracy and return describe other prices; the champion stays live. "
+                       f"The model was still trained and recorded - only the live swap is refused.")
+
     # 3. With no money to compare, fall back to the original contract: equal or better accuracy is promoted,
     #    with the stale-champion tolerance. This path exists for scored-but-untraded holdouts.
     champion_return = champion.get("total_return_pct")
@@ -327,6 +343,46 @@ def promoted_model_is_profitable(entry: dict) -> Optional[bool]:
         return None
     value = served.get("total_return_pct")
     return None if value is None else bool(value > 0)
+
+
+RESTORES_PATH = smartentry_data_dir() / "model_restores.json"
+
+
+def log_authorised_offschedule_write(symbols, reason: str, models_dir: Path = None,
+                                     restores_path: Path = None) -> dict:
+    """Record model files written by a deliberate owner run, so the integrity check accepts them.
+
+    The system offers an override for a deliberate retrain outside the 05:30 window
+    (``SMARTENTRY_ALLOW_OFFSCHEDULE_TRAINING=1``), but the doctor's model-integrity check knew nothing
+    about it: it accepts a file only if it was written inside the window or its SHA-256 appears in
+    data/model_restores.json. So using the sanctioned path always raised a FAIL saying something other
+    than Daily Learning had written models/ - a true alarm about an authorised act, which is the kind
+    that teaches people to ignore alarms.
+
+    This closes the loop by logging what such a run produced, with the reason. It does not weaken the
+    check: files are still matched by content hash, so anything written by something else still fails.
+    """
+    import hashlib
+
+    models = Path(models_dir) if models_dir else MODELS_DIR
+    path = Path(restores_path) if restores_path else RESTORES_PATH
+    names = [s.lower() for s in ([symbols] if isinstance(symbols, str) else symbols)]
+    files = {}
+    for model in sorted(models.glob("*")):
+        if model.is_file() and any(model.name.startswith(n) for n in names):
+            files[model.name] = hashlib.sha256(model.read_bytes()).hexdigest()
+    entry = {"restored_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+             "reason": reason, "authorised_offschedule": True, "files": files}
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(existing, list):
+            existing = [existing]
+    except (OSError, ValueError):
+        existing = []
+    existing.append(entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=1), encoding="utf-8")
+    return entry
 
 
 def record_decision(entry: dict) -> None:

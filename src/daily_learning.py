@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 from datetime import datetime
 
 from .data import fetch_real_data
@@ -247,6 +248,19 @@ def main(argv=None) -> int:
                       "trained_at": started.strftime("%Y-%m-%d %H:%M:%S")}
             promotion.record_decision({**result, "rf_promoted": False, "lstm_promoted": False})
         result["duration_seconds"] = round((datetime.now() - started).total_seconds(), 1)
+        # An authorised run outside the 05:30 window still writes live model files, and the doctor's
+        # model-integrity check only accepts files written inside the window or logged by hash. Without
+        # this, using the system's OWN documented override raised a FAIL saying something other than
+        # Daily Learning had written models/ - a true alarm about an authorised act, which is the kind
+        # that teaches people to ignore alarms. The check is not weakened: files are still matched by
+        # content hash, so anything written by something else still fails.
+        if os.environ.get("SMARTENTRY_ALLOW_OFFSCHEDULE_TRAINING") == "1" and result.get("status") == "trained":
+            try:
+                promotion.log_authorised_offschedule_write(
+                    symbol.upper(), f"Deliberate owner run outside the learning window: "
+                                    f"{symbol.upper()} {args.frequency}, source {result.get('data_source')}.")
+            except Exception as exc:                    # logging must never fail the run
+                print(json.dumps({"symbol": symbol.upper(), "offschedule_log_failed": str(exc)}), flush=True)
         print(json.dumps(result, default=str), flush=True)
     return 1 if failures == len(args.symbols) else 0
 
