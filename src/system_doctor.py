@@ -331,10 +331,11 @@ def check_model_drift(now: Optional[datetime] = None) -> dict:
         # the number the gate actually used, so the reader can tell "weak but earning" from "broken".
         returns = [f"{symbol} {live_model_return(symbol)}" for symbol in no_edge]
         return _result("Model drift", "data", "warn",
-                       f"{', '.join(no_edge)}: accuracy is at or barely above the majority class. The gate "
-                       f"promotes on after-cost return, not accuracy, and that return is: "
-                       f"{'; '.join(returns)}. Weak on direction, so judge these on money.",
-                       concerns=concerns[:6])
+                       f"{', '.join(no_edge)}: the RF MODEL's accuracy is at or barely above the majority "
+                       f"class. Its gate promotes on after-cost return, so that is the figure: "
+                       f"{'; '.join(returns)}. These are SIMULATED scores for the machine-learning models "
+                       f"on unseen bars - not the account: the rule strategies trade separately and their "
+                       f"real results are on /demo-trading.", concerns=concerns[:6])
     if concerns:
         return _result("Model drift", "data", "info",
                        f"{len(concerns)} drift note(s) worth reading.", concerns=concerns[:6])

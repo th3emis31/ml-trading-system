@@ -310,3 +310,16 @@ def test_a_missing_promotion_record_says_so_rather_than_inventing_a_number(tmp_p
     empty = tmp_path / "none.json"
     empty.write_text("[]", encoding="utf-8")
     assert doc.live_model_return("XAUUSD", empty) == "no promotion record"
+
+
+def test_the_drift_warning_cannot_be_read_as_the_accounts_performance():
+    """On 23 September 2026 I quoted the RF model's -10.91% holdout return while asking about bitcoin,
+    and the owner corrected me: every BTCUSD trade the system has placed has WON - three closed legs,
+    +60.66 realised, one still open. The model's simulated score and the account's money are different
+    systems that happen to share a symbol, and the wording must not let them be confused."""
+    import re
+    source = (doc.ROOT / "src" / "system_doctor.py").read_text(encoding="utf-8")
+    block = source[source.index("if no_edge:"):source.index("if concerns:")]
+    assert "SIMULATED" in block, "the warning must say the figure is simulated"
+    assert "not the account" in block, "it must say plainly that this is not the account's result"
+    assert "RF MODEL" in block, "it must name whose accuracy it is talking about"
