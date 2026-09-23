@@ -26834,6 +26834,25 @@ def jarvis_autonomy_control_api():
     autonomy['enabled'] = False
     autonomy['auto_execute'] = False
     _jarvis_memory_record(state, 'autonomy', 'autonomy disabled via control api', symbol=autonomy.get('last_focus_symbol') or 'XAUUSD')
+  elif command in {'set_min_confidence', 'min_confidence'}:
+    # The gate had no way to be changed except by editing state on disk under a running server, which
+    # the project's own safety notes tell you not to do. It needed changing because it was deadlocked:
+    # the bar sat at 68 (69 after the session policy), signals run 53-59, and the only thing that
+    # lowers it is a memory policy that requires real broker fills - which the bar itself prevents.
+    # So it could never come down on its own, and the system could never accumulate the evidence that
+    # would justify moving it.
+    try:
+      wanted = float(payload.get('min_confidence_pct'))
+    except (TypeError, ValueError):
+      return jsonify({'error': 'min_confidence_pct must be a number'}), 400
+    if not 50.0 <= wanted <= 95.0:
+      return jsonify({'error': 'min_confidence_pct must be between 50 and 95'}), 400
+    previous = autonomy.get('min_confidence_pct')
+    autonomy['min_confidence_pct'] = round(wanted, 2)
+    autonomy['min_confidence_changed_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    autonomy['min_confidence_reason'] = str(payload.get('reason') or 'set via control api')[:400]
+    _jarvis_memory_record(state, 'autonomy', f'min confidence {previous} -> {wanted}',
+                          symbol=autonomy.get('last_focus_symbol') or 'XAUUSD')
   elif command in {'scan_once', 'cycle'}:
     _jarvis_run_autonomy_cycle_once()
     refreshed = load_auto_trader_state()
@@ -26843,7 +26862,7 @@ def jarvis_autonomy_control_api():
       'timestamp': datetime.now(timezone.utc).isoformat(),
     })
   else:
-    return jsonify({'error': 'command must be enable, disable, or scan_once'}), 400
+    return jsonify({'error': 'command must be enable, disable, set_min_confidence, or scan_once'}), 400
 
   save_auto_trader_state(state)
   return jsonify({
