@@ -12904,6 +12904,9 @@ AUTO_TRADER_TEMPLATE = """
             <select id='at-platform'>
               <option value='mt5'>MetaTrader 5</option>
               <option value='mt4'>MetaTrader 4</option>
+              <!-- Sends every signal to BOTH venues. Before this the session could name only one, so
+                   whichever platform was not chosen stayed connected and never placed a trade. -->
+              <option value='both'>Both (MT4 + MT5)</option>
             </select>
           </div>
           <div>
@@ -12912,6 +12915,9 @@ AUTO_TRADER_TEMPLATE = """
               <option value='demo'>Demo Simulation</option>
               <option value='mt5_live'>MT5 Live Bridge</option>
               <option value='mt4_live'>MT4 Live Bridge</option>
+              <!-- Pairs with platform "Both": orders go to both bridges, and the session refuses to
+                   start unless BOTH are connected, so half the orders can never fail silently. -->
+              <option value='both_live'>Both Bridges (MT4 + MT5)</option>
             </select>
           </div>
           <div>
@@ -16527,29 +16533,29 @@ def auto_trade_start_session_api():
   payload = request.get_json(silent=True) or request.form.to_dict() or {}
   platform = str(payload.get('platform', 'mt5') or 'mt5').strip().lower()
   mode = str(payload.get('mode', 'demo') or 'demo').strip().lower()
-  if platform not in {'mt4', 'mt5'}:
-    return jsonify({'error': 'platform must be mt4 or mt5'}), 400
-  if mode not in {'demo', 'mt5_live', 'mt4_live'}:
-    return jsonify({'error': 'mode must be demo, mt5_live, or mt4_live'}), 400
+  # 'both' sends every signal to MT4 AND MT5. Before it existed a session could name only one venue,
+  # so whichever platform was not chosen stayed connected and never traded.
+  if platform not in {'mt4', 'mt5', 'both'}:
+    return jsonify({'error': 'platform must be mt4, mt5 or both'}), 400
+  if mode not in {'demo', 'mt5_live', 'mt4_live', 'both_live'}:
+    return jsonify({'error': 'mode must be demo, mt5_live, mt4_live or both_live'}), 400
   if platform == 'mt4' and mode == 'mt5_live':
     return jsonify({'error': 'mode mt5_live is not valid for MT4 platform'}), 400
   if platform == 'mt5' and mode == 'mt4_live':
     return jsonify({'error': 'mode mt4_live is not valid for MT5 platform'}), 400
+  if (mode == 'both_live') != (platform == 'both'):
+    return jsonify({'error': "platform 'both' and mode 'both_live' go together"}), 400
 
-  if mode == 'mt5_live':
-    mt5_status = MT5_ENGINE.status()
-    if not bool(mt5_status.get('connected')):
-      return jsonify({
-        'error': 'MT5 live bridge is not connected. Check MT5 terminal, credentials, and API bridge.',
-        'bridge': mt5_status,
-      }), 503
-  if mode == 'mt4_live':
-    mt4_status = MT4_ENGINE.status()
-    if not bool(mt4_status.get('connected')):
-      return jsonify({
-        'error': 'MT4 live bridge is not connected. Check DWX-ZeroMQ EA and bridge port settings.',
-        'bridge': mt4_status,
-      }), 503
+  # Both bridges must be up before a 'both' session starts. Starting one where half the orders would
+  # silently fail is worse than refusing: the owner would see trades on one platform and assume the
+  # other was simply waiting for a signal - which is exactly the confusion this whole change fixes.
+  for wanted, engine, label, hint in (
+      ({'mt5_live', 'both_live'}, MT5_ENGINE, 'MT5', 'Check MT5 terminal, credentials, and API bridge.'),
+      ({'mt4_live', 'both_live'}, MT4_ENGINE, 'MT4', 'Check DWX-ZeroMQ EA and bridge port settings.')):
+    if mode in wanted:
+      status = engine.status()
+      if not bool(status.get('connected')):
+        return jsonify({'error': f'{label} live bridge is not connected. {hint}', 'bridge': status}), 503
 
   starting_balance = max(100.0, float(payload.get('starting_balance') or 10000.0))
   risk_percent = _clamp_float_arg(payload.get('risk_percent') or 1.0, default=1.0, low=0.1, high=5.0)
@@ -16774,13 +16780,17 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
   # internal_auto_execute is now a parameter set by in-process callers (autonomy loop); it is never read from payload.
 
   # Validate execution mode
-  if execution_mode not in {'demo', 'mt5', 'mt5_live', 'mt4', 'mt4_live'}:
+  if execution_mode not in {'demo', 'mt5', 'mt5_live', 'mt4', 'mt4_live', 'both', 'both_live'}:
     execution_mode = 'demo'
 
+  # 'both' pairs with either venue's mode, so the session does not have to invent a new one; the
+  # mismatch guards below only apply when the session names a SINGLE platform.
   if platform == 'mt4' and execution_mode in {'mt5', 'mt5_live'}:
     return jsonify({'error': 'Execution mode MT5 is not valid when session platform is MT4.'}), 400
   if platform == 'mt5' and execution_mode in {'mt4', 'mt4_live'}:
     return jsonify({'error': 'Execution mode MT4 is not valid when session platform is MT5.'}), 400
+  if platform != 'both' and execution_mode in {'both', 'both_live'}:
+    return jsonify({'error': "Execution mode 'both' needs session platform 'both'."}), 400
 
   if execution_mode in {'mt5', 'mt5_live'}:
     mt5_status = MT5_ENGINE.status()
@@ -17032,8 +17042,43 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
 
   http_status = 200
 
-  # Route to appropriate trading engine based on platform
-  if platform == 'mt4' and execution_mode in {'mt4', 'mt4_live'}:
+  # Route to the trading engine(s) for this platform.
+  #
+  # platform 'both' sends the SAME signal to MT4 and MT5. The owner asked for both platforms to trade
+  # roughly ten times and kept being told why only one did: this branch was an if/elif, so a session
+  # could only ever name one venue and the other sat connected and idle for ever.
+  #
+  # Each leg is independent on purpose. One broker rejecting, being disconnected or having no symbol
+  # must not stop the other from trading, so both are attempted and both results are recorded. The
+  # trade counts as open if EITHER filled, and the message names what each did, because "open" with a
+  # silently failed half would be the worst of the three outcomes.
+  if platform == 'both' and execution_mode != 'demo':
+    mt4_order = MT4_ENGINE.place_market_order(
+      symbol=symbol, side=side, volume=lot_size,
+      stop_loss=float(broker_levels['stop_loss']),
+      take_profit=float(broker_levels['take_profit_1']),
+      comment='AI Auto Trader',
+    )
+    mt5_order = MT5_ENGINE.place_market_order(
+      symbol=symbol, side=side, volume=lot_size,
+      stop_loss=float(broker_levels['stop_loss']),
+      take_profit=float(broker_levels['take_profit_1']),
+      comment='AI Auto Trader',
+    )
+    trade_record['mt4'], trade_record['mt5'] = mt4_order, mt5_order
+    mt4_ok, mt5_ok = bool(mt4_order.get('executed')), bool(mt5_order.get('executed'))
+    trade_record['status'] = 'open' if (mt4_ok or mt5_ok) else 'failed'
+    trade_record['entry'] = mt4_order.get('entry') if mt4_ok else (mt5_order.get('entry') if mt5_ok else None)
+    trade_record['ticket'] = (mt4_order.get('ticket') if mt4_ok else None) or \
+                             ((mt5_order.get('result') or {}).get('order') or (mt5_order.get('result') or {}).get('deal'))
+    trade_record['tickets'] = {'mt4': mt4_order.get('ticket'),
+                               'mt5': (mt5_order.get('result') or {}).get('order') or (mt5_order.get('result') or {}).get('deal')}
+    trade_record['outcome_source'] = 'broker_fill' if (mt4_ok or mt5_ok) else 'broker_rejected'
+    message = (f"MT4 {'filled' if mt4_ok else 'failed: ' + str(mt4_order.get('message') or 'no reason')}; "
+               f"MT5 {'filled' if mt5_ok else 'failed: ' + str(mt5_order.get('message') or 'no reason')}")
+    if not (mt4_ok or mt5_ok):
+      http_status = 502
+  elif platform == 'mt4' and execution_mode in {'mt4', 'mt4_live'}:
     mt4_order = MT4_ENGINE.place_market_order(
       symbol=symbol,
       side=side,

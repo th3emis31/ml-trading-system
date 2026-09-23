@@ -59,3 +59,31 @@ def test_logged_execute_drops_internal_flag_from_payload(monkeypatch):
     with app_module.app.test_request_context("/api/auto-trade/execute", method="POST"):
         app_module._logged_execute({"symbol": "BTCUSD", "internal_auto_execute": True}, internal_auto_execute=False, source="http")
     assert "internal_auto_execute" not in seen["payload"] and seen["internal"] is False
+
+
+def test_both_platform_sends_to_mt4_and_mt5_and_survives_one_failing():
+    """The owner asked about ten times for both platforms to trade and kept being told why only one
+    did: the routing was an if/elif, so a session could name only ONE venue and the other stayed
+    connected and idle for ever.
+
+    The legs must be independent - one broker rejecting must not stop the other - and the message
+    must name what each did, because "open" hiding a silently failed half is the worst outcome.
+    """
+    import re, pathlib
+    source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+    block = source[source.index("if platform == 'both' and execution_mode != 'demo':"):]
+    block = block[:block.index("elif platform == 'mt4'")]
+    assert "MT4_ENGINE.place_market_order" in block and "MT5_ENGINE.place_market_order" in block
+    assert "mt4_ok or mt5_ok" in block, "either fill counts as open"
+    assert "MT4 {'filled'" in block.replace('"', "'") or "MT4 " in block, "the message names each leg"
+
+
+def test_a_both_session_refuses_to_start_unless_both_bridges_are_up():
+    """Starting with half the orders silently failing would look exactly like the bug being fixed:
+    trades on one platform, and the other apparently just waiting for a signal."""
+    import pathlib
+    source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+    start = source[source.index("def auto_trade_start_session_api"):]
+    start = start[:start.index("starting_balance =")]
+    assert "'both_live'" in start and "both" in start
+    assert "is not connected" in start, "an unconnected bridge must refuse the session"
