@@ -5,9 +5,11 @@ It runs outside app.py (Windows tasks "SmartEntry System Doctor" every 30 minute
 duplicated or hung. It reads the app's own endpoints, state files and logs.
 
 Safety: the doctor never changes trading settings and never places, modifies or closes orders.
-With --fix it applies only the fixes in ``SAFE_FIXES`` (recreating a missing scheduled task from
-its known definition). Everything else - for example a second app server - is reported with the
-exact action to take, because it needs judgement.
+With --fix it applies only the fixes in ``SAFE_FIXES``: recreating a missing scheduled task from its
+known definition, and starting the app again when NOTHING listens on port 5000. Everything else - for
+example a second app server - is reported with the exact action to take, because it needs judgement.
+Note the asymmetry: "no server" is repaired, "too many servers" never is, because answering that by
+starting another one is how you get three.
 
 Each check returns {"name", "area", "status": ok | info | warn | fail, "summary", "detail"}.
 Run:  python -m src.system_doctor            quick checks
@@ -91,7 +93,7 @@ TASKS = {
 }
 # schtasks "Last Result" codes that are not failures: success, running, not run yet.
 TASK_OK_RESULTS = {"0", "267009", "267011"}
-SAFE_FIXES = ("recreate_missing_scheduled_task",)
+SAFE_FIXES = ("recreate_missing_scheduled_task", "restart_dead_app")
 
 GetJson = Callable[[str, float], tuple[Optional[int], Optional[dict]]]
 
@@ -747,6 +749,33 @@ def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]
     return applied
 
 
+def fix_dead_app(check: dict, run: Callable = subprocess.run) -> list[dict]:
+    """Start the trading app again when nothing is listening on port 5000.
+
+    Why this is needed. The machine rebooted at 23:33 on 22 September 2026 and the app never came
+    back: the Startup shortcut only fires on an interactive logon, and nothing else watches. Every
+    hourly cycle of all four demo strategies then failed with "connection refused" for seven hours,
+    because they ask the running app to do the work. No trade was actually lost - checked against the
+    candles rather than assumed - but nothing would have caught it if one had been.
+
+    This check already existed and already reported the app as down every thirty minutes. It simply
+    did nothing about it, so the repair belongs here: it covers a reboot, a crash, the relauncher loop
+    dying and an out-of-memory kill alike, rather than only the boot case a logon task would fix.
+
+    It launches ``start_trading.bat`` rather than python directly, because that script pins MT5_PATH -
+    without it MetaTrader5 binds to whichever of the two terminals Windows offers, and the strategies
+    halt on the wrong account. The script refuses to start a second server, so this cannot double up.
+    """
+    launcher = ROOT / "start_trading.bat"
+    if not launcher.exists():
+        return [{"fix": "restart_dead_app", "ok": False, "reason": f"{launcher} missing"}]
+    try:
+        run(["cmd", "/c", "start", "", "/min", str(launcher)], cwd=str(ROOT), timeout=60)
+    except Exception as exc:                      # a failed repair must never fail the health check
+        return [{"fix": "restart_dead_app", "ok": False, "reason": f"{type(exc).__name__}: {exc}"}]
+    return [{"fix": "restart_dead_app", "ok": True, "reason": "started start_trading.bat"}]
+
+
 def overall_status(checks: list[dict]) -> str:
     worst = max((STATUS_RANK.get(c["status"], 0) for c in checks), default=0)
     return {0: "healthy", 1: "warnings", 2: "problems"}[worst]
@@ -778,6 +807,11 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
         task_check = next((c for c in checks if c["name"] == "Scheduled tasks"), None)
         if task_check and (task_check["detail"] or {}).get("missing"):
             fixes = fix_missing_tasks(task_check)
+        # Only when NOTHING listens. A "too many servers" fail must never be answered by starting
+        # another one, which is why this tests the check's own detail rather than the status alone.
+        app_check = next((c for c in checks if c["name"] == "App server"), None)
+        if app_check and app_check["status"] == "fail" and not (app_check.get("detail") or {}).get("pids"):
+            fixes += fix_dead_app(app_check)
     report = {
         "generated_at": started.strftime("%Y-%m-%d %H:%M:%S"),
         "duration_sec": round((_now_utc() - started).total_seconds(), 1),

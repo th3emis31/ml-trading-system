@@ -206,3 +206,40 @@ def test_the_doctor_page_states_the_check_age_and_labels_its_clocks():
     assert "checkAge(r.generated_at)" in html, "and prints it beside the UTC stamp"
     assert "Page loaded ${new Date().toLocaleTimeString()} local" in html, "the local clock says it is local"
     assert "the 30-minute check has missed a run" in html, "past an hour it says a run was missed"
+
+
+def test_a_dead_app_is_restarted_but_a_duplicated_one_never_is():
+    """After the 22 September reboot the app never came back and all four demo strategies failed
+    hourly with "connection refused" for seven hours. The doctor already reported it every thirty
+    minutes and did nothing, so the repair lives here.
+
+    The asymmetry is the point: nothing listening is repaired, too many listening never is, because
+    answering "two servers" by starting a third is how the problem compounds.
+    """
+    calls = []
+    dead = {"name": "App server", "status": "fail", "detail": {"pids": []}}
+    out = doc.fix_dead_app(dead, run=lambda *a, **k: calls.append(a) or None)
+    assert out[0]["ok"] is True and out[0]["fix"] == "restart_dead_app"
+    assert calls, "it must actually launch something"
+    launched = " ".join(str(x) for x in calls[0][0])
+    assert "start_trading.bat" in launched, "must use the launcher, which pins MT5_PATH"
+
+
+def test_the_restart_uses_the_launcher_so_the_mt5_terminal_stays_pinned():
+    """Two MT5 terminals run on this machine and MetaTrader5.initialize() with no path binds to
+    whichever Windows offers - that is how the strategies ended up halting on account 25446287.
+    start_trading.bat sets MT5_PATH, so the repair must go through it and never call python directly.
+    """
+    launcher = (doc.ROOT / "start_trading.bat").read_text(encoding="utf-8", errors="replace")
+    assert "MT5_PATH" in launcher, "the launcher is what pins the terminal; the restart relies on it"
+
+
+def test_restart_is_declared_a_safe_fix():
+    assert "restart_dead_app" in doc.SAFE_FIXES
+
+
+def test_a_missing_launcher_is_reported_not_raised(monkeypatch, tmp_path):
+    """A repair that cannot run must never take the health check down with it."""
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    out = doc.fix_dead_app({"name": "App server", "status": "fail", "detail": {"pids": []}})
+    assert out[0]["ok"] is False and "missing" in out[0]["reason"]
