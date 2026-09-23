@@ -23043,7 +23043,12 @@ def demo_model_execute_api():
   with _demo_model_lock:
     config = demo_executor.load_config(config_path)
     journal = demo_executor.load_journal(journal_path)
-    event = demo_executor.execute_signal(MT5_ENGINE, signal, config, journal)
+    # MT5 is the primary; MT4 mirrors the same order so one signal trades BOTH platforms. The mirror
+    # only fires when config['mirror_mt4'] is on, is demo-verified inside execute_signal, and can
+    # never affect the MT5 result - a second broker being down must not cost the trade that was
+    # going to happen anyway.
+    mirror = MT4_ENGINE if config.get('mirror_mt4') else None
+    event = demo_executor.execute_signal(MT5_ENGINE, signal, config, journal, mirror=mirror)
     demo_executor.save_journal(journal, journal_path)
   return jsonify(event)
 

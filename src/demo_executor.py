@@ -144,7 +144,7 @@ def order_levels(side: str, price: float, atr: float, sl_atr: float, tp_atr: flo
     return (round(price - direction * sl_atr * atr, digits), round(price + direction * tp_atr * atr, digits))
 
 
-def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None) -> dict:
+def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None, mirror=None) -> dict:
     """Try to open one demo position for ``signal``. Returns the journal event describing what happened."""
     now = pd.Timestamp(now) if now is not None else pd.Timestamp(datetime.now(timezone.utc))
     bar = str(signal.get("bar_time") or "")
@@ -191,6 +191,9 @@ def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None) 
                "expires_at": _stamp(pd.Timestamp(bar, tz="UTC")
                                     + pd.Timedelta(minutes=int(signal["bar_minutes"]) * (int(signal.get("horizon_bars") or 6) + 1)))}
     if config.get("dry_run", True):
+        # Recorded even in a dry run, so a dry run cannot hide that the second platform would have
+        # been unreachable. dry_run itself is untouched: nothing is sent to either venue here.
+        details["mirror"] = {"sent": False, "reason": "dry run"} if mirror is not None else None
         event = _event(journal, now, "dry_run", reason="dry run: order logged, not sent", **details)
         journal["attempts"][bar] = {**event, "status": "dry_run"}
         return event
@@ -198,10 +201,48 @@ def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None) 
     result = engine.place_market_order(**request) or {}
     order = result.get("result") or {}
     executed = bool(result.get("executed"))
+    details["mirror"] = mirror_order(mirror, request)
     event = _event(journal, now, "opened" if executed else "failed", reason=result.get("message"),
                    ticket=order.get("order") or order.get("deal"), broker_request=result.get("request"), **details)
     journal["attempts"][bar] = {**event, "status": "open" if executed else "failed"}
     return event
+
+
+def mirror_order(mirror, request: dict) -> Optional[dict]:
+    """Send the same order to the second platform, so one signal trades BOTH MT4 and MT5.
+
+    Why this is here rather than in the auto-trade route. The owner asked about ten times for both
+    platforms to trade. The auto-trade route now supports it, but nothing reaches that route: its
+    autonomy gate wants 69 % confidence and the signals run 53-59 %, and the only thing that lowers
+    the gate needs real broker fills, which the gate prevents. This executor has no such gate - it is
+    what actually placed the gold trade (#2075239373, "GOLD4H demo model") - so mirroring here is what
+    makes the second platform trade today instead of after a deadlock is resolved.
+
+    MT5 stays the primary: the demo-account guard, the one-position rule, position sync and the time
+    exit all run against it. The mirror is strictly additive and never affects the MT5 result, because
+    a second broker being down must not cost the trade that was going to happen anyway.
+
+    It refuses any account that does not look like a demo, by the same test the MT5 side uses. An
+    unverifiable second platform is skipped with a reason rather than traded on hopefully.
+    """
+    if mirror is None:
+        return None
+    try:
+        status = mirror.status() or {}
+        if not bool(status.get("connected")):
+            return {"sent": False, "reason": "second platform not connected"}
+        server = str(status.get("server") or "")
+        if "demo" not in server.lower():
+            return {"sent": False, "reason": f"refused: '{server or 'unknown server'}' is not a demo account"}
+        out = mirror.place_market_order(
+            symbol=request["symbol"], side=request["side"], volume=request["volume"],
+            stop_loss=request.get("stop_loss"), take_profit=request.get("take_profit"),
+            comment=request.get("comment", "AI Trade"),
+        ) or {}
+        return {"sent": True, "executed": bool(out.get("executed")), "ticket": out.get("ticket"),
+                "server": server, "message": out.get("message")}
+    except Exception as exc:                 # never let the second platform break the first
+        return {"sent": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
 def sync_positions(engine, config: dict, journal: dict, now=None) -> list[dict]:

@@ -176,3 +176,41 @@ def test_cycle_health_calls_a_stopped_task_late():
     assert late["late"] is True and late["age_minutes"] == 305.0 and "looks" in late["note"]
     assert de.cycle_health(None, 60, NOW)["available"] is False
     assert de.cycle_health({"at": "not a time"}, 60, NOW)["available"] is False
+
+
+class _Mirror:
+    def __init__(self, connected=True, server="ICMarketsSC-Demo01", executed=True, raises=False):
+        self._c, self._s, self._e, self._r = connected, server, executed, raises
+        self.sent = []
+    def status(self):
+        if self._r: raise OSError("bridge gone")
+        return {"connected": self._c, "server": self._s}
+    def place_market_order(self, **kw):
+        self.sent.append(kw)
+        return {"executed": self._e, "ticket": 999, "message": "ok" if self._e else "rejected"}
+
+
+def test_the_mirror_sends_the_same_order_to_the_second_platform():
+    """The owner asked about ten times for both platforms to trade. MT4 never had an order routed to
+    it, so this mirrors the MT5 order that is already working."""
+    m = _Mirror()
+    out = de.mirror_order(m, {"symbol": "XAUUSD", "side": "SELL", "volume": 0.01,
+                              "stop_loss": 4365.96, "take_profit": 4289.52, "comment": "GOLD4H demo model"})
+    assert out["sent"] is True and out["executed"] is True
+    sent = m.sent[0]
+    assert sent["symbol"] == "XAUUSD" and sent["side"] == "SELL" and sent["volume"] == 0.01
+    assert sent["stop_loss"] == 4365.96 and sent["take_profit"] == 4289.52, "same levels on both venues"
+
+
+def test_the_mirror_refuses_anything_that_is_not_a_demo_account():
+    """The same test the MT5 side uses. An unverifiable second platform is skipped with a reason,
+    never traded on hopefully."""
+    out = de.mirror_order(_Mirror(server="ICMarketsSC-Live02"), {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
+    assert out["sent"] is False and "not a demo" in out["reason"]
+
+
+def test_a_broken_second_platform_never_costs_the_first_its_trade():
+    """A second broker being down must not stop the trade that was going to happen anyway."""
+    for mirror in (_Mirror(connected=False), _Mirror(raises=True), None):
+        out = de.mirror_order(mirror, {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
+        assert out is None or out["sent"] is False, "it reports, it never raises"
