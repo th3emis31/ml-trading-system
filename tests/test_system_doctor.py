@@ -286,3 +286,27 @@ def test_a_terminal_listing_that_fails_warns_rather_than_crashes():
     def boom(*a, **k): raise OSError("powershell unavailable")
     out = doc.check_terminals(run=boom)
     assert out["status"] == "warn" and "Could not list" in out["summary"]
+
+
+def test_the_live_models_return_comes_from_the_side_that_actually_won(tmp_path):
+    """When the challenger is promoted the live model is the challenger; when it is refused the
+    champion stayed. Reading the wrong side credits a rejected model's return to the one trading."""
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps([
+        {"symbol": "XAUUSD", "rf_promoted": True,
+         "rf_challenger": {"total_return_pct": 4.621, "rows": 568},
+         "rf_champion": {"total_return_pct": -1.296, "rows": 568}},
+        {"symbol": "BTCUSD", "rf_promoted": False,
+         "rf_challenger": {"total_return_pct": 99.9, "rows": 565},
+         "rf_champion": {"total_return_pct": -10.91, "rows": 565}},
+    ]), encoding="utf-8")
+    assert "+4.62%" in doc.live_model_return("XAUUSD", path)
+    got = doc.live_model_return("BTCUSD", path)
+    assert "-10.91%" in got and "99.9" not in got, "a refused challenger's return must never be shown"
+
+
+def test_a_missing_promotion_record_says_so_rather_than_inventing_a_number(tmp_path):
+    """Never invent data to fill a gap - the project's own architecture rule."""
+    empty = tmp_path / "none.json"
+    empty.write_text("[]", encoding="utf-8")
+    assert doc.live_model_return("XAUUSD", empty) == "no promotion record"

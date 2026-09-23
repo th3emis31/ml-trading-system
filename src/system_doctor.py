@@ -275,6 +275,27 @@ def check_demo_pullback(state_path: Path = ROOT / "data" / "paper_trading" / "de
                    f"{state['last_cycle'].get('reason')}", **detail)
 
 
+def live_model_return(symbol: str, decisions_path: Path = ROOT / "data" / "learning_decisions.json") -> str:
+    """The after-cost return of the model that is actually live, from its own promotion record.
+
+    Which record to read depends on what the gate did: when the challenger was promoted, the live
+    model is that challenger; when it was refused, the champion stayed and its figure is the live one.
+    Reading the wrong side would attribute a rejected model's return to the one doing the trading.
+    """
+    rows = _read_json(decisions_path) or []
+    if isinstance(rows, dict):
+        rows = rows.get("decisions") or []
+    latest = next((r for r in reversed(rows) if str(r.get("symbol", "")).upper() == symbol.upper()), None)
+    if not latest:
+        return "no promotion record"
+    side = latest.get("rf_challenger") if latest.get("rf_promoted") else latest.get("rf_champion")
+    ret = (side or {}).get("total_return_pct")
+    if not isinstance(ret, (int, float)):
+        return "return not recorded"
+    bars = (side or {}).get("rows")
+    return f"{ret:+.2f}% after costs" + (f" on {bars} unseen bars" if bars else "")
+
+
 def check_model_drift(now: Optional[datetime] = None) -> dict:
     """Does the live model still describe the prices the system trades, and does it beat guessing?
 
@@ -299,9 +320,21 @@ def check_model_drift(now: Optional[datetime] = None) -> dict:
                        f"source than the feed serves, so its accuracy describes another series.",
                        concerns=concerns[:6])
     if no_edge:
+        # Accuracy alone is the wrong verdict here, and this system settled that on 20 Sep 2026: across
+        # 41 head-to-head runs the accuracy winner and the money winner agreed 17 times and disagreed
+        # 17, so the promotion gate was changed to decide on AFTER-COST RETURN. Reporting only accuracy
+        # therefore says "not beating a guess" about a champion that is live precisely because it made
+        # money - XAUUSD sits at 0.496 accuracy and was promoted on +4.62% against -1.30%.
+        #
+        # It stays a warning: a model at the majority class IS worth knowing about, and hiding it would
+        # be exactly the cosmetic reassurance this owner has said they do not want. But it now carries
+        # the number the gate actually used, so the reader can tell "weak but earning" from "broken".
+        returns = [f"{symbol} {live_model_return(symbol)}" for symbol in no_edge]
         return _result("Model drift", "data", "warn",
-                       f"{', '.join(no_edge)}: accuracy is at or barely above the majority class, so the "
-                       f"model is not beating a guess.", concerns=concerns[:6])
+                       f"{', '.join(no_edge)}: accuracy is at or barely above the majority class. The gate "
+                       f"promotes on after-cost return, not accuracy, and that return is: "
+                       f"{'; '.join(returns)}. Weak on direction, so judge these on money.",
+                       concerns=concerns[:6])
     if concerns:
         return _result("Model drift", "data", "info",
                        f"{len(concerns)} drift note(s) worth reading.", concerns=concerns[:6])
