@@ -6,8 +6,9 @@ duplicated or hung. It reads the app's own endpoints, state files and logs.
 
 Safety: the doctor never changes trading settings and never places, modifies or closes orders.
 With --fix it applies only the fixes in ``SAFE_FIXES``: recreating a missing scheduled task from its
-known definition, and starting the app again when NOTHING listens on port 5000. Everything else - for
-example a second app server - is reported with the exact action to take, because it needs judgement.
+known definition, starting the app again when NOTHING listens on port 5000, and starting a required
+MetaTrader terminal that is not running. Everything else - for example a second app server - is
+reported with the exact action to take, because it needs judgement.
 Note the asymmetry: "no server" is repaired, "too many servers" never is, because answering that by
 starting another one is how you get three.
 
@@ -93,7 +94,7 @@ TASKS = {
 }
 # schtasks "Last Result" codes that are not failures: success, running, not run yet.
 TASK_OK_RESULTS = {"0", "267009", "267011"}
-SAFE_FIXES = ("recreate_missing_scheduled_task", "restart_dead_app")
+SAFE_FIXES = ("recreate_missing_scheduled_task", "restart_dead_app", "start_missing_terminals")
 
 GetJson = Callable[[str, float], tuple[Optional[int], Optional[dict]]]
 
@@ -749,6 +750,63 @@ def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]
     return applied
 
 
+REQUIRED_TERMINALS = {
+    r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe": "MT5 demo 11581419 (SmartEntry strategies)",
+    r"C:\Program Files\MetaTrader 5\terminal64.exe": "MT5 demo 25446287 (Atomic panel, SwingTrendPullback)",
+    r"C:\Users\th_em\AppData\Roaming\CMC Markets MetaTrader 4\terminal.exe": "MT4 bridge 12755139",
+}
+
+
+def check_terminals(run: Callable = subprocess.run) -> dict:
+    """Which MetaTrader terminals are running, by executable path.
+
+    The app is useless without them: the strategies read broker candles and place orders through MT5,
+    and MT4 quotes come over the DWX bridge. Nothing watched them until now - the autostart brings them
+    up at logon, but a terminal that dies at noon was invisible until a cycle failed.
+
+    Matched on the full path, not the process name, because five terminals run here and two of them are
+    both called terminal64.exe. Only the three the system actually depends on are required; the other
+    two MT4s are the owner's and are not this system's business.
+    """
+    running = set()
+    try:
+        proc = run(["powershell", "-NoProfile", "-Command",
+                    "Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe' OR Name='terminal.exe'\" "
+                    "| ForEach-Object { $_.ExecutablePath }"],
+                   capture_output=True, text=True, timeout=90)
+        running = {line.strip() for line in (proc.stdout or "").splitlines() if line.strip()}
+    except Exception as exc:
+        return _result("MetaTrader terminals", "broker", "warn", f"Could not list terminals: {exc}")
+    missing = {path: name for path, name in REQUIRED_TERMINALS.items() if path not in running}
+    if missing:
+        return _result("MetaTrader terminals", "broker", "fail",
+                       f"{len(missing)} required terminal(s) not running: {', '.join(missing.values())}. "
+                       "scripts\\start_everything.ps1 starts them.",
+                       missing=list(missing), running=sorted(running))
+    return _result("MetaTrader terminals", "broker", "ok",
+                   f"All {len(REQUIRED_TERMINALS)} required terminals are running "
+                   f"({len(running)} in total).", running=sorted(running))
+
+
+def fix_missing_terminals(check: dict, run: Callable = subprocess.run) -> list[dict]:
+    """Start the terminals that are not running, through the same script the autostart uses.
+
+    It is the same idempotent script, so it cannot start a duplicate of one that is already up, and a
+    terminal that is running but merely disconnected is left alone - that is a network problem, not a
+    missing process, and restarting a live terminal would drop the owner's experts with it.
+    """
+    script = ROOT / "scripts" / "start_everything.ps1"
+    if not script.exists():
+        return [{"fix": "start_missing_terminals", "ok": False, "reason": f"{script} missing"}]
+    try:
+        run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+            capture_output=True, text=True, timeout=300)
+    except Exception as exc:
+        return [{"fix": "start_missing_terminals", "ok": False, "reason": f"{type(exc).__name__}: {exc}"}]
+    return [{"fix": "start_missing_terminals", "ok": True,
+             "reason": f"ran start_everything.ps1 for: {', '.join((check.get('detail') or {}).get('missing') or [])}"}]
+
+
 def fix_dead_app(check: dict, run: Callable = subprocess.run) -> list[dict]:
     """Start the trading app again when nothing is listening on port 5000.
 
@@ -783,7 +841,7 @@ def overall_status(checks: list[dict]) -> str:
 
 def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, save: bool = True) -> dict:
     started = _now_utc()
-    runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_autonomy,
+    runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_terminals, check_autonomy,
                lambda: check_demo_execution(get), check_demo_pullback,
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
@@ -812,6 +870,9 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
         app_check = next((c for c in checks if c["name"] == "App server"), None)
         if app_check and app_check["status"] == "fail" and not (app_check.get("detail") or {}).get("pids"):
             fixes += fix_dead_app(app_check)
+        term_check = next((c for c in checks if c["name"] == "MetaTrader terminals"), None)
+        if term_check and (term_check.get("detail") or {}).get("missing"):
+            fixes += fix_missing_terminals(term_check)
     report = {
         "generated_at": started.strftime("%Y-%m-%d %H:%M:%S"),
         "duration_sec": round((_now_utc() - started).total_seconds(), 1),

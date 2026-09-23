@@ -243,3 +243,46 @@ def test_a_missing_launcher_is_reported_not_raised(monkeypatch, tmp_path):
     monkeypatch.setattr(doc, "ROOT", tmp_path)
     out = doc.fix_dead_app({"name": "App server", "status": "fail", "detail": {"pids": []}})
     assert out[0]["ok"] is False and "missing" in out[0]["reason"]
+
+
+class _Proc:
+    def __init__(self, out=""): self.stdout, self.stderr, self.returncode = out, "", 0
+
+
+def test_terminals_are_matched_by_path_not_by_process_name():
+    """Five terminals run on this machine and two are both called terminal64.exe, so a name match
+    would call the strategies' terminal present whenever ANY MT5 was running - including the one on
+    account 25446287, which is exactly the mix-up that halted the demo strategies once already."""
+    only_the_other_mt5 = _Proc(r"C:\Program Files\MetaTrader 5\terminal64.exe")
+    out = doc.check_terminals(run=lambda *a, **k: only_the_other_mt5)
+    assert out["status"] == "fail"
+    assert any("11581419" in m for m in out["detail"]["missing"] and
+               [doc.REQUIRED_TERMINALS[p] for p in out["detail"]["missing"]])
+
+
+def test_all_required_terminals_running_is_ok():
+    running = "\n".join(doc.REQUIRED_TERMINALS)
+    out = doc.check_terminals(run=lambda *a, **k: _Proc(running))
+    assert out["status"] == "ok"
+
+
+def test_the_two_extra_mt4s_are_not_required():
+    """The owner runs five terminals; only three are this system's business. Requiring the other two
+    would make the doctor fail over terminals that are nothing to do with it."""
+    assert len(doc.REQUIRED_TERMINALS) == 3
+    assert not any("Program Files (x86)" in p for p in doc.REQUIRED_TERMINALS)
+
+
+def test_missing_terminals_are_started_through_the_shared_script():
+    """The same idempotent script the autostart uses, so it cannot duplicate a running terminal."""
+    calls = []
+    out = doc.fix_missing_terminals({"detail": {"missing": ["x"]}},
+                                    run=lambda *a, **k: calls.append(a) or _Proc())
+    assert out[0]["ok"] is True and out[0]["fix"] == "start_missing_terminals"
+    assert "start_everything.ps1" in " ".join(str(x) for x in calls[0][0])
+
+
+def test_a_terminal_listing_that_fails_warns_rather_than_crashes():
+    def boom(*a, **k): raise OSError("powershell unavailable")
+    out = doc.check_terminals(run=boom)
+    assert out["status"] == "warn" and "Could not list" in out["summary"]

@@ -2,6 +2,17 @@
 title SmartEntry Pro AI - Trading System
 cd /d C:\Users\th_em\ml_trading_system
 
+rem Refuse to become a SECOND server. Three things can now launch this - the Startup shortcut, the
+rem logon task, and the System Doctor's repair when nothing is listening - and two app.py processes on
+rem port 5000 is a real failure the doctor reports but deliberately will not fix for you. Checked once
+rem here rather than inside the loop, because once this instance owns the port the loop must keep it.
+netstat -ano | findstr /R /C:"TCP.*:5000 .*LISTENING" >nul 2>&1
+if not errorlevel 1 (
+  echo Another server already answers on port 5000; leaving it alone.
+  %SystemRoot%\System32\timeout.exe /t 5 /nobreak >nul
+  exit /b 0
+)
+
 :start
 echo ========================================
 echo  SmartEntry Pro AI - Starting...
@@ -21,5 +32,5 @@ C:\Users\th_em\AppData\Local\Programs\Python\Python310\python.exe app.py
 
 echo.
 echo [!] Server stopped or crashed. Restarting in 5 seconds...
-timeout /t 5 /nobreak
+%SystemRoot%\System32\timeout.exe /t 5 /nobreak
 goto start
