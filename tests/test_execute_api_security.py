@@ -87,3 +87,34 @@ def test_a_both_session_refuses_to_start_unless_both_bridges_are_up():
     start = start[:start.index("starting_balance =")]
     assert "'both_live'" in start and "both" in start
     assert "is not connected" in start, "an unconnected bridge must refuse the session"
+
+
+def test_one_trade_per_asset_is_enforced_in_the_auto_trade_route():
+    """The owner's standing rule, given after this route stacked NINE gold BUY positions in ninety
+    minutes - one per scan interval, same direction, all losing - because nothing stopped it opening
+    another while the last was still open.
+
+    demo_executor has enforced one-position-at-a-time against its own magic since it was written.
+    This route never did, so the rule held on one execution path and not the other.
+    """
+    import pathlib
+    source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+    core = source[source.index("def _auto_trade_execute_core"):]
+    core = core[:core.index("# Route to the trading engine")]
+    assert "MT5_ENGINE.positions(symbol=symbol, magic=AUTO_TRADE_MAGIC)" in core, \
+        "it must count existing positions before opening another"
+    assert "one trade per asset" in core
+    assert "log_rejection" in core, "a refused trade must be recorded, not silent"
+    # The count must be scoped to this route's own magic: the owner's other experts trade the same
+    # symbols and are not this system's to block.
+    assert "AUTO_TRADE_MAGIC = 903110" in source
+
+
+def test_the_rule_counts_only_this_systems_own_orders():
+    """Counting every position on the symbol would let another EA's gold trade block this system, and
+    the owner's standing rule is that their other experts are not this system's business."""
+    import pathlib
+    source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+    core = source[source.index("# ONE OPEN TRADE PER ASSET"):]
+    core = core[:core.index("trade_record = {")]
+    assert "magic=AUTO_TRADE_MAGIC" in core and "magic=None" not in core

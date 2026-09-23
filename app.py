@@ -905,6 +905,10 @@ VOICE_ENGINE = VoiceCommandService(VOICE_STATE_PATH)
 VOICE_REALTIME_MANAGER = RealtimeVoiceSessionManager(VOICE_REALTIME_STATE_PATH, ttl_minutes=30)
 VOICE_EXTERNAL_PROVIDERS = ExternalVoiceProviders(timeout_seconds=20)
 MT5_ENGINE = MT5Service()
+# The magic the auto-trade route's orders carry: mt5_service.place_market_order defaults to it and
+# this route never overrides it. Named here because the one-trade-per-asset rule counts positions by
+# it, and a rule that silently counted the wrong magic would either block everything or nothing.
+AUTO_TRADE_MAGIC = 903110
 # Pin the MT4 bridge to one account. Several terminals can each expose a DWX
 # bridge, so without this the client attaches to whichever answers first and
 # could place orders on the wrong account. Override with MT4_ACCOUNT=0 to
@@ -17021,6 +17025,26 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
       'error': 'Pre-order checks failed: ' + '; '.join(pre_order['reasons']),
       'checks': pre_order['checks'],
     }), 409
+
+  # ONE OPEN TRADE PER ASSET. The owner's standing rule, given on 23 Sep 2026 after this route stacked
+  # NINE gold BUY positions in ninety minutes - one every scan interval, all the same direction, all
+  # losing - because nothing stopped it opening another while the last was still open.
+  #
+  # src/demo_executor.py has enforced "one position at a time, as in the backtest" against its own
+  # magic since it was written. This route never did, so the rule held on one execution path and not
+  # the other. It is checked against this route's own magic: the owner's other experts run their own
+  # magic numbers and are not this system's to count or to block.
+  #
+  # Refusing is recorded, not silent - a trade that does not happen must be as visible as one that
+  # does, or the next person sees an idle system and no reason for it.
+  existing = MT5_ENGINE.positions(symbol=symbol, magic=AUTO_TRADE_MAGIC)
+  if existing:
+    reason = (f"one trade per asset: {len(existing)} {symbol} position(s) already open from this "
+              f"route (magic {AUTO_TRADE_MAGIC}); not opening another")
+    execution_guard.log_rejection({'symbol': symbol, 'side': side, 'reason': reason,
+                                   'source': 'one_per_asset', 'open_tickets': [p.get('ticket') for p in existing]})
+    return jsonify({'status': 'skipped', 'message': reason, 'symbol': symbol,
+                    'open_positions': len(existing)}), 200
 
   trade_record = {
     'symbol': symbol,
