@@ -227,6 +227,11 @@ def mirror_order(mirror, request: dict) -> Optional[dict]:
     """
     if mirror is None:
         return None
+    # A list means several MT4 accounts, each mirrored independently: the owner runs two MT4 demos and
+    # wants both to trade. One failing must not stop the others, so each is reported separately rather
+    # than collapsed into a single pass/fail that would hide which account missed the trade.
+    if isinstance(mirror, (list, tuple)):
+        return [mirror_order(one, request) for one in mirror] or None
     try:
         status = mirror.status() or {}
         if not bool(status.get("connected")):

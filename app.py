@@ -939,6 +939,27 @@ MT4_ENGINE = MT4Service(
   expected_account=_mt4_expected_account(),
 )
 
+# A SECOND MT4 account, so one signal can trade both terminals. The owner runs two MT4 demos -
+# 12755139 on ICMarketsSC-Demo01 and 1420704416 on IronFXCY-Demo1 - and asked for both to trade.
+#
+# Nothing here is hard-coded to a port: MT4Service scans the DWX port sets (+10, four of them, which
+# is exactly how the EA steps when its own ports are taken) and accepts a bridge ONLY when the
+# heartbeat reports the account it was pinned to. That check is what keeps two terminals apart; with
+# several bridges answering on this machine, connecting to whichever replies first would silently
+# trade the wrong account.
+#
+# Empty MT4_ACCOUNT_2 means the feature is off and the system behaves exactly as before.
+def _mt4_second_engine():
+  raw = str(os.environ.get('MT4_ACCOUNT_2', '') or '').strip()
+  if not raw.isdigit():
+    return None
+  return MT4Service(port=int(os.environ.get('MT4_PORT_2', '32768')), expected_account=int(raw))
+
+
+MT4_ENGINE_2 = _mt4_second_engine()
+# Every MT4 bridge an order should reach. One entry today, two once the second account is configured.
+MT4_ENGINES = [e for e in (MT4_ENGINE, MT4_ENGINE_2) if e is not None]
+
 QUALITY_THRESHOLDS = {
   "XAUUSD": {"max_out_range_ratio": 35.0, "min_in_range_win_rate": 50.0},
   "BTCUSD": {"max_out_range_ratio": 45.0, "min_in_range_win_rate": 46.0},
@@ -23071,7 +23092,7 @@ def demo_model_execute_api():
     # only fires when config['mirror_mt4'] is on, is demo-verified inside execute_signal, and can
     # never affect the MT5 result - a second broker being down must not cost the trade that was
     # going to happen anyway.
-    mirror = MT4_ENGINE if config.get('mirror_mt4') else None
+    mirror = MT4_ENGINES if config.get('mirror_mt4') else None
     event = demo_executor.execute_signal(MT5_ENGINE, signal, config, journal, mirror=mirror)
     demo_executor.save_journal(journal, journal_path)
   return jsonify(event)

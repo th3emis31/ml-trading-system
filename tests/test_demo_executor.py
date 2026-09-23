@@ -214,3 +214,21 @@ def test_a_broken_second_platform_never_costs_the_first_its_trade():
     for mirror in (_Mirror(connected=False), _Mirror(raises=True), None):
         out = de.mirror_order(mirror, {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
         assert out is None or out["sent"] is False, "it reports, it never raises"
+
+
+def test_a_list_of_mirrors_reaches_every_mt4_account():
+    """The owner runs two MT4 demos - 12755139 on ICMarketsSC-Demo01 and 1420704416 on IronFXCY-Demo1 -
+    and asked for both to trade. Each is mirrored independently."""
+    a, b = _Mirror(), _Mirror()
+    out = de.mirror_order([a, b], {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
+    assert isinstance(out, list) and len(out) == 2
+    assert all(r["sent"] and r["executed"] for r in out)
+    assert a.sent and b.sent, "both accounts must receive the order"
+
+
+def test_one_failing_account_does_not_stop_the_other():
+    """Collapsing several accounts into one pass/fail would hide which account missed the trade."""
+    good, bad = _Mirror(), _Mirror(connected=False)
+    out = de.mirror_order([bad, good], {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
+    assert out[0]["sent"] is False and out[1]["sent"] is True
+    assert good.sent, "the healthy account still trades"
