@@ -553,3 +553,38 @@ trades, 1700/1800/2000/3000 -> identical results. It cannot be tuned here.
 SL 50281 -> -45.42, SL 80000 -> **+5.04** (PF 1.00), SL 100000 -> -12.22. The direction matches the
 gold finding exactly - a fixed-point stop against a price that has multiplied - but on bitcoin it only
 buys a return to break-even, because the spread is the dominant term rather than a side cost.
+
+## 2026-09-24 (revised with full history) — SmartEntry V9 bitcoin: 3,545 trades, spread is 2x the edge
+
+The owner pointed out the full BTCUSD history was available on Vantage. Their app terminal held
+2018-2026 under VantageMarkets-Demo while the tester install had only 2024-2026, so the missing years
+were copied across (same broker, same symbol, so the .hcc files are compatible) and everything below
+supersedes the single-period 2026 result recorded earlier.
+
+**Year by year, v09 unchanged** (2019 has no trades, 2020 has one):
+
+| year | net | PF | trades |
+|---|---|---|---|
+| 2021 | −26.12 | 0.96 | 272 |
+| 2022 | −39.16 | 0.96 | 372 |
+| 2023 | **+16.23** | 1.03 | 283 |
+| 2024 | −128.17 | 0.94 | 863 |
+| 2025 | −84.69 | 0.97 | 1046 |
+| 2026 | −45.42 | 0.97 | 708 |
+
+**Profitable in 1 of 6 real years, −303.02 over 3,545 trades, profit factor pinned at 0.94-0.97.**
+That is not a strategy that breaks down in one regime; it is one that loses a little, consistently.
+
+**And it is consistently losing by almost exactly the spread.** At 1694 points the spread costs
+0.169 USD per trade at 0.01 lot. Over 2021-2026 (3,544 trades, net −308.69) that is about 599 USD of
+spread against a **gross result of roughly +292**, i.e. a genuine gross edge of **0.0823 USD per
+trade** against a **0.169 USD** cost. **Break-even needs a BTCUSD spread under about 823 points.**
+
+So bitcoin under this EA is settled and it is not a parameter question: the rules find a real but
+small edge, and this broker charges twice it. The one number that decides whether the owner's FTMO
+result is repeatable is FTMO's BTCUSD spread - under ~823 points it works, above it nothing will.
+
+**The stop does NOT rescue it, unlike gold.** SL 50281 → −308.69, 70000 → −191.63, 90000 → −544.27,
+120000 → **+50.94 (PF 1.01)**, 160000 → −715.70. The one positive cell sits between two much worse
+ones, so the shape is noise rather than the smooth plateau that made the gold SL finding credible.
+Do not chase it.
