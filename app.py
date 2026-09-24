@@ -24158,6 +24158,35 @@ def analytics_api():
     if not history:
         history = build_signal_payload()
     return jsonify(build_signal_analytics(history))
+@app.route('/api/growth')
+def growth_api():
+  """Win/loss and money earned per day, week, month and year - the two questions the owner asks most.
+
+  Defaults to THIS system's magics. The account carries other people's experts too, and including
+  them makes the page unable to answer "what did the system earn?" - so 'all' must be asked for.
+  """
+  from src import performance_analytics as pa
+  magic_arg = str(request.args.get('magic') or 'system').strip().lower()
+  if magic_arg in ('all', 'account'):
+    magic = None
+  elif magic_arg.isdigit():
+    magic = int(magic_arg)
+  else:
+    magic = list(pa.SYSTEM_MAGICS)
+  start = request.args.get('starting_balance')
+  try:
+    start = float(start) if start not in (None, '') else None
+  except (TypeError, ValueError):
+    start = None
+  if MT5_ENGINE is None or not hasattr(MT5_ENGINE, 'deal_history'):
+    return jsonify({'available': False, 'reason': 'MT5 engine unavailable'})
+  history = MT5_ENGINE.deal_history(days=3650) or {}
+  deals = history.get('deals') if isinstance(history, dict) else history
+  out = pa.growth_tracker(deals or [], magic=magic, starting_balance=start)
+  out['source'] = 'closed MT5 deals'
+  return jsonify(out)
+
+
 @app.route('/api/performance-summary')
 def performance_summary_api():
   return jsonify(get_performance_summary_fast())

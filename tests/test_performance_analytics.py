@@ -95,3 +95,63 @@ def test_trading_heatmaps_can_keep_only_this_systems_own_experts():
     one = pa.trading_heatmaps(deals, magic=440502)
     assert one["trades"] == 1 and round(one["net"], 2) == 10.0, "a single number still works"
     assert pa.trading_heatmaps(deals, magic=[999999])["available"] is False, "an expert with no trades says so"
+
+
+def _deal(day, net, magic=440603, symbol="BTCUSD"):
+    return {"time": f"2026-09-{day:02d}T12:00:00Z", "net": net, "magic": magic, "symbol": symbol}
+
+
+def test_growth_tracker_reports_won_and_lost_separately_not_just_the_net():
+    """A month that made 500 and lost 480 nets 20, and so does one that made 30 and lost 10. They are
+    not the same month, and a single net figure hides which one you had."""
+    deals = [_deal(1, 500.0), _deal(2, -480.0)]
+    out = pa.growth_tracker(deals)
+    t = out["totals"]
+    assert t["won"] == 500.0 and t["lost"] == 480.0 and t["net"] == 20.0
+    assert t["wins"] == 1 and t["losses"] == 1 and t["win_rate"] == 0.5
+
+
+def test_growth_tracker_buckets_by_day_week_month_and_year():
+    out = pa.growth_tracker([_deal(1, 10.0), _deal(2, -4.0), _deal(9, 6.0)])
+    assert set(out["periods"]) == {"daily", "weekly", "monthly", "yearly"}
+    assert len(out["periods"]["daily"]) == 3, "three separate days"
+    assert len(out["periods"]["monthly"]) == 1, "all in September"
+    assert out["periods"]["yearly"][0]["net"] == 12.0
+    assert out["periods"]["monthly"][0]["period"] == "2026-09"
+
+
+def test_a_running_balance_is_only_shown_when_a_start_is_given():
+    """Inventing a starting balance would turn a P/L series into a fake account curve."""
+    plain = pa.growth_tracker([_deal(1, 10.0)])
+    assert plain["periods"]["daily"][0]["balance"] is None
+    started = pa.growth_tracker([_deal(1, 10.0), _deal(2, -3.0)], starting_balance=300.0)
+    assert [r["balance"] for r in started["periods"]["daily"]] == [310.0, 307.0]
+
+
+def test_break_even_trades_do_not_dilute_the_win_rate():
+    """A zero-net trade is neither a win nor a loss; counting it as a loss understates the rate."""
+    out = pa.growth_tracker([_deal(1, 5.0), _deal(2, 0.0), _deal(3, -5.0)])
+    t = out["totals"]
+    assert t["trades"] == 3 and t["wins"] == 1 and t["losses"] == 1
+    assert t["win_rate"] == 0.5, "decided trades only"
+
+
+def test_growth_splits_by_symbol_and_by_strategy():
+    out = pa.growth_tracker([_deal(1, 10.0, magic=440603, symbol="BTCUSD"),
+                             _deal(1, -2.0, magic=440502, symbol="XAUUSD")])
+    assert out["by_symbol"]["BTCUSD"]["net"] == 10.0
+    assert out["by_strategy"]["440502"]["net"] == -2.0
+
+
+def test_open_positions_are_not_counted_as_growth():
+    """Only closed deals arrive here. Floating profit makes a losing run look like a winning one
+    right up until it closes, so an empty set must say so rather than invent a zero."""
+    assert pa.growth_tracker([])["available"] is False
+
+
+def test_every_strategy_magic_is_counted_as_this_system():
+    """SYSTEM_MAGICS listed only two for a long time, so the page's "what did this system earn?"
+    filter silently excluded four of the six - the sweep, the plan executor, the model executor and
+    the auto-trade route."""
+    for magic in (440401, 440502, 440603, 440704, 440805, 903110):
+        assert magic in pa.SYSTEM_MAGICS

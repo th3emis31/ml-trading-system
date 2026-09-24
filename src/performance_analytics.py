@@ -98,7 +98,19 @@ def market_heatmaps(hourly: pd.DataFrame, daily: Optional[pd.DataFrame] = None, 
     return out
 
 
-SYSTEM_MAGICS = (440502, 440603)   # this system's own strategies: gold session pullback, volatility trend breakout
+# Every magic this system trades under. It listed only two for a long time, so the Performance page's
+# "what did this system earn?" filter silently excluded the sweep, the daily-plan executor, the gold
+# 4H model executor and the auto-trade route - four of the six. Anything added here must be a magic
+# THIS system places orders with; the owner's other experts stay out, because mixing their trades in
+# is what makes the question unanswerable.
+SYSTEM_MAGICS = (
+    440401,   # demo_executor, the gold 4H model ("GOLD4H demo model")
+    440502,   # gold session pullback
+    440603,   # volatility trend breakout
+    440704,   # daily plan executor
+    440805,   # sweep reversal
+    903110,   # the auto-trade route ("AI Auto Trader"), mt5_service's default magic
+)
 
 
 def trading_heatmaps(deals: Iterable[dict], magic=None) -> dict:
@@ -212,3 +224,81 @@ def paper_tracker(closed_trades: list) -> list:
         equity *= 1 + float(trade.get("net_pct") or 0) / 100
         points.append({"time": trade.get("exit_time"), "equity_pct": _round((equity - 1) * 100, 3), "outcome": trade.get("outcome")})
     return points
+
+
+GROWTH_PERIODS = {"daily": "D", "weekly": "W-MON", "monthly": "MS", "yearly": "YS"}
+
+
+def growth_tracker(deals: Iterable[dict], magic=None, starting_balance: Optional[float] = None) -> dict:
+    """Win/loss and money earned per day, week, month and year.
+
+    The owner asks two questions constantly - is it winning, and how much - and until now the answer
+    lived in heatmap cells that show a pattern rather than a total. This gives the plain figures:
+    how many trades, how many won, how many lost, how much was won, how much was lost, and the net,
+    for each period, with a running balance so growth is visible rather than inferred.
+
+    Won and lost are reported SEPARATELY, not just netted. A month that made 500 and lost 480 nets
+    20, and so does a month that made 30 and lost 10; they are not the same month, and a single net
+    figure hides which one you had.
+
+    Only closed deals count. An open position has no result yet, and counting floating profit as
+    growth is how a losing run looks like a winning one right up until it closes.
+    """
+    wanted = None
+    if magic is not None:
+        wanted = {int(m) for m in (magic if isinstance(magic, (list, tuple, set)) else [magic])}
+    rows = []
+    for deal in deals or []:
+        if wanted is not None and int(deal.get("magic") or 0) not in wanted:
+            continue
+        stamp = deal.get("time")
+        ts = pd.to_datetime(stamp, unit="s", utc=True) if isinstance(stamp, (int, float)) else pd.to_datetime(stamp, utc=True)
+        net = deal.get("net")
+        if net is None:
+            net = float(deal.get("profit") or 0) + float(deal.get("swap") or 0) + float(deal.get("commission") or 0)
+        rows.append({"time": ts, "net": float(net), "symbol": str(deal.get("symbol") or ""),
+                     "magic": int(deal.get("magic") or 0)})
+    if not rows:
+        return {"available": False, "reason": "no closed trades yet"}
+
+    frame = pd.DataFrame(rows).sort_values("time").reset_index(drop=True)
+    frame["won"] = frame["net"].clip(lower=0.0)
+    frame["lost"] = (-frame["net"]).clip(lower=0.0)
+    frame["is_win"] = (frame["net"] > 0).astype(int)
+    frame["is_loss"] = (frame["net"] < 0).astype(int)
+
+    def summarise(group) -> dict:
+        trades = int(len(group))
+        wins, losses = int(group["is_win"].sum()), int(group["is_loss"].sum())
+        won, lost = float(group["won"].sum()), float(group["lost"].sum())
+        decided = wins + losses          # break-even trades are neither, so they must not dilute the rate
+        return {
+            "trades": trades, "wins": wins, "losses": losses,
+            "win_rate": _round(wins / decided, 4) if decided else None,
+            "won": _round(won, 2), "lost": _round(lost, 2), "net": _round(won - lost, 2),
+            "profit_factor": _round(won / lost, 3) if lost > 0 else (None if won == 0 else float("inf")),
+            "best": _round(float(group["net"].max()), 2), "worst": _round(float(group["net"].min()), 2),
+        }
+
+    periods = {}
+    for name, rule in GROWTH_PERIODS.items():
+        out, running = [], float(starting_balance or 0.0)
+        for stamp, group in frame.resample(rule, on="time"):
+            if group.empty:              # skip quiet periods rather than pad the table with zero rows
+                continue
+            row = summarise(group)
+            running += row["net"]
+            row["period"] = stamp.strftime("%Y-%m-%d" if name in ("daily", "weekly") else
+                                           "%Y-%m" if name == "monthly" else "%Y")
+            row["balance"] = _round(running, 2) if starting_balance is not None else None
+            out.append(row)
+        periods[name] = out
+
+    totals = summarise(frame)
+    totals["first_trade"] = frame["time"].iloc[0].strftime("%Y-%m-%d %H:%M")
+    totals["last_trade"] = frame["time"].iloc[-1].strftime("%Y-%m-%d %H:%M")
+    by_symbol = {sym: summarise(g) for sym, g in frame.groupby("symbol")}
+    by_magic = {str(m): summarise(g) for m, g in frame.groupby("magic")}
+    return {"available": True, "totals": totals, "periods": periods,
+            "by_symbol": by_symbol, "by_strategy": by_magic,
+            "counted_magics": sorted(wanted) if wanted else "all"}
