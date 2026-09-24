@@ -1,0 +1,59 @@
+; AurumFlow MT5  -  PRESET v09  -  2026-09-19  -  BITCOIN
+; v04's logic on BTCUSD. v04 itself is untouched.
+; Distances are NOT guessed: they are v04's distance as a fraction of
+; price, re-applied at BTC's median price of 88,288 (measured over
+; 1,033,202 M1 bars, 2024-09 -> 2026-09):
+;   SL   2100 = 0.5695%% of price -> 50281
+;   TP   1800 = 0.4882%%          -> 43098
+;   PD     30 = 0.0081%%          ->   718
+; The spread gate could NOT be rescaled the same way. A proportional
+; MaxSpreadPoints would be 718, but BTC's MEDIAN spread is 1694 and its
+; 99th percentile is 1894 - the gold value of 30 blocks BTC outright,
+; which is exactly what the live chart showed: 'Spread High (1695>30)'.
+; So MaxSpread is set from the distribution: 2000 admits 99%% of minutes.
+; Separate magic (60701122) so BTC trades never mix with gold's.
+; NOT RUN yet.
+;
+;
+;
+
+;
+StructureDepth=210||200||1||2000||N
+StructureSpacing=110||100||1||1000||N
+StructureRefreshBars=60||40||1||400||N
+Lots=0.01||0.01||0.001000||0.100000||N
+SL=50281||2100||1||21000||N
+TP=43098||1800||1||18000||N
+Slippage=5||5||1||50||N
+MagicNumber=60701122||60701111||1||607011110||N
+UseBodyInsteadOfRange=false||false||0||true||N
+UseZoneStopLoss=false||false||0||true||N
+ZoneSLBuffer=50||50||1||500||N
+EnableFloatingLossCooldown=true||false||0||true||N
+FloatingLossCooldownTrigger=-100.0||-100.0||-10.000000||-1000.000000||N
+FloatingLossCooldownHours=24||24||1||240||N
+EnableMaxTradeDuration=true||false||0||true||N
+MaxTradeDurationDays=5||5||1||50||N
+EnableSpreadFilter=true||false||0||true||N
+MinSpreadPoints=500||9||1||90||N
+MaxSpreadPoints=2000||25||1||250||N
+EnableRecoveryMode2=false||false||0||true||N
+EnableMAFilter=true||false||0||true||N
+MAPeriod=600||600||1||6000||N
+MAShift=0||0||1||10||N
+MAPrice=0||0||1||10||N
+OnlyOneTradeAtATime=true||false||0||true||N
+LosingStreakTrigger=1||1||1||10||N
+StreakPauseMinutes=500||500||1||5000||N
+TradeInNovember=false||false||0||true||N
+TradeInDecember=false||false||0||true||N
+MaxLot=0.1||0.1||0.010000||1.000000||N
+CooldownMinutes=10||10||1||100||N
+UsePendingOrders=true||false||0||true||N
+PendingOrderDistance=718||130||1||1300||N
+PendingExpiryMinutes=60||60||1||600||N
+SafetyZoneFilter=false||false||0||true||N
+SafetyZoneBars=100||100||1||1000||N
+EnableMultiDealBreakeven=true||false||0||true||N
+ShowPanel=true||false||0||true||N
+VerboseLog=true||false||0||true||N
