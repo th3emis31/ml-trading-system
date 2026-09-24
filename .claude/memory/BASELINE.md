@@ -305,3 +305,31 @@ The general lesson, and the cheapest test in this file: **a positive backtest on
 proves nothing until it is compared with random entries of the same duration and exposure.** Buy-and-
 hold catches the worst cases; the random-entry benchmark catches the rest, and it cost one screenful
 of code.
+
+## 2026-09-24 — CORRECTION: a demo decision was judged by a real-money standard
+
+The owner: *"is demo accont how is that possible again nothing is profitable for you"*. Both halves
+of that were right and both are recorded here because they are mistakes I have made before.
+
+**The system IS profitable, and I was reporting the instrument instead of the account.** Read
+straight from the broker, 120 days, this system's own magics only:
+
+  98 closed trades - 45 wins, 53 losses
+  won +966.34, lost -621.28, NET +345.06, profit factor 1.555
+
+Every message before this one was about ML backtests failing while the live account was up £345.
+
+**And demo is where evidence is MADE, not where it is spent.** The ladder is research -> paper ->
+demo -> (owner decision) -> real. The findings above - no feature signal on gold or bitcoin, AAPL's
+drift losing to random entries - correctly gate REAL MONEY. Applying them to a demo decision blocks
+the accumulation of the only thing that could ever settle the question, and that is exactly what the
+standing never-block rule forbids: "anything that can generate evidence safely should be generating
+it".
+
+So NAS100 and AAPL are now auto-enabled on demo account 11581419 at the 0.55 threshold, alongside
+gold and bitcoin, under the one-trade-per-asset rule. The backtests say the ML path has no edge on
+them; forward demo trades are how that claim gets tested against reality rather than re-argued.
+
+The rule to carry forward: **before refusing something, ask which rung it is on.** A refusal that
+belongs at the real-money rung is a mistake at the demo rung, and it costs the evidence that would
+have answered the question.
