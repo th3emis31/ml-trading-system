@@ -254,6 +254,102 @@ def _simulate_trades(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.
     return trades
 
 
+def random_entry_benchmark(features: pd.DataFrame, proba: np.ndarray, fold_of_row: np.ndarray,
+                           model_trades: list[dict], *, draws: int, buy_threshold: float,
+                           sell_threshold: float, hold_bars: int, cost_pct: float,
+                           test_start, test_end, test_bars: int, first_test_row: int,
+                           directions: Optional[np.ndarray] = None, seed: int = 20260924) -> dict:
+    """Does the model's ENTRY TIMING beat chance? A permutation test, not a coin-flip test.
+
+    Why this question needs asking at all. A backtest that returns +12 % looks like skill, but a market
+    that rose 80 % over the same window will hand +12 % to almost any strategy that is mostly long. The
+    daily learning gate promotes on after-cost return, so without this measure the system cannot tell a
+    model that predicts from a model that is merely pointing the right way in a trend.
+
+    How the control is built, and why this way. Each draw keeps the model's own signals EXACTLY - the
+    same number of entries and the same long/short mix - and only PERMUTES which bars they land on,
+    over the same out-of-sample rows. Everything else is held identical: stop and target distances,
+    the one-position-at-a-time rule, the hold limit, the costs, the bars.
+
+    That isolates the only thing in dispute. A coin-flip control would also randomise the direction mix,
+    so a permanently-long model in a rising market would beat it every time and the test would report
+    skill that is really just drift. Permuting the same signals cannot flatter a directional bias,
+    because every draw carries the same bias. What is left is timing: of all the ways these signals
+    could have been spread across these bars, how good is the arrangement the model actually chose?
+
+    Reads bars and simulates; trains nothing and writes nothing.
+    """
+    rng = np.random.default_rng(seed)
+    n = len(features)
+    if directions is None:
+        directions = np.array([_direction_for_probability(proba[i], buy_threshold, sell_threshold)
+                               if np.isfinite(proba[i]) else 0 for i in range(n)], dtype=int)
+    # Only out-of-sample rows a trade could actually have opened on: a permutation that could place a
+    # signal on a training bar, or on a bar with no probability, is not the same experiment.
+    eligible = np.array([i for i in range(first_test_row, n - 1) if np.isfinite(proba[i])], dtype=int)
+    signals = directions[eligible]
+    if len(eligible) < 20 or int(np.count_nonzero(signals)) < 5:
+        return {"available": False,
+                "reason": f"only {int(np.count_nonzero(signals))} signal bars on {len(eligible)} "
+                          "out-of-sample rows; too few to permute"}
+
+    def _summary(trades: list[dict]) -> dict:
+        return summarize_trades(trades, test_start=test_start, test_end=test_end, test_bars=test_bars,
+                                bars_in_market=int(sum(t["bars_held"] for t in trades)))
+
+    model = _summary(model_trades)
+    returns, expectancies, counts = [], [], []
+    for _ in range(draws):
+        shuffled = np.zeros(n, dtype=int)
+        shuffled[eligible] = rng.permutation(signals)
+        drawn = _simulate_trades(features, proba, fold_of_row, buy_threshold=buy_threshold,
+                                 sell_threshold=sell_threshold, hold_bars=hold_bars,
+                                 cost_pct=cost_pct, directions=shuffled)
+        got = _summary(drawn)
+        returns.append(float(got.get("total_return_pct") or 0.0))
+        expectancies.append(float(got.get("expectancy_pct") or 0.0))
+        counts.append(int(got.get("trades") or 0))
+
+    returns_arr = np.array(returns, dtype=float)
+    model_return = float(model.get("total_return_pct") or 0.0)
+    model_expectancy = float(model.get("expectancy_pct") or 0.0)
+    beaten = int(np.sum(returns_arr < model_return))
+    percentile = round(100.0 * beaten / len(returns_arr), 1)
+    # One-sided: the share of random arrangements that did at least as well as the model. This is a
+    # p-value in the ordinary sense, and 0.05 is the ordinary bar - stated here so the number is not
+    # read as a score out of 100.
+    p_value = round(float(np.sum(returns_arr >= model_return) + 1) / (len(returns_arr) + 1), 4)
+    if p_value <= 0.05:
+        verdict = ("The model's entry timing beats chance: fewer than 5 % of random arrangements of its "
+                   "own signals did as well. That is evidence of real timing skill.")
+    elif percentile >= 50:
+        verdict = ("No timing skill shown. The model lands above the middle of random arrangements of "
+                   "its own signals, but well inside what chance alone produces, so the result so far "
+                   "is explained by its direction bias and the market's drift rather than by prediction.")
+    else:
+        verdict = ("Worse than chance. Most random arrangements of the model's own signals beat the "
+                   "arrangement it chose, so its entry timing is currently costing money rather than "
+                   "adding any.")
+    return {
+        "available": True, "draws": int(draws), "test": "permutation of the model's own signals",
+        "model_total_return_pct": round(model_return, 3),
+        "model_expectancy_pct": round(model_expectancy, 4),
+        "model_trades": int(model.get("trades") or 0),
+        "random_mean_return_pct": round(float(np.mean(returns_arr)), 3),
+        "random_median_return_pct": round(float(np.median(returns_arr)), 3),
+        "random_5th_pct": round(float(np.percentile(returns_arr, 5)), 3),
+        "random_95th_pct": round(float(np.percentile(returns_arr, 95)), 3),
+        "random_mean_trades": round(float(np.mean(counts)), 1),
+        "signal_bars_permuted": int(np.count_nonzero(signals)),
+        "eligible_bars": int(len(eligible)),
+        "percentile": percentile, "p_value": p_value,
+        "beats_chance": bool(p_value <= 0.05),
+        "verdict": verdict,
+        "note": ("Each draw keeps the model's exact signal count and long/short mix and only changes "
+                 "which bars they fall on, so a directional bias cannot flatter the result."),
+    }
+
+
 def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int, bars_in_market: int) -> dict:
     """The agreed metric set, computed from net (after-cost) trade returns."""
     net = np.array([t["net_pct"] / 100.0 for t in trades], dtype=float)
@@ -337,7 +433,8 @@ def summarize_trades(trades: list[dict], *, test_start, test_end, test_bars: int
 
 def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshold: float = 0.55,
                              sell_threshold: float = 0.45, n_folds: int = 6, progress: ProgressFn = None,
-                             data: Optional[pd.DataFrame] = None, signal_mode: str = "live_engine") -> dict:
+                             data: Optional[pd.DataFrame] = None, signal_mode: str = "live_engine",
+                             random_draws: int = 0) -> dict:
     """``signal_mode``: "live_engine" (default) predicts every test bar with src.signal_engine.predict_signal in the
     live config, exactly as the dashboard does; "rf_proba" is the earlier direct RF-probability path, kept by flag."""
     from . import signal_engine
@@ -452,6 +549,17 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
     test_targets = features["target"].iloc[initial_train:].to_numpy()
     metrics["oos_direction_accuracy"] = round(float(np.mean((proba[initial_train:] >= 0.5).astype(int) == test_targets)), 4)
 
+    # Off by default because each draw is a full trade simulation, so 1,000 of them cost far more than
+    # the backtest itself. Asked for explicitly when the question is whether a return is skill or drift.
+    random_benchmark = None
+    if random_draws > 0:
+        _report(progress, "benchmark", 97, f"Permuting the model's signals {random_draws} times")
+        random_benchmark = random_entry_benchmark(
+            features, proba, fold_of_row, trades, draws=random_draws, buy_threshold=buy_threshold,
+            sell_threshold=sell_threshold, hold_bars=spec["hold_bars"], cost_pct=costs["round_trip_pct"],
+            test_start=test_start, test_end=test_end, test_bars=test_bars,
+            first_test_row=initial_train, directions=directions)
+
     equity_curve = []
     equity = 1.0
     for t in trades:
@@ -529,6 +637,7 @@ def run_walkforward_backtest(symbol: str, range_key: str = "5y", *, buy_threshol
         "feature_columns": list(FEATURE_COLUMNS),
         "model": "RandomForest fitted with src.train's calibrated helper, retrained per fold; never saved",
         "metrics": metrics,
+        "random_entry_benchmark": random_benchmark,
         "benchmark": {"buy_and_hold_pct": round((last_close / first_close - 1) * 100, 3) if first_close else None},
         "evidence": "sufficient" if trade_count >= MIN_TRADES_FOR_EVIDENCE else "insufficient",
         "evidence_note": (f"{trade_count} trades in the test period"
