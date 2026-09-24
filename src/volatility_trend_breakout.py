@@ -346,7 +346,8 @@ def _round_tick(price: float, mintick: float) -> float:
     return round(price / mintick) * mintick if mintick > 0 else price
 
 
-def backtest(candles: Sequence[Candle], cfg: Config = Config()) -> Result:
+def backtest(candles: Sequence[Candle], cfg: Config = Config(),
+             signals: Optional[Sequence[Signal]] = None) -> Result:
     """Event-driven simulation.
 
     Fill rules, matching the Pine emulator:
@@ -354,8 +355,14 @@ def backtest(candles: Sequence[Candle], cfg: Config = Config()) -> Result:
       * Protective orders become active on the following bar.
       * When a bar contains both the stop and a target, the stop is taken first.
       * Stop and market fills pay slippage; limit fills do not.
+
+    ``signals`` overrides the strategy's own entries and exists for the permutation benchmark, which
+    asks whether the entry TIMING carries information by re-running these exact exits over a different
+    set of entry bars. Everything downstream - the TP1/TP2 legs, break-even, the trail, the time exit,
+    slippage and commission - is untouched, so only the choice of bar differs.
     """
-    signals = generate_signals(candles, cfg)
+    if signals is None:
+        signals = generate_signals(candles, cfg)
     by_index = {s.index: s for s in signals}
 
     res = Result()
@@ -532,3 +539,93 @@ def format_report(m: dict, label: str) -> str:
     width = max(len(r[0]) for r in rows)
     body = "\n".join("  %-*s  %s" % (width, k, v) for k, v in rows)
     return "%s\n%s\n%s" % (label, "-" * len(label), body)
+
+
+def signal_at(candles: Sequence[Candle], index: int, atr_value: float, cfg: Config) -> Optional[Signal]:
+    """Build the signal this strategy WOULD have placed at ``index``, by its own level rules.
+
+    A permutation cannot simply move a Signal object to another bar: its entry, stop and targets are
+    all derived from the price and ATR of the bar it came from, so a moved signal would carry the wrong
+    levels and the test would measure that error instead of the timing.
+    """
+    if index < 0 or index >= len(candles) or not atr_value or atr_value <= 0:
+        return None
+    close = candles[index].close
+    risk = cfg.sl_atr_mult * atr_value
+    if risk <= 0:
+        return None
+    if cfg.inverse:
+        return Signal(index, candles[index].ts, "short", close, close + risk,
+                      close - risk * cfg.tp1_r, close - risk * cfg.tp2_r, atr_value, "permuted control")
+    return Signal(index, candles[index].ts, "long", close, close - risk,
+                  close + risk * cfg.tp1_r, close + risk * cfg.tp2_r, atr_value, "permuted control")
+
+
+def permutation_benchmark(candles: Sequence[Candle], cfg: Config = Config(), *,
+                          draws: int = 500, seed: int = 20260924) -> dict:
+    """Is this strategy's profit skill, or is it drift?
+
+    The strategy is long-only in its live configuration, and gold rose 242 % over the window it is
+    measured on. That alone will make a long-only rule profitable, so "it made money" cannot settle
+    whether the breakout condition is picking good moments or merely picking moments.
+
+    Each draw fires the SAME NUMBER of entries as the strategy, at randomly chosen bars, with levels
+    built at those bars by the strategy's own rules, and runs them through the strategy's own exits.
+    The only thing that changes is which bars were chosen. If the breakout condition carries no
+    information, the real run will sit in the middle of the draws.
+
+    Simulates only; places no orders and writes nothing.
+    """
+    import numpy as np
+
+    real_signals = generate_signals(candles, cfg)
+    if len(real_signals) < 10:
+        return {"available": False,
+                "reason": f"only {len(real_signals)} signals in this window; too few to permute"}
+    atr_v = atr(candles, cfg.atr_len)
+    eligible = [i for i, a in enumerate(atr_v) if a and a > 0 and i < len(candles) - 1]
+    if len(eligible) < len(real_signals) * 3:
+        return {"available": False,
+                "reason": f"{len(eligible)} usable bars for {len(real_signals)} signals; too few to permute"}
+
+    real = metrics(backtest(candles, cfg), cfg)
+    rng = np.random.default_rng(seed)
+    returns, expectancies = [], []
+    for _ in range(draws):
+        picks = sorted(rng.choice(len(eligible), size=len(real_signals), replace=False).tolist())
+        drawn = [signal_at(candles, eligible[k], atr_v[eligible[k]], cfg) for k in picks]
+        got = metrics(backtest(candles, cfg, signals=[d for d in drawn if d]), cfg)
+        returns.append(float(got.get("net_pct") or 0.0))
+        expectancies.append(float(got.get("expectancy_r_per_position") or 0.0))
+
+    returns_arr = np.array(returns, dtype=float)
+    expectancy_arr = np.array(expectancies, dtype=float)
+    real_return = float(real.get("net_pct") or 0.0)
+    real_expectancy = float(real.get("expectancy_r_per_position") or 0.0)
+    # Decided on expectancy per trade for the same reason as the model benchmark: draws do not all
+    # convert their entries into the same number of closed legs, and more exposure in a rising market
+    # moves total return on its own.
+    exp_percentile = round(100.0 * float(np.sum(expectancy_arr < real_expectancy)) / len(expectancy_arr), 1)
+    exp_p = round(float(np.sum(expectancy_arr >= real_expectancy) + 1) / (len(expectancy_arr) + 1), 4)
+    return {
+        "available": True, "draws": int(draws), "entries_permuted": len(real_signals),
+        "eligible_bars": len(eligible),
+        "strategy_return_pct": round(real_return, 3),
+        "strategy_expectancy_r": round(real_expectancy, 4),
+        "strategy_closed_legs": real.get("closed_legs"), "strategy_positions": real.get("positions"),
+        "random_mean_return_pct": round(float(np.mean(returns_arr)), 3),
+        "random_median_return_pct": round(float(np.median(returns_arr)), 3),
+        "random_5th_return_pct": round(float(np.percentile(returns_arr, 5)), 3),
+        "random_95th_return_pct": round(float(np.percentile(returns_arr, 95)), 3),
+        "random_mean_expectancy_r": round(float(np.mean(expectancy_arr)), 4),
+        "return_percentile": round(100.0 * float(np.sum(returns_arr < real_return)) / len(returns_arr), 1),
+        "expectancy_percentile": exp_percentile, "expectancy_p_value": exp_p,
+        "beats_chance": bool(exp_p <= 0.05),
+        "decided_on": "expectancy per trade, over the strategy's own exits",
+        "verdict": ("The breakout's entry timing beats chance: fewer than 5 % of random entry sets did "
+                    "as well per trade. The edge is in WHEN it enters, not only that it is long."
+                    if exp_p <= 0.05 else
+                    "No timing skill shown. Firing the same number of entries at random bars does about "
+                    "as well per trade, so the profit so far is explained by being long in a rising "
+                    "market rather than by the breakout condition."),
+    }

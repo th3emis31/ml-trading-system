@@ -329,3 +329,99 @@ def run_cli(argv: Optional[list] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(run_cli())
+
+
+def eligible_signal_bars(bars: pd.DataFrame, rules: dict = RULES) -> np.ndarray:
+    """Bars this strategy could legally have signalled on, regardless of whether its rules fired.
+
+    The control has to draw from HERE and nowhere else. The strategy only signals between 07:00 and
+    19:00 UTC and needs the very next hourly bar to exist for the fill, so random entries taken from
+    the whole series would include moments it could never have traded - an easier benchmark to beat,
+    which would manufacture skill that is not there.
+    """
+    frame = bars.sort_values("datetime").reset_index(drop=True)
+    times = pd.to_datetime(frame["datetime"], utc=True).reset_index(drop=True)
+    atr = compute_atr(frame, rules["atr_len"]).to_numpy(dtype=float)
+    open_h, close_h = rules["signal_open_hours_utc"]
+    swing = rules["swing_bars"]
+    out = []
+    for t in range(swing, len(frame) - 2):
+        if not (open_h <= times.iloc[t].hour < close_h):
+            continue
+        if times.iloc[t + 1] - times.iloc[t] != pd.Timedelta(hours=1):
+            continue
+        if not np.isfinite(atr[t]) or atr[t] <= 0:
+            continue
+        out.append(t)
+    return np.array(out, dtype=int)
+
+
+def permuted_setups(bars: pd.DataFrame, picks: np.ndarray, sides: np.ndarray,
+                    rules: dict = RULES) -> pd.DataFrame:
+    """The setup rows the strategy WOULD have produced at ``picks``, by its own level rules."""
+    frame = bars.sort_values("datetime").reset_index(drop=True)
+    h, l = frame["high"].to_numpy(dtype=float), frame["low"].to_numpy(dtype=float)
+    atr = compute_atr(frame, rules["atr_len"]).to_numpy(dtype=float)
+    swing = rules["swing_bars"]
+    rows = []
+    for t, side in zip(picks, sides):
+        t = int(t)
+        rows.append({"signal_idx": t, "entry_idx": t + 1, "side": int(side), "atr": float(atr[t]),
+                     "swing_low": float(l[t - swing + 1: t + 1].min()),
+                     "swing_high": float(h[t - swing + 1: t + 1].max()),
+                     "ema20": 0.0, "h4_ema_fast": 0.0, "h4_ema_slow": 0.0})
+    return pd.DataFrame(rows, columns=["signal_idx", "entry_idx", "side", "atr", "swing_low",
+                                       "swing_high", "ema20", "h4_ema_fast", "h4_ema_slow"])
+
+
+def permutation_benchmark(bars: pd.DataFrame, cost_fraction: float, *, draws: int = 300,
+                          seed: int = 20260924, rules: dict = RULES) -> dict:
+    """Is the pullback's profit skill, or is it drift?
+
+    Each draw fires the SAME NUMBER of setups with the SAME long/short mix, at bars drawn from the
+    session window the strategy is allowed to trade, and runs them through the strategy's own stop,
+    TP1/break-even, TP2, 21:00 flat, daily cap, daily loss limit and drawdown halt. Only the choice of
+    bar changes. Simulates only; never trades.
+    """
+    setups = session_pullback_setups(bars, rules)
+    if len(setups) < 20:
+        return {"available": False, "reason": f"only {len(setups)} setups; too few to permute"}
+    eligible = eligible_signal_bars(bars, rules)
+    if len(eligible) < len(setups) * 3:
+        return {"available": False,
+                "reason": f"{len(eligible)} eligible bars for {len(setups)} setups; too few to permute"}
+
+    n = len(bars)
+    blocked = np.zeros(n + 2, dtype=bool)          # no event filter: the control and the real run share it
+    full = (0, n + 1)
+    real = session_pullback_summary(session_pullback_split(bars, setups, full, blocked, cost_fraction, rules=rules))
+    sides = setups["side"].to_numpy(dtype=int)
+
+    rng = np.random.default_rng(seed)
+    expectancies, returns = [], []
+    for _ in range(draws):
+        picks = np.sort(rng.choice(eligible, size=len(setups), replace=False))
+        drawn = permuted_setups(bars, picks, rng.permutation(sides), rules)
+        got = session_pullback_summary(session_pullback_split(bars, drawn, full, blocked, cost_fraction, rules=rules))
+        expectancies.append(float(got.get("expectancy_r") or 0.0))
+        returns.append(float(got.get("total_return_pct") or got.get("return_pct") or 0.0))
+
+    expectancy_arr = np.array(expectancies, dtype=float)
+    real_expectancy = float(real.get("expectancy_r") or 0.0)
+    percentile = round(100.0 * float(np.sum(expectancy_arr < real_expectancy)) / len(expectancy_arr), 1)
+    p_value = round(float(np.sum(expectancy_arr >= real_expectancy) + 1) / (len(expectancy_arr) + 1), 4)
+    return {
+        "available": True, "draws": int(draws), "setups_permuted": int(len(setups)),
+        "eligible_bars": int(len(eligible)),
+        "strategy_expectancy_r": round(real_expectancy, 4), "strategy_trades": real.get("trades"),
+        "random_mean_expectancy_r": round(float(np.mean(expectancy_arr)), 4),
+        "random_5th": round(float(np.percentile(expectancy_arr, 5)), 4),
+        "random_95th": round(float(np.percentile(expectancy_arr, 95)), 4),
+        "expectancy_percentile": percentile, "expectancy_p_value": p_value,
+        "beats_chance": bool(p_value <= 0.05),
+        "verdict": ("The pullback's entry timing beats chance: fewer than 5 % of random session entries "
+                    "did as well per trade."
+                    if p_value <= 0.05 else
+                    "No timing skill shown. Firing the same number of entries at random bars inside the "
+                    "same session window does about as well per trade."),
+    }

@@ -369,3 +369,52 @@ Implication for self-learning: gold's flat learning curve is not the gate reject
 The model path itself carries negative timing information on gold, so more days of the same retrain
 will not produce an edge. Any improvement has to come from different features or a different target,
 not from more runs of the current one.
+
+## 2026-09-24 — Permutation benchmark on the two RULE strategies (the ones actually earning)
+
+Same question as the model benchmark, asked of the strategies that place the real orders. Each draw
+fires the same number of entries, with the same long/short mix, at bars the strategy could legally
+have traded, and runs them through THE STRATEGY'S OWN EXITS (breakout: TP1/TP2 legs, break-even,
+trail, time exit; pullback: stop, TP1 + break-even, TP2, 21:00 flat, daily cap, loss limit, halt).
+Only the choice of bar changes. Decided on expectancy per trade.
+
+### Volatility Trend Breakout — XAUUSD H4, 12,000 broker bars
+
+| Window | Strategy | Random mean | Expectancy percentile | p |
+|---|---|---|---|---|
+| Full 2018-12 → 2026-09 | +0.2077 R | +0.0882 R | 97.7 | **0.027** |
+| **2018-12 → 2023-01 (predates the tuning)** | **+0.0386 R** | **+0.0408 R** | **46.7** | **0.535** |
+| 2023-01 → 2026-09 (includes the tuned period) | +0.3933 R | +0.1213 R | 100.0 | 0.003 |
+
+**The edge exists only in the window the parameters were chosen on.** On the earlier four years the
+strategy sits at the 46.7th percentile — the exact middle of random entries, expectancy indistinguishable
+from a coin toss (+0.0386 R against random's +0.0408 R). The full-window p of 0.027 is produced entirely
+by the recent stretch. This is the same in-sample trap recorded on 17 September, when the Strategy Lab's
+holdout was found to sit inside the period the owner tuned this Pine script on.
+
+The permutation DOES rule out the simplest alternative: random entries in the same window get the same
+regime, so "2023-26 was trending" cannot by itself explain a gap that widens from 0.00 R to +0.27 R. What
+it cannot separate is genuine regime-dependence (breakouts work in trends, not chop) from parameter
+selection. Distinguishing those needs forward evidence, which is now accumulating on the demo account.
+
+### Gold session pullback — XAUUSD H1, 49,999 broker bars, no event filter
+
+505 setups, 393 trades. Expectancy +0.0319 R against a random mean of −0.0196 R: **88.0th percentile,
+p = 0.123.** Above the middle and the best-behaved of the four, but it does not clear the 5 % bar, so on
+this evidence its entry timing is not proven either. Note it beats random by being less bad — random
+session entries lose (−0.0196 R) while it is slightly positive.
+
+### The four results side by side
+
+| | Expectancy percentile | p | Trades | Verdict |
+|---|---|---|---|---|
+| ML model, gold | 0.6 | 0.994 | 254 | **worse than chance** |
+| ML model, bitcoin | 80.4 | 0.198 | 50 | nothing either way |
+| Breakout, pre-tuning window | 46.7 | 0.535 | 107 positions | no skill |
+| Pullback, full history | 88.0 | 0.123 | 393 | not proven, leaning positive |
+
+Nothing here clears the bar out-of-sample. The rule strategies are clearly BETTER than the ML path —
+the gold model is the only thing measured as actively worse than chance — but "better than a thing with
+negative skill" is not evidence of an edge. The honest position: the live demo profit (net +366.16,
+PF 1.578, 100 trades) is real money on a real account and the only genuinely out-of-sample evidence
+either strategy has; it is one week old and too short to settle this.
