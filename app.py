@@ -954,6 +954,47 @@ def traded_symbols(state=None):
   return ordered or list(DEFAULT_TRADED_SYMBOLS)
 
 
+_model_edge_cache = {"at": None, "value": {}}
+
+
+def _model_edge(symbol):
+  """The model's measured edge over the majority class for one symbol, or None if unknown.
+
+  Read from drift_watch, which already computes it from stored metrics - no retraining, no extra
+  broker calls. Cached for ten minutes because /api/signals is itself cached at 45 s and this must
+  never become the slow part of a page that has to stay responsive.
+
+  Returns None rather than a guess when it cannot be measured: "unknown" and "no edge" are different
+  statements and a signal must not be labelled with the wrong one.
+  """
+  from datetime import datetime as _dt
+  now = _dt.now(timezone.utc)
+  stale = (_model_edge_cache["at"] is None
+           or (now - _model_edge_cache["at"]).total_seconds() > 600)
+  if stale:
+    try:
+      from src.drift_watch import collect_drift
+      report = collect_drift()
+      _model_edge_cache["value"] = {
+        sym: (m.get("vs_baseline") or {}) for sym, m in (report.get("models") or {}).items()}
+      _model_edge_cache["at"] = now
+      _model_edge_cache["error"] = None
+      _model_edge_cache["loaded"] = sorted(_model_edge_cache["value"])
+    except Exception as exc:
+      # Recorded, not swallowed. A silent except here made every signal read "not measured" while
+      # drift_watch was returning a perfectly good edge, and there was nothing to tell me why.
+      _model_edge_cache["value"], _model_edge_cache["at"] = {}, now
+      _model_edge_cache["error"] = f"{type(exc).__name__}: {exc}"
+  block = (_model_edge_cache["value"] or {}).get(str(symbol or "").upper())
+  if not isinstance(block, dict) or block.get("edge") is None:
+    err = _model_edge_cache.get("error")
+    return {"status": "unknown",
+            "why": err or f"no measured edge for this symbol; measured: {_model_edge_cache.get('loaded')}"}
+  return {"status": block.get("status"), "accuracy": block.get("accuracy"),
+          "majority_class": block.get("baseline"), "edge": block.get("edge"),
+          "beats_guessing": bool(block.get("edge", 0) > 0), "why": block.get("why")}
+
+
 def is_traded(symbol) -> bool:
   """Whether a symbol may be asked for. Guards used a hard-coded pair and returned 400 for anything
   else, which is why a newly enabled market could not even have its candles fetched."""
@@ -6860,6 +6901,20 @@ def _build_signal_payload_uncached():
                 "confidence": confidence,
                 "bias": bias,
                 "reason": reason,
+                # What the model's accuracy is actually worth on THIS market, beside its own signal.
+                #
+                # The owner saw gold showing BUY while price sat below both EMAs on H4 and daily,
+                # 7.57 % down over twenty days, and asked how that was possible. It is possible
+                # because the gold model has no measured edge - accuracy 0.5106 against a majority
+                # class of 0.5269 - so it emits a near-constant probability that occasionally drifts
+                # over the 0.55 threshold and prints BUY regardless of trend.
+                #
+                # This BLOCKS NOTHING. The signal still fires, still reaches every strategy and still
+                # feeds the record, which is what the standing never-block rule protects. What changes
+                # is that a reader can see the signal is coming from a model that cannot beat guessing
+                # on this market, instead of reading it as a recommendation. Filtering it would need
+                # evidence first; saying what is already measured needs none.
+                "model_edge": _model_edge(symbol),
             "quality_in_range": quality_in_range,
             "target_pip_min": min_pips,
             "target_pip_max": max_pips,
@@ -6964,6 +7019,9 @@ def _build_strategy_profile(symbol: str, data, features, signal_side: str, confi
 
 
 def _enrich_signal_record(signal: dict):
+  # A stored record predates the measured-edge label, so it is looked up live rather than read
+  # from the row: history should not be able to make a no-edge model look unlabelled.
+  signal = {**signal, "model_edge": signal.get("model_edge") or _model_edge(signal.get("symbol"))}
   generated_at = signal.get("generated_at")
   recorded_at = generated_at or ""
   record_day = ""
@@ -19554,6 +19612,11 @@ def signal_live_api():
     rows.append({
       "symbol": item.get("symbol"),
       "signal": item.get("signal"),
+      "confidence": item.get("confidence"),
+      # Carried through deliberately. The payload has held the model's measured edge since the owner
+      # asked how gold could show BUY in a downtrend, but both endpoints rebuild their own row subset
+      # and dropped it - so the honest label existed and reached no screen.
+      "model_edge": item.get("model_edge"),
       "ensemble_probability": item.get("ensemble_probability"),
       "signal_bar_time": item.get("signal_bar_time"),
       "signal_bar_age_minutes": age,
