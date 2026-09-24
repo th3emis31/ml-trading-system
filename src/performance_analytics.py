@@ -109,10 +109,10 @@ SYSTEM_MAGICS = (
     440603,   # volatility trend breakout
     440704,   # daily plan executor
     440805,   # sweep reversal
-    903110,   # AI Auto Trader - SEE THE CAVEAT BELOW; also mt5_service's default magic
+    903110,   # SmartEntry auto trader - SEE THE CAVEAT BELOW; also mt5_service's default magic
 )
 
-# 903110 is the AI Auto Trader, which the owner confirmed on 24 September 2026 IS part of this
+# 903110 is the SmartEntry auto trader, which the owner confirmed on 24 September 2026 IS part of this
 # system, so it is counted. But it needs a caveat wherever it is reported, because it is also the
 # DEFAULT value of the ``magic`` parameter in trading/mt5_service.py: any caller that does not set a
 # magic - a dashboard button, a panel, a manual click - lands on the same number and becomes
@@ -125,7 +125,7 @@ SYSTEM_MAGICS = (
 # real repair is to give the auto trader its own explicit magic so future trades are attributable.
 SHARED_DEFAULT_MAGICS = {
 
-    903110: ("AI Auto Trader - but this is also mt5_service's DEFAULT magic, so anything else routed "
+    903110: ("SmartEntry auto trader - but this is also mt5_service's DEFAULT magic, so anything else routed "
              "through that call without its own magic is counted here too"),
 }
 

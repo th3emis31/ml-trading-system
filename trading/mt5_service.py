@@ -629,7 +629,7 @@ class MT5Service:
         volume: float,
         stop_loss: float | None = None,
         take_profit: float | None = None,
-        comment: str = "AI Auto Trader",
+        comment: str = "SmartEntry",
         magic: int = 903110,
         allow_retry_without_stops: bool = True,
     ) -> dict:
@@ -737,7 +737,7 @@ class MT5Service:
                 "price": price,
                 "deviation": 25,
                 "magic": int(magic),
-                "comment": str(comment or "AI Auto Trader")[:31],
+                "comment": str(comment or "SmartEntry")[:31],
                 "type_time": self._mt5.ORDER_TIME_GTC,
                 "type_filling": self._mt5.ORDER_FILLING_IOC,
             }

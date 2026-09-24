@@ -364,7 +364,7 @@ def get_professional_jarvis_enterprise():
             <a href="/" class="nav-btn back">← Back to Main Dashboard</a>
             <a href="/jarvis-voice" class="nav-btn">🎤 Voice Control</a>
             <a href="/jarvis-brain" class="nav-btn brain">🧠 Autonomous Brain</a>
-            <a href="/auto-trader" class="nav-btn">🤖 Auto Trader</a>
+            <a href="/auto-trader" class="nav-btn">🤖 SmartEntry</a>
         </div>
         
         <!-- PROFESSIONAL WELCOME HEADER -->

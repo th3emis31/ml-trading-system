@@ -747,7 +747,7 @@ MAIN_NAV_GROUPS = [
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
-    ('/auto-trader', 'Auto Trader'),
+    ('/auto-trader', 'SmartEntry'),
     ('/control', 'Control'),
     ('/ea-panel', 'EA Bridge'),
     ('/paper-trading', 'Paper Trading'),
@@ -9440,7 +9440,7 @@ JARVIS_VOICE_TEMPLATE = """<!doctype html>
         <a href='/'>Dashboard</a>
         <a href='/jarvis-enterprise' class='nav-link-accent'>Enterprise</a>
         <a href='/jarvis-brain' class='nav-link-brain'>Brain</a>
-        <a href='/auto-trader'>Auto Trader</a>
+        <a href='/auto-trader'>SmartEntry</a>
         <a href='/jarvis-voice'>Voice Control</a>
       </div>
     </div>
@@ -12877,7 +12877,7 @@ AUTO_TRADER_TEMPLATE = """
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>AI Auto Trader - Professional Dashboard</title>
+  <title>SmartEntry - Professional Dashboard</title>
   <style>
     * { box-sizing: border-box; }
     :root {
@@ -13022,10 +13022,10 @@ AUTO_TRADER_TEMPLATE = """
     {{ main_nav }}
   </div>
   <div class='container'>
-    <h1>⚡ AI Auto Trader</h1>
+    <h1>⚡ SmartEntry</h1>
     <p class='subtitle'>Professional automated trading with AI analysis, risk management, and real-time execution</p>
     <div class='at-tabs' role='tablist'>
-      <button type='button' class='at-tab active' data-tab='auto' role='tab' aria-selected='true'>⚡ Auto Trader</button>
+      <button type='button' class='at-tab active' data-tab='auto' role='tab' aria-selected='true'>⚡ SmartEntry</button>
       <button type='button' class='at-tab' data-tab='ea' role='tab' aria-selected='false'>📈 SwingTrendPullback EA <span class='ea-tab-dot' id='ea-tab-dot'></span></button>
     </div>
     <div id='at-tab-auto' class='at-tab-panel'>
@@ -17251,13 +17251,13 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
       symbol=symbol, side=side, volume=lot_size,
       stop_loss=float(broker_levels['stop_loss']),
       take_profit=float(broker_levels['take_profit_1']),
-      comment='AI Auto Trader',
+      comment='SmartEntry',
     )
     mt5_order = MT5_ENGINE.place_market_order(
       symbol=symbol, side=side, volume=lot_size,
       stop_loss=float(broker_levels['stop_loss']),
       take_profit=float(broker_levels['take_profit_1']),
-      comment='AI Auto Trader',
+      comment='SmartEntry',
     )
     trade_record['mt4'], trade_record['mt5'] = mt4_order, mt5_order
     mt4_ok, mt5_ok = bool(mt4_order.get('executed')), bool(mt5_order.get('executed'))
@@ -17279,7 +17279,7 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
       volume=lot_size,
       stop_loss=float(broker_levels['stop_loss']),
       take_profit=float(broker_levels['take_profit_1']),
-      comment='AI Auto Trader',
+      comment='SmartEntry',
     )
     trade_record['mt4'] = mt4_order
     trade_record['status'] = 'open' if mt4_order.get('executed') else 'failed'
@@ -17296,7 +17296,7 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
       volume=lot_size,
       stop_loss=float(broker_levels['stop_loss']),
       take_profit=float(broker_levels['take_profit_1']),
-      comment='AI Auto Trader',
+      comment='SmartEntry',
     )
     trade_record['mt5'] = mt5_order
     trade_record['status'] = 'open' if mt5_order.get('executed') else 'failed'

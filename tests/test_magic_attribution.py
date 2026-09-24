@@ -1,7 +1,7 @@
 """What counts as this system's trade, and what has to be said when reporting it.
 
 On 24 September 2026 the owner was shown "the system is profitable: 100 trades, net +366.16". 94 of
-those trades carried magic 903110. The owner confirmed 903110 IS the system's AI Auto Trader, so it
+those trades carried magic 903110. The owner confirmed 903110 IS the system's SmartEntry auto trader, so it
 is counted - but it is ALSO the default value of mt5_service's ``magic`` parameter, so anything else
 routed through that call lands on the same number. The figure is therefore reported with a caveat,
 and the real repair is to give the auto trader a magic of its own.
@@ -22,7 +22,7 @@ def test_the_ai_auto_trader_is_counted_as_the_systems():
 def test_but_it_carries_a_caveat_because_it_is_a_shared_default():
     assert 903110 in pa.SHARED_DEFAULT_MAGICS
     note = pa.SHARED_DEFAULT_MAGICS[903110].lower()
-    assert "default" in note and "auto trader" in note
+    assert "default" in note and "smartentry" in note
 
 
 def test_the_caveat_is_true_of_the_code_it_describes():
