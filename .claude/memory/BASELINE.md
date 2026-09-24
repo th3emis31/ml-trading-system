@@ -231,3 +231,47 @@ thresholds would manufacture trades from noise; the model has to discriminate fi
 The lesson repeated here, from 19 September: when results look uniformly good OR uniformly bad,
 suspect the instrument. A buy-and-hold column costs one line and would have caught this before it
 was recommended.
+
+## 2026-09-24 — Gold and bitcoin: the features carry no directional signal. Measured three ways.
+
+Owner asked for real work on gold and bitcoin. Three measurements, each ruling out a different
+suspected cause, and all pointing the same way.
+
+**1. It is not the thresholds.** The live model emits an almost constant probability - gold
+0.522-0.537 (std 0.003), bitcoin 0.468-0.521 - so it never crosses 0.55/0.45 and never trades.
+
+**2. It is not the calibration, and switching it would have been a mistake.** Production uses
+sigmoid (Platt) under TimeSeriesSplit(5). Isotonic looked like the fix because it restores spread:
+
+| gold | accuracy | edge vs majority | signals |
+|---|---|---|---|
+| sigmoid | 0.5513 | +0.0000 | 0.0 % |
+| isotonic | 0.4801 | −0.0712 | 18.7 % |
+
+Isotonic produces signals with WORSE accuracy. Sigmoid's flatness is not a defect - it is the
+calibration correctly reporting that the model does not know. Restoring spread here manufactures
+trades out of noise, which is precisely what the never-block rule forbids.
+
+**3. It is the features, at every horizon.** Raw RF, no calibration, direction over N bars:
+
+| horizon | gold edge | bitcoin edge |
+|---|---|---|
+| 3 | −0.0946 | −0.0228 |
+| 6 | −0.0955 | −0.0072 |
+| 12 | −0.1103 | −0.0267 |
+| 24 | −0.1603 | +0.0089 |
+| 48 | −0.2607 | −0.0168 |
+
+Every horizon on both markets is at or below the majority class. Gold gets monotonically WORSE with
+distance, which is the signature of fitting training-period structure that later inverts - worse than
+no information.
+
+**Conclusion: FEATURE_COLUMNS contains no directional information for gold or bitcoin on H4.** No
+amount of threshold, calibration or horizon work fixes that, and each of those was tried and measured
+rather than argued. Improvement has to come from different inputs - or from accepting that the ML
+path is not where these two markets are won, which is consistent with the fact that the money this
+system has actually made came from a RULE strategy (VTB, +60.66 realised on bitcoin) and not from
+the models.
+
+Recorded as a negative result so the next person does not re-run the calibration idea: it looks like
+the answer and it is not.
