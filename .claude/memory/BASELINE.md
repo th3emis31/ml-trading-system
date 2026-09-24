@@ -487,3 +487,43 @@ What was gained is the harness: backtests now run headlessly at 7 s each
 (`scripts/run_smartentry_sweep.py`), so a 63-point grid plus an out-of-sample check costs about 20
 minutes instead of a tester run per guess. The out-of-sample split is what turned a convincing 12x
 improvement into a correctly rejected one.
+
+## 2026-09-24 — SmartEntry V9 gold: the stop is a FIXED POINT COUNT and gold tripled
+
+Tester install (VantageMarkets-Demo), XAUUSD M1, model 1, deposit 10000. Broker differs from the
+owner's live FTMO account, so absolute figures are not theirs; the parameter behaviour is the finding.
+
+**The baseline is a sound strategy**, which two earlier rounds of failed tinkering had obscured:
+2019-2026, 7,669 trades, **+2,007.89, PF 1.12, max DD 6.34%, profitable in 7 of 8 years** (only 2021
+loses, at -501.81 / PF 0.80). Note 2024 is its SECOND-WORST year at +16.34 - and 2024 is the single
+year every earlier candidate was tuned on, which is why none of them generalised. **Check the year
+distribution before choosing a fitting window.**
+
+**The finding.** `SL` is a fixed number of POINTS (2100 = $21.00 at 0.01/point). Gold was about 1500
+in 2019 and about 4268 now, so that same stop has gone from **1.4% of price to 0.49%** - it silently
+tightened threefold while nobody changed it. The optimum should therefore RISE with the price era,
+and it does:
+
+| SL | 2019-2022 (gold ~1500-1800) | 2023-2026 (gold ~1900-4268) |
+|---|---|---|
+| **2100** | **+773.28** PF 1.11 DD 6.34% | +1234.62 PF 1.12 DD 4.25% |
+| **3000** | +541.10 PF 1.07 | **+1911.43 PF 1.17 DD 7.12%** |
+| 4000 | +177.33 | +1894.40 PF 1.17 |
+| 5000 | +230.54 | +1797.15 PF 1.16 |
+| 6000 | +230.54 | +1243.32 PF 1.11 |
+
+**2100 is the best value in the era it was tuned in and 3000 in the current one.** This is a mechanism
+rather than a fitted cell: the direction is predicted in advance by the fixed-point stop against a
+tripled price, it is confirmed independently in BOTH eras, and the current-era optimum is a broad
+plateau (3000/4000/5000 all beat 2100 by 560-680) rather than a spike.
+
+**The honest caveats.** Drawdown rises from 4.25% to 7.12%. Year by year across all eight years SL
+3000 wins 5 of 8 and adds a losing year (2020: +454.51 -> -174.22) while rescuing the worst one
+(2021: -501.81 -> -77.93), so it is partly a variance trade. And it will date exactly as 2100 did -
+the real repair is a stop expressed in ATR or percent of price, which this compiled EA does not
+appear to expose.
+
+**Rejected in the same session:** TP is very nearly inert (identical trade counts across 1200-2400,
+because Recovery Mode 2, the stop and the single-deal target close trades first); MaxSpreadPoints
+gains were an artefact that vanished out of sample; StructureDepth/Spacing are well-tuned and every
+tested change was much worse (spacing 90 -> -1051, depth 150 -> -1327).
