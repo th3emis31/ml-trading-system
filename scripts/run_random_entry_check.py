@@ -4,7 +4,12 @@ One symbol per process, because this machine's memory ceiling has killed multi-s
 Bars come from the APP's MT5 connection over HTTP, never a second mt5.initialize() - on 24 September
 my own repeated MT5 connections halted two live strategies for two hours.
 
-    python scripts/run_random_entry_check.py XAUUSD 500
+    python scripts/run_random_entry_check.py XAUUSD 500 [rf_proba|live_engine]
+
+Default mode is rf_proba. live_engine re-predicts every out-of-sample bar through the full ensemble
+and takes over an hour on 12,000 bars, which buys little here: the walk-forward has no per-fold LSTM
+either way, so both modes are testing the same random forest. rf_proba keeps the whole history, and
+more trades is what gives a permutation test its power.
 """
 import json
 import sys
@@ -36,19 +41,20 @@ def app_bars(symbol: str, timeframe: str = "4h", count: int = 12000) -> pd.DataF
 if __name__ == "__main__":
     symbol = (sys.argv[1] if len(sys.argv) > 1 else "XAUUSD").upper()
     draws = int(sys.argv[2]) if len(sys.argv) > 2 else 500
+    mode = sys.argv[3] if len(sys.argv) > 3 else "rf_proba"
     frame = app_bars(symbol)
     buy_hold = (frame["close"].iloc[-1] / frame["close"].iloc[0] - 1) * 100
 
     def progress(stage, pct, message):
         print(f"  [{pct:3d}%] {message}", flush=True)
 
-    out = run_walkforward_backtest(symbol, "5y", data=frame, n_folds=6, signal_mode="live_engine",
+    out = run_walkforward_backtest(symbol, "5y", data=frame, n_folds=6, signal_mode=mode,
                                    random_draws=draws, progress=progress)
     if not out.get("available"):
         raise SystemExit(f"{symbol}: {out.get('reason')}")
     bench = out.get("random_entry_benchmark") or {}
     record = {"symbol": symbol, "bars": len(frame), "buy_and_hold_pct": round(buy_hold, 2),
-              "signal_mode": "live_engine", "metrics": out.get("metrics"),
+              "signal_mode": mode, "metrics": out.get("metrics"),
               "inverse": (out.get("inverse_baseline") or {}).get("metrics"),
               "benchmark": bench}
     saved = {}

@@ -311,18 +311,30 @@ def random_entry_benchmark(features: pd.DataFrame, proba: np.ndarray, fold_of_ro
         counts.append(int(got.get("trades") or 0))
 
     returns_arr = np.array(returns, dtype=float)
+    expectancy_arr = np.array(expectancies, dtype=float)
+    counts_arr = np.array(counts, dtype=float)
     model_return = float(model.get("total_return_pct") or 0.0)
     model_expectancy = float(model.get("expectancy_pct") or 0.0)
+    model_count = int(model.get("trades") or 0)
     beaten = int(np.sum(returns_arr < model_return))
     percentile = round(100.0 * beaten / len(returns_arr), 1)
+
+    # Total return is sensitive to how many trades a draw actually opens, and the draws do not all open
+    # the same number: the model's signals arrive in clusters that the one-position-at-a-time rule
+    # absorbs, while shuffling spreads them out. On gold the model took 254 trades against a random
+    # average of 435, and in a market that rose 242 % the extra exposure alone moves the total. So the
+    # verdict is decided on EXPECTANCY PER TRADE, which is neutral to that, and total return is reported
+    # beside it. When the two disagree, the disagreement is the finding and neither is quoted alone.
+    expectancy_percentile = round(100.0 * float(np.sum(expectancy_arr < model_expectancy)) / len(expectancy_arr), 1)
+    expectancy_p = round(float(np.sum(expectancy_arr >= model_expectancy) + 1) / (len(expectancy_arr) + 1), 4)
     # One-sided: the share of random arrangements that did at least as well as the model. This is a
     # p-value in the ordinary sense, and 0.05 is the ordinary bar - stated here so the number is not
     # read as a score out of 100.
     p_value = round(float(np.sum(returns_arr >= model_return) + 1) / (len(returns_arr) + 1), 4)
-    if p_value <= 0.05:
+    if expectancy_p <= 0.05:
         verdict = ("The model's entry timing beats chance: fewer than 5 % of random arrangements of its "
                    "own signals did as well. That is evidence of real timing skill.")
-    elif percentile >= 50:
+    elif expectancy_percentile >= 50:
         verdict = ("No timing skill shown. The model lands above the middle of random arrangements of "
                    "its own signals, but well inside what chance alone produces, so the result so far "
                    "is explained by its direction bias and the market's drift rather than by prediction.")
@@ -342,8 +354,16 @@ def random_entry_benchmark(features: pd.DataFrame, proba: np.ndarray, fold_of_ro
         "random_mean_trades": round(float(np.mean(counts)), 1),
         "signal_bars_permuted": int(np.count_nonzero(signals)),
         "eligible_bars": int(len(eligible)),
+        "random_mean_expectancy_pct": round(float(np.mean(expectancy_arr)), 4),
+        "random_median_expectancy_pct": round(float(np.median(expectancy_arr)), 4),
+        "model_trades_vs_random": {"model": model_count, "random_mean": round(float(np.mean(counts_arr)), 1),
+                                   "note": "Draws do not all open the same number of trades, because the "
+                                           "one-position-at-a-time rule absorbs clustered signals. This is "
+                                           "why the verdict uses expectancy per trade, not total return."},
         "percentile": percentile, "p_value": p_value,
-        "beats_chance": bool(p_value <= 0.05),
+        "expectancy_percentile": expectancy_percentile, "expectancy_p_value": expectancy_p,
+        "decided_on": "expectancy per trade (neutral to how many trades a draw opened)",
+        "beats_chance": bool(expectancy_p <= 0.05),
         "verdict": verdict,
         "note": ("Each draw keeps the model's exact signal count and long/short mix and only changes "
                  "which bars they fall on, so a directional bias cannot flatter the result."),

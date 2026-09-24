@@ -333,3 +333,39 @@ them; forward demo trades are how that claim gets tested against reality rather 
 The rule to carry forward: **before refusing something, ask which rung it is on.** A refusal that
 belongs at the real-money rung is a mistake at the demo rung, and it costs the evidence that would
 have answered the question.
+
+## 2026-09-24 — Random-entry (permutation) benchmark on the self-learning model path
+
+Question: the daily learning gate promotes on after-cost return, and gold rose 241.84 % over the test
+window (bitcoin 546.53 %). Is the ML model path predicting, or riding drift?
+
+Method: walk-forward, 12,000 broker H4 bars (2018-12-18 to 2026-09-24), 6 folds, `rf_proba`, measured
+costs. Control = 500 permutations of the model's own signals: identical signal count, identical
+long/short mix, identical stops/targets/hold limit/costs/bars; only WHICH BAR each signal lands on
+changes. Verdict decided on expectancy per trade, because draws open differing numbers of trades.
+
+| | XAUUSD | BTCUSD |
+|---|---|---|
+| Model, out of sample | **−10.66 %** over 254 trades | +0.94 % over 50 trades |
+| Expectancy per trade | −0.0406 % | +0.0395 % |
+| Random mean expectancy | +0.0387 % | −0.0968 % |
+| Expectancy percentile | **0.6** | 80.4 |
+| p-value (one-sided) | **0.994** | 0.198 |
+| Total-return percentile | 1.4 | 78.2 |
+| Inverse-direction baseline | −7.28 % | −7.36 % |
+
+**XAUUSD: worse than chance, and not marginally.** 99.4 % of random arrangements of the model's own
+signals beat the arrangement it chose. Both measures agree (0.6th and 1.4th percentile), so the result
+is not an artefact of the model taking 254 trades against a random average of 435. This is a FAIL with
+254 trades behind it, which is the firmest negative result recorded here.
+
+**BTCUSD: no skill shown, and not enough evidence to say more.** 80th percentile sounds favourable but
+p = 0.198, and 50 trades is under the 100-trade minimum. Not evidence of skill; not evidence against.
+
+No free lunch in the negative gold result: the inverse-direction baseline also loses (−7.28 %), and
+inverting TIMING is not a defined operation the way inverting direction is.
+
+Implication for self-learning: gold's flat learning curve is not the gate rejecting good challengers.
+The model path itself carries negative timing information on gold, so more days of the same retrain
+will not produce an edge. Any improvement has to come from different features or a different target,
+not from more runs of the current one.
