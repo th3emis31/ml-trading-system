@@ -527,3 +527,29 @@ appear to expose.
 because Recovery Mode 2, the stop and the single-deal target close trades first); MaxSpreadPoints
 gains were an artefact that vanished out of sample; StructureDepth/Spacing are well-tuned and every
 tested change was much worse (spacing 90 -> -1051, depth 150 -> -1327).
+
+## 2026-09-24 — SmartEntry V9 bitcoin (AurumFlow v09): the edge is real and the spread eats all of it
+
+Tester install (VantageMarkets-Demo), BTCUSD M1, model 1. **Only 2026 history exists for BTCUSD on
+this broker**, so this is 2026.01-2026.09, 708 trades - one period, not a multi-year verdict.
+
+Baseline v09: **net -45.42, PF 0.97, 708 trades, max DD 1.22%.** Losing here, where the owner reports
+it profitable on their FTMO account. The reason is not the strategy:
+
+**Spread cost: 1694 points = 16.94 price = 0.169 USD per trade at 0.01 lot. Over 708 trades that is
+119.94 USD. Net is -45.42, so the strategy made about +74.52 GROSS and the spread took 120.**
+
+So there is a small real edge - roughly **0.105 USD per trade gross** - and this broker's spread of
+0.169 per trade is 1.6x larger than it. Bitcoin viability under this EA is therefore **a question
+about the broker, not about the parameters**: break-even needs a BTCUSD spread under about 1050
+points, against the 1694 measured here. The owner's FTMO result being profitable is consistent with
+FTMO quoting a tighter bitcoin spread, and that is the number to check before anything else.
+
+**MaxSpreadPoints is a cliff, not a dial.** This broker's spread is almost constant at 1694-1707, so
+a cap below it takes ZERO trades and a cap above it changes nothing: 1500 -> 0 trades, 1690 -> 0
+trades, 1700/1800/2000/3000 -> identical results. It cannot be tuned here.
+
+**The stop shows the same mechanism as gold.** Widening it shrinks the spread's proportional bite:
+SL 50281 -> -45.42, SL 80000 -> **+5.04** (PF 1.00), SL 100000 -> -12.22. The direction matches the
+gold finding exactly - a fixed-point stop against a price that has multiplied - but on bitcoin it only
+buys a return to break-even, because the spread is the dominant term rather than a side cost.
