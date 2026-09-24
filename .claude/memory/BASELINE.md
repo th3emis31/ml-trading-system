@@ -194,3 +194,40 @@ in live mode is many hours on a machine that kills long jobs, and the first atte
 minutes and produced nothing. rf_proba applied identically to every symbol answers the RELATIVE
 question honestly. Nothing here is a verdict on a market: AAPL, NAS100 and SP500 must be re-run
 through the live-engine path before any decision follows from them.
+
+## 2026-09-24 (later) — THE SCREEN'S WINNERS ARE MOSTLY BUY-AND-HOLD. Correction.
+
+I recommended AAPL, NAS100 and SP500 as "the three that clear the evidence gate profitably". Before
+adding them I checked the model's probability output, and it is nearly CONSTANT:
+
+  XAUUSD  0.522-0.537  std 0.003  ->  never crosses 0.55/0.45  ->  0 % of bars produce a signal
+  BTCUSD  0.468-0.521  std 0.008  ->  0 % of bars produce a signal
+  NAS100  0.559-0.571  std 0.002  ->  100 % above 0.55  ->  PERMANENTLY LONG
+
+The RF has no discriminative power on these markets. It emits one number with almost no variance, so
+the thresholds decide everything: gold and bitcoin sit between them and never trade, NAS100 sits
+above them and never stops being long.
+
+Against buy-and-hold over the same test window, the ranking collapses:
+
+| Symbol | Buy & hold | Backtest | Verdict |
+|---|---|---|---|
+| XAUUSD | +81.62 % | −3.13 % | gold ROSE 82 % and the system returned −3 % |
+| SP500 | +44.82 % | +20.36 % | less than half of doing nothing |
+| NAS100 | +61.19 % | +78.36 % | barely ahead, and permanently long |
+| AAPL | +56.88 % | +200.11 % | genuinely ahead - the one result worth another look |
+| BTCUSD | −19.25 % | −13.59 % | lost less than a falling market |
+
+**Nothing is added to the system on this basis.** Two of the three "winners" do worse than holding,
+and the third is long-only. The screener is not at fault - its costs, evidence gate and ranking all
+did their job - and neither is the walk-forward. The fault is upstream: a model whose output does not
+vary cannot rank markets, and every comparison built on it inherits that.
+
+THIS IS ALSO THE ANSWER TO "gold and btc need improvement". Their problem is not thresholds, bars or
+costs. It is that the model emits ~0.53 for gold and ~0.50 for bitcoin on every bar, which is the
+same thing the live champions' 0.496/0.504 accuracy has been saying. Widening or moving the
+thresholds would manufacture trades from noise; the model has to discriminate first.
+
+The lesson repeated here, from 19 September: when results look uniformly good OR uniformly bad,
+suspect the instrument. A buy-and-hold column costs one line and would have caught this before it
+was recommended.

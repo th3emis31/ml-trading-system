@@ -120,12 +120,12 @@ def screen_row(symbol: str, metrics: dict, cost: dict, bars: int, years: float) 
         "exposure_pct": _plain(metrics.get("exposure_pct")),
         "round_trip_pct": cost.get("round_trip_pct"),
         "spread_p90_pct": cost.get("p90_pct"),
-        "cost_measured": True,
+        "cost_measured": True, "signal_mode": None,
     }
 
 
 def screen_one(symbol: str, terminal_path: Optional[str] = None, bars: int = DEFAULT_BARS,
-               folds: int = DEFAULT_FOLDS) -> dict:
+               folds: int = DEFAULT_FOLDS, mode: str = "rf_proba") -> dict:
     """Measure the symbol's cost, then walk-forward it on H4 bars. Runs inside its own process."""
     import warnings
     warnings.filterwarnings("ignore")
@@ -167,11 +167,12 @@ def screen_one(symbol: str, terminal_path: Optional[str] = None, bars: int = DEF
     # same signal path applied to every symbol answers it honestly. What this result must not be
     # treated as is a verdict on a market: anything that ranks well here should then be re-run through
     # the live-engine path before a single decision is made on it.
-    out = run_walkforward_backtest(symbol.upper(), "5y", data=frame, n_folds=folds,
-                                   signal_mode="rf_proba")
+    out = run_walkforward_backtest(symbol.upper(), "5y", data=frame, n_folds=folds, signal_mode=mode)
     if not out.get("available"):
         return {"symbol": symbol, "skipped": str(out.get("reason"))[:120]}
-    return screen_row(symbol, out.get("metrics") or {}, cost, len(frame), years)
+    row = screen_row(symbol, out.get("metrics") or {}, cost, len(frame), years)
+    row["signal_mode"] = mode          # a screening pass and a live-engine verdict must never look alike
+    return row
 
 
 def _load_previous() -> dict:
@@ -207,7 +208,7 @@ def _save_report(rows: list, skipped: list, settings: dict) -> dict:
 
 
 def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: int = DEFAULT_BARS,
-           folds: int = DEFAULT_FOLDS, timeout: int = 900) -> dict:
+           folds: int = DEFAULT_FOLDS, timeout: int = 900, mode: str = "rf_proba") -> dict:
     """Screen each symbol in its OWN process, then rank.
 
     Separate processes are what make the higher fold count affordable: five symbols in one process
@@ -219,7 +220,7 @@ def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: in
     # twelve: eleven finished backtests existed only in a list in a process that no longer did. A
     # long job on a machine that kills long jobs has to be able to lose only its current step.
     settings = {"timeframe": "H4", "bars": bars, "folds": folds,
-                "min_trades_for_evidence": MIN_TRADES_FOR_EVIDENCE,
+                "min_trades_for_evidence": MIN_TRADES_FOR_EVIDENCE, "signal_mode": mode,
                 "costs": "measured per symbol from broker M1 spread, p90 doubled"}
     rows, skipped = [], []
     done = _load_previous()
@@ -230,7 +231,7 @@ def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: in
             continue
         cmd = [sys.executable, "-c",
                "import json,sys;from src.market_screener import screen_one;"
-               f"print('@@'+json.dumps(screen_one({symbol!r}, {terminal_path!r}, {bars}, {folds})))"]
+               f"print('@@'+json.dumps(screen_one({symbol!r}, {terminal_path!r}, {bars}, {folds}, {mode!r})))"]
         try:
             proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=timeout)
             line = next((l for l in (proc.stdout or "").splitlines() if l.startswith("@@")), None)
