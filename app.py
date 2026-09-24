@@ -24220,10 +24220,26 @@ def growth_api():
     start = None
   if MT5_ENGINE is None or not hasattr(MT5_ENGINE, 'deal_history'):
     return jsonify({'available': False, 'reason': 'MT5 engine unavailable'})
-  history = MT5_ENGINE.deal_history(days=3650) or {}
+  # Every failure below reports ITSELF. "no closed trades yet" was returned when the broker could not
+  # be read at all, when it returned nothing, and when nothing matched the magics - three different
+  # problems wearing one message, and the account had 100 matching trades the whole time.
+  try:
+    history = MT5_ENGINE.deal_history(days=3650) or {}
+  except Exception as exc:
+    return jsonify({'available': False, 'reason': f'the broker history could not be read: {exc}'})
   deals = history.get('deals') if isinstance(history, dict) else history
-  out = pa.growth_tracker(deals or [], magic=magic, starting_balance=start)
+  deals = deals or []
+  if not deals:
+    return jsonify({'available': False, 'source': 'closed MT5 deals',
+                    'reason': 'the broker returned no closed deals at all',
+                    'history_keys': sorted(history) if isinstance(history, dict) else None})
+  out = pa.growth_tracker(deals, magic=magic, starting_balance=start)
   out['source'] = 'closed MT5 deals'
+  out['deals_read'] = len(deals)
+  if not out.get('available'):
+    seen = sorted({int(d.get('magic') or 0) for d in deals})
+    out['reason'] = (f"{len(deals)} closed deals were read but none carried this system's magics "
+                     f"{sorted(magic) if isinstance(magic, list) else magic}; the account's magics are {seen[:12]}")
   return jsonify(out)
 
 

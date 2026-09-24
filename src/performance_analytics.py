@@ -276,7 +276,11 @@ def growth_tracker(deals: Iterable[dict], magic=None, starting_balance: Optional
             "trades": trades, "wins": wins, "losses": losses,
             "win_rate": _round(wins / decided, 4) if decided else None,
             "won": _round(won, 2), "lost": _round(lost, 2), "net": _round(won - lost, 2),
-            "profit_factor": _round(won / lost, 3) if lost > 0 else (None if won == 0 else float("inf")),
+            # None, never infinity: json.dumps emits a bare `Infinity`, which is not valid JSON and
+            # breaks JSON.parse in the browser - so a flawless run of winners would blank the page.
+            # "no losses yet" is the honest reading of an undefined profit factor anyway.
+            "profit_factor": _round(won / lost, 3) if lost > 0 else None,
+            "all_wins": bool(lost == 0 and won > 0),
             "best": _round(float(group["net"].max()), 2), "worst": _round(float(group["net"].min()), 2),
         }
 
