@@ -17268,7 +17268,7 @@ def auto_trade_stop_session_api():
 
 @app.route('/api/train-status')
 def train_status_api():
-    symbols = traded_symbols()
+    symbols = list(DEFAULT_TRADED_SYMBOLS)
     history = {
         symbol: {
             'daily': load_daily_history(symbol),
@@ -17287,7 +17287,7 @@ def train_status_api():
 def model_status_api():
     signals = {item['symbol']: item for item in build_signal_payload()}
     status = []
-    for symbol in traded_symbols():
+    for symbol in list(DEFAULT_TRADED_SYMBOLS):
         metrics = get_model_status(symbol)
         current_signal = signals.get(symbol, {})
         status.append({
@@ -17325,7 +17325,7 @@ def model_status_api():
 def learn_status_api():
     signals = {item['symbol']: item for item in build_signal_payload()}
     symbols = []
-    for symbol in traded_symbols():
+    for symbol in list(DEFAULT_TRADED_SYMBOLS):
         metrics = get_model_status(symbol)
         daily_history = load_daily_history(symbol)
         weekly_history = load_weekly_history(symbol)
@@ -19643,7 +19643,7 @@ def train_daily():
     if refused:
         return refused
     results = []
-    for symbol in traded_symbols():
+    for symbol in list(DEFAULT_TRADED_SYMBOLS):
         results.append(DailyLearner(symbol).run_cycle('daily'))
     return jsonify(results)
 
@@ -19654,7 +19654,7 @@ def train_weekly():
     if refused:
         return refused
     results = []
-    for symbol in traded_symbols():
+    for symbol in list(DEFAULT_TRADED_SYMBOLS):
         results.append(DailyLearner(symbol).run_cycle('weekly'))
     return jsonify(results)
 
@@ -20167,7 +20167,7 @@ def pipeline_backtest_runs_api():
 def pipeline_training_status_api():
   keep = ('symbol', 'model_loaded', 'accuracy', 'lstm_accuracy', 'lstm_last_trained_at', 'rf_precision', 'rf_recall', 'rf_f1')
   models = []
-  for symbol in traded_symbols():
+  for symbol in list(DEFAULT_TRADED_SYMBOLS):
     status = get_model_status(symbol)
     metrics = load_metrics(symbol) or {}
     model_path = Path(__file__).resolve().parent / 'models' / f'{symbol.lower()}_model.joblib'
