@@ -109,7 +109,8 @@ SYSTEM_MAGICS = (
     440603,   # volatility trend breakout
     440704,   # daily plan executor
     440805,   # sweep reversal
-    903110,   # SmartEntry auto trader - SEE THE CAVEAT BELOW; also mt5_service's default magic
+    440906,   # SmartEntry auto trader, its OWN magic since 24 September 2026
+    903110,   # SmartEntry's FORMER magic - SEE THE CAVEAT BELOW; also mt5_service's default
 )
 
 # 903110 is the SmartEntry auto trader, which the owner confirmed on 24 September 2026 IS part of this

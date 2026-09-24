@@ -470,8 +470,10 @@ def _jarvis_run_autonomy_cycle_once():
   # order to fill even after its bridge was fixed.
   if secondary_symbol and secondary_enabled and focus_symbol != secondary_symbol:
     try:
-      if MT5_ENGINE.positions(symbol=focus_symbol, magic=AUTO_TRADE_MAGIC) and \
-         not MT5_ENGINE.positions(symbol=secondary_symbol, magic=AUTO_TRADE_MAGIC):
+      # Both magics: this asks "is this asset already taken?", and a position under the old
+      # number takes the asset just as much as one under the new.
+      if MT5_ENGINE.positions(symbol=focus_symbol, magic=list(AUTO_TRADE_MAGICS)) and \
+         not MT5_ENGINE.positions(symbol=secondary_symbol, magic=list(AUTO_TRADE_MAGICS)):
         _jarvis_memory_record(
           state, "auto_rotation",
           f"focus moved {focus_symbol} -> {secondary_symbol}: {focus_symbol} already holds a position "
@@ -927,10 +929,28 @@ VOICE_ENGINE = VoiceCommandService(VOICE_STATE_PATH)
 VOICE_REALTIME_MANAGER = RealtimeVoiceSessionManager(VOICE_REALTIME_STATE_PATH, ttl_minutes=30)
 VOICE_EXTERNAL_PROVIDERS = ExternalVoiceProviders(timeout_seconds=20)
 MT5_ENGINE = MT5Service()
-# The magic the auto-trade route's orders carry: mt5_service.place_market_order defaults to it and
-# this route never overrides it. Named here because the one-trade-per-asset rule counts positions by
-# it, and a rule that silently counted the wrong magic would either block everything or nothing.
-AUTO_TRADE_MAGIC = 903110
+# The magic SmartEntry's orders carry. The one-trade-per-asset rule counts positions by it, and a
+# rule that silently counted the wrong magic would either block everything or nothing.
+#
+# It was 903110 until 24 September 2026, and 903110 is the DEFAULT value of mt5_service's ``magic``
+# parameter - so every order placed through that call by anything that did not set its own magic (a
+# dashboard button, a panel, a manual click) landed on the same number and became indistinguishable
+# from SmartEntry's own work. That ambiguity put 94 trades the system has no record of placing into a
+# headline reading "the system is profitable: 100 trades, net +366.16", which had to be withdrawn.
+# 440906 continues the family the other strategies use (440401, 440502, 440603, 440704, 440805) and
+# belongs to SmartEntry alone, so from here its trades are attributable.
+AUTO_TRADE_MAGIC = 440906
+
+# Positions opened under the OLD magic are still SmartEntry's and must stay visible to it.
+#
+# This is not tidiness, it is the one-trade-per-asset rule. If the guard looked only for 440906 it
+# would see nothing on a symbol that already holds a 903110 position and open a second trade on it -
+# the exact fault that once put nine gold BUYs on the account in ninety minutes. Everything that
+# READS or BLOCKS uses AUTO_TRADE_MAGICS; only the order being PLACED uses AUTO_TRADE_MAGIC.
+#
+# These positions are left to close on their own, as the owner requires - nothing here closes a trade.
+AUTO_TRADE_LEGACY_MAGICS = (903110,)
+AUTO_TRADE_MAGICS = (AUTO_TRADE_MAGIC,) + AUTO_TRADE_LEGACY_MAGICS
 
 # The markets this system trades, in ONE place.
 #
@@ -17207,10 +17227,11 @@ def _auto_trade_execute_core(payload: dict, internal_auto_execute: bool = False)
   #
   # Refusing is recorded, not silent - a trade that does not happen must be as visible as one that
   # does, or the next person sees an idle system and no reason for it.
-  existing = MT5_ENGINE.positions(symbol=symbol, magic=AUTO_TRADE_MAGIC)
+  # BOTH magics: a position opened under the old number still counts as one open trade on this asset.
+  existing = MT5_ENGINE.positions(symbol=symbol, magic=list(AUTO_TRADE_MAGICS))
   if existing:
     reason = (f"one trade per asset: {len(existing)} {symbol} position(s) already open from this "
-              f"route (magic {AUTO_TRADE_MAGIC}); not opening another")
+              f"route (magic {', '.join(str(m) for m in AUTO_TRADE_MAGICS)}); not opening another")
     execution_guard.log_rejection({'symbol': symbol, 'side': side, 'reason': reason,
                                    'source': 'one_per_asset', 'open_tickets': [p.get('ticket') for p in existing]})
     return jsonify({'status': 'skipped', 'message': reason, 'symbol': symbol,

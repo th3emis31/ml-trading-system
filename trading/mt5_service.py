@@ -248,8 +248,14 @@ class MT5Service:
         except Exception as exc:
             return {"ok": False, "message": str(exc)}
 
-    def positions(self, symbol: str | None = None, magic: int | None = None) -> list[dict] | None:
-        """Open positions, optionally for one symbol and/or one magic number. None when they cannot be read."""
+    def positions(self, symbol: str | None = None, magic=None) -> list[dict] | None:
+        """Open positions, optionally for one symbol and/or magic number(s). None when they cannot be read.
+
+        ``magic`` takes one number or several. Several matters when a component's magic changes: the
+        positions it opened under the old number are still its own and must stay visible to it, or the
+        one-trade-per-asset guard would look for the new magic, see nothing, and open a second trade
+        on a symbol that already has one.
+        """
         if not self.status()["connected"] or self._mt5 is None:
             return None
         try:
@@ -265,8 +271,10 @@ class MT5Service:
                 for key in ("ticket", "symbol", "type", "volume", "price_open", "price_current", "sl", "tp",
                             "profit", "time", "magic", "comment")
             }
-            if magic is not None and int(item.get("magic") or 0) != int(magic):
-                continue
+            if magic is not None:
+                wanted = {int(m) for m in (magic if isinstance(magic, (list, tuple, set)) else [magic])}
+                if int(item.get("magic") or 0) not in wanted:
+                    continue
             item["direction"] = "BUY" if int(item.get("type") or 0) == 0 else "SELL"
             found.append(item)
         return found
