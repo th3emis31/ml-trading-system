@@ -461,6 +461,28 @@ def _jarvis_run_autonomy_cycle_once():
       symbol=secondary_symbol,
     )
 
+  # A symbol that already holds a position steps aside for one that does not.
+  #
+  # Without this the loop kept choosing gold, the one-trade-per-asset rule refused it every cycle
+  # because nine legacy positions were open, and the existing rotation never fired because it only
+  # triggers on a REJECT STREAK - and a one-per-asset skip is not counted as a reject. So the system
+  # sat idle for hours with bitcoin free to trade and never looked at it, which is why MT4 had no
+  # order to fill even after its bridge was fixed.
+  if secondary_symbol and secondary_enabled and focus_symbol != secondary_symbol:
+    try:
+      if MT5_ENGINE.positions(symbol=focus_symbol, magic=AUTO_TRADE_MAGIC) and \
+         not MT5_ENGINE.positions(symbol=secondary_symbol, magic=AUTO_TRADE_MAGIC):
+        _jarvis_memory_record(
+          state, "auto_rotation",
+          f"focus moved {focus_symbol} -> {secondary_symbol}: {focus_symbol} already holds a position "
+          f"under the one-trade-per-asset rule, {secondary_symbol} is free",
+          symbol=secondary_symbol,
+        )
+        focus_symbol = secondary_symbol
+        autonomy["last_focus_symbol"] = focus_symbol
+    except Exception:
+      pass                      # a rotation that cannot be decided must never stop the scan
+
   cycle_focus = dict(cycle)
   if focus_symbol == secondary_symbol and secondary_symbol:
     cycle_focus["primary"] = secondary

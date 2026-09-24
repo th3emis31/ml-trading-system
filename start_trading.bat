@@ -28,6 +28,17 @@ rem Pinning the path keeps the system on its own account. The Atomic panel is un
 rem is read from that terminal's MQL5\Files folder on disk, not over this connection.
 set MT5_PATH=C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe
 
+rem The SECOND MT4 account, so one signal trades both MT4 terminals. Three DWX bridges answer on
+rem this machine - 12755139 (ICMarketsSC-Demo01), 176028792 (MetaQuotes-Demo) and this one - and they
+rem move between port sets whenever a terminal restarts, so nothing is pinned to a port: MT4Service
+rem scans the sets and accepts a bridge only when its heartbeat reports the account named here.
+rem That account check is the whole safety of it; without it the system would trade whichever
+rem terminal answered first.
+rem
+rem Harmless until a DWX bridge is actually running on 1420704416: the engine simply finds nothing
+rem and the second account stays idle while the first trades as normal.
+set MT4_ACCOUNT_2=1420704416
+
 C:\Users\th_em\AppData\Local\Programs\Python\Python310\python.exe app.py
 
 echo.
