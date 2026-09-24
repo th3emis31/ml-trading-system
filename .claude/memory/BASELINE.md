@@ -448,3 +448,42 @@ by diff. Baseline result as reported by the owner: about +1100.
 The existing v04 configuration is better tuned than I assumed, and the honest summary is that the
 parameters I treated as weaknesses are load-bearing. The gradient points the OTHER way on both levers:
 if a looser cap is worse, try a tighter one; if a wider target is worse, try a closer one.
+
+## 2026-09-24 — SmartEntry V9 gold, headless parameter sweep: NO IMPROVEMENT FOUND
+
+First backtests Claude ran itself, in the owner's idle `MT5_SwingTrend_Tester` install (VantageMarkets-
+Demo, XAUUSD M1, model 1, deposit 10000) so the live terminal was never touched. 7 seconds per run.
+Note the broker differs from the owner's live FTMO account, where they report about +1100, so absolute
+figures here are not theirs; what transfers is the behaviour of the parameters.
+
+**Grid: TP 1200-2400 x MaxSpreadPoints 15-45, 48 of 63 cells (the rest cut by the memory ceiling).**
+
+1. **TP is very nearly inert.** Within every spread cap the trade count is IDENTICAL across all seven
+   TP values (1085, 1118, 1120, 1109...), and net moves about 10 currency units across the whole
+   1200-2100 range. TP is almost never the thing that closes a trade - Recovery Mode 2, the stop and
+   the single-deal profit target get there first. **Both earlier rounds of candidates (B, C, E, F) were
+   tuning a parameter that barely functions**, which is why the owner saw four near-identical losses.
+2. **MaxSpreadPoints looked like the lever and is not.** On 2024 it is strongly non-monotonic -
+   cap 20/25 lose (about -120), cap 30 is flat (+16), cap 35/40 make +195, cap 45 makes +150.
+
+**The out-of-sample test destroyed it.** Choosing on 2024 and validating on 2025.01-2025.09:
+
+| | 2024 (chosen on) | 2025 (unseen) |
+|---|---|---|
+| cap 30 (baseline) | +16.34, PF 1.01, 1120 trades | −25.17, PF 0.99, 932 trades |
+| cap 35 | +194.49, PF 1.08 | **−25.17, PF 0.99, 932 trades** |
+| cap 40 | +194.80, PF 1.08 | **−25.17, PF 0.99, 932 trades** |
+| cap 15 | +124.92, PF 1.27, 240 trades | **0.00, 0 trades** |
+
+Caps 30, 35 and 40 give **byte-identical** 2025 results, because the 2025 spread never reaches 30 -
+so the cap is doing nothing at all out of sample. The entire 2024 gain came from admitting a few
+wide-spread episodes that happened to be profitable in that year. Cap 15 takes zero trades in 2025.
+
+**Verdict: no parameter change survives out of sample, and the candidates that looked best in sample
+were artefacts.** This is the same failure shape as the Volatility Trend Breakout on 17 and 24
+September - a result that lives entirely in the window it was chosen on.
+
+What was gained is the harness: backtests now run headlessly at 7 s each
+(`scripts/run_smartentry_sweep.py`), so a 63-point grid plus an out-of-sample check costs about 20
+minutes instead of a tester run per guess. The out-of-sample split is what turned a convincing 12x
+improvement into a correctly rejected one.
