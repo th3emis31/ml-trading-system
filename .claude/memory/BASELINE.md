@@ -588,3 +588,41 @@ result is repeatable is FTMO's BTCUSD spread - under ~823 points it works, above
 120000 → **+50.94 (PF 1.01)**, 160000 → −715.70. The one positive cell sits between two much worse
 ones, so the shape is noise rather than the smooth plateau that made the gold SL finding credible.
 Do not chase it.
+
+## 2026-09-24 — SmartEntry V9 BITCOIN: a real improvement, better in 6 of 6 years
+
+Same tester install and broker as the owner's live account (both VantageMarkets-Demo - the earlier
+"different broker" caveat was wrong, the FTMO folders on that terminal are stale since May).
+BTCUSD M1, model 1, 2021-2026, full history copied from the owner's app terminal.
+
+**The insight.** v09 was scaled from the gold **.SET**, and the gold .SET is the inferior of the two
+gold configurations (+647 over 8 years against the .ini's +2,007). Bitcoin inherited the wrong parent.
+Carrying the gold .ini's STRUCTURE values across raised the per-trade gross edge from 0.0823 to 0.1264
+against a 0.1694 spread cost; sweeping from there found the region that clears it.
+
+**The change - three inputs:** `StructureDepth 210 -> 200`, `StructureSpacing 110 -> 120`,
+`StructureRefreshBars 60 -> 45`. Shipped as `AurumFlow_v10_BTCUSD_structure.set`.
+
+| year | v09 | v10 | v09 PF | v10 PF |
+|---|---|---|---|---|
+| 2021 | −26.12 | −8.86 | 0.96 | 0.99 |
+| 2022 | −39.16 | **+64.06** | 0.96 | 1.08 |
+| 2023 | +16.23 | **+60.69** | 1.03 | 1.10 |
+| 2024 | −128.17 | **+68.65** | 0.94 | 1.03 |
+| 2025 | −84.69 | **+185.79** | 0.97 | 1.08 |
+| 2026 | −45.42 | **+33.77** | 0.97 | 1.02 |
+| **total** | **−307.33** | **+404.10** | | |
+
+**Better in 6 of 6 years, profitable in 5 of 6, profit factor up every year.** Split in half it holds
+both ways: 2021-23 goes −49 to +116, 2024-26 goes −258 to +288. The spacing value sits in a
+contiguous positive region (116, 118, 120, 122, 124 all positive) rather than being a lone cell, which
+is the test the bitcoin SL sweep failed.
+
+**Honest limits.** The edge is thin - profit factor 1.02 to 1.10 - so this converts a consistent small
+loser into a small winner, not a strong strategy. The exact value 120 was chosen on the full period,
+so the neighbours and the year-by-year consistency are the evidence, not the 401 headline. And it
+remains spread-bound: gross edge per trade must stay above this broker's 0.1694.
+
+**Rejected on bitcoin in the same session:** EnableRecoveryMode2 ON is catastrophic (19,390 trades,
+PF 0.77, 38% drawdown); PendingOrderDistance scaled to 3100 is worse; the SL sweep was noise (one
+positive cell between two much worse ones).
