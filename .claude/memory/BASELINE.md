@@ -418,3 +418,33 @@ the gold model is the only thing measured as actively worse than chance — but 
 negative skill" is not evidence of an edge. The honest position: the live demo profit (net +366.16,
 PF 1.578, 100 trades) is real money on a real account and the only genuinely out-of-sample evidence
 either strategy has; it is one week old and too short to settle this.
+
+## 2026-09-24 — SmartEntry V9 (AurumFlow) gold: four proposed changes, ALL REJECTED
+
+Setup: the owner's own tester config - XAUUSD, M1, model 1 (M1 OHLC), 2024.01.01-2025.01.01,
+deposit 10000, leverage 100. Each candidate differed from the baseline by exactly ONE input, verified
+by diff. Baseline result as reported by the owner: about +1100.
+
+| Candidate | Change | Result |
+|---|---|---|
+| A | MaxSpreadPoints 30 -> 45 | **worse** |
+| B | TP 1800 -> 2100 (R:R 1.00) | **worse** |
+| C | TP 1800 -> 3150 (R:R 1.50) | **worse** |
+| D | TradeInNovember/December -> true | **worse** |
+
+**All four were my proposals and the tester rejected all four.** What each one establishes:
+
+1. **The sub-1.0 reward:risk is deliberate and correct.** B and C both lost ground, and C (the wider
+   target) is the worse of the two, so the loss scales with how far the target is pushed. This is a
+   high-win-rate strategy whose edge lives in a close target; the 54.4% break-even win rate I flagged
+   as a weakness is a price it is evidently paying on purpose and clearing. **Do not widen TP.**
+2. **November and December are switched off on evidence, not habit.** D says those months lose.
+3. **The spread cap of 30 is doing real work** - and my reasoning for raising it was wrong in a way
+   worth recording. I measured gold's spread over 50,000 M1 bars from **August-September 2026** and
+   concluded 30 was never binding. The test window is **2024**. Spreads in the test data are not the
+   spreads I measured, so the trades admitted between 30 and 45 were real and they lost. **Measure the
+   period the test actually runs on, not the period that is convenient to fetch.**
+
+The existing v04 configuration is better tuned than I assumed, and the honest summary is that the
+parameters I treated as weaknesses are load-bearing. The gradient points the OTHER way on both levers:
+if a looser cap is worse, try a tighter one; if a wider target is worse, try a closer one.
