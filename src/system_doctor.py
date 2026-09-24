@@ -802,8 +802,8 @@ REQUIRED_TERMINALS = {
 }
 
 
-def check_terminals(run: Callable = subprocess.run) -> dict:
-    """Which MetaTrader terminals are running, by executable path.
+def check_terminals(run: Callable = subprocess.run, brokers: Optional[dict] = None) -> dict:
+    """Which MetaTrader terminals are running, by executable path - and whether the MT4 one answers.
 
     The app is useless without them: the strategies read broker candles and place orders through MT5,
     and MT4 quotes come over the DWX bridge. Nothing watched them until now - the autostart brings them
@@ -812,6 +812,14 @@ def check_terminals(run: Callable = subprocess.run) -> dict:
     Matched on the full path, not the process name, because five terminals run here and two of them are
     both called terminal64.exe. Only the three the system actually depends on are required; the other
     two MT4s are the owner's and are not this system's business.
+
+    ``brokers`` is the Broker connections result, and it is passed in because a running process is not a
+    working bridge. On 24 September the MT4 terminal held its three ZeroMQ ports and never answered a
+    HEARTBEAT, so the report said "MT4 bridge disconnected" beside "All 3 required terminals are
+    running" - both true, and together they read as a contradiction that sent the owner looking at the
+    wrong thing. The process check and the bridge check answer different questions, so when the process
+    is up and the bridge is silent this says so in one line, with the repair that actually works:
+    the EA has to be removed from the chart and attached again, which cannot be done from outside MT4.
     """
     running = set()
     try:
@@ -828,6 +836,15 @@ def check_terminals(run: Callable = subprocess.run) -> dict:
                        f"{len(missing)} required terminal(s) not running: {', '.join(missing.values())}. "
                        "scripts\\start_everything.ps1 starts them.",
                        missing=list(missing), running=sorted(running))
+    mt4 = ((brokers or {}).get("detail") or {}).get("mt4") or {}
+    if mt4.get("connected") is False:
+        return _result("MetaTrader terminals", "broker", "warn",
+                       f"All {len(REQUIRED_TERMINALS)} required terminals are running, but the MT4 "
+                       "terminal's DWX bridge is not answering - the process is up and the bridge is "
+                       "silent, so restarting the terminal is not the repair. Remove the DWX EA from "
+                       "its chart and attach it again inside MT4; nothing outside MT4 can do that.",
+                       running=sorted(running), mt4_bridge_silent=True,
+                       mt4_bridge_message=mt4.get("message"))
     return _result("MetaTrader terminals", "broker", "ok",
                    f"All {len(REQUIRED_TERMINALS)} required terminals are running "
                    f"({len(running)} in total).", running=sorted(running))
@@ -886,7 +903,17 @@ def overall_status(checks: list[dict]) -> str:
 
 def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, save: bool = True) -> dict:
     started = _now_utc()
-    runners = [check_app_process, lambda: check_app_http(get), lambda: check_brokers(get), check_terminals, check_autonomy,
+    # The broker result is kept so the terminal check can see it: a terminal whose process is running
+    # but whose bridge is silent must not be reported as healthy beside "MT4 bridge disconnected".
+    broker_check: dict = {}
+
+    def _brokers() -> dict:
+        result = check_brokers(get)
+        broker_check.update(result)
+        return result
+
+    runners = [check_app_process, lambda: check_app_http(get), _brokers,
+               lambda: check_terminals(brokers=broker_check), check_autonomy,
                lambda: check_demo_execution(get), check_demo_pullback,
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
