@@ -6824,9 +6824,48 @@ def _build_signal_payload_uncached():
     auto_state = load_auto_trader_state()
     payload = []
     for symbol in traded_symbols():
-        data = fetch_real_data(symbol, period="120d", interval="1h")
-        if data.empty:
-            data = generate_synthetic_data(symbol, n=500)
+        # BROKER BARS FIRST. get_bars() is the app's own MT5-then-Yahoo helper, the same feed the
+        # strategies and the execution guard price from, and it never invents data. The signal path
+        # used to go straight to Yahoo, which is a different feed from the one the orders are priced
+        # on and which has no ticker at all for some traded symbols (NAS100 returns a 404).
+        data, bar_source = None, None
+        try:
+            broker_frame, broker_source = get_bars(symbol, "1h", 2000)
+            if broker_frame is not None and not broker_frame.empty:
+                data, bar_source = broker_frame.copy(), broker_source
+        except Exception as exc:
+            app.logger.warning("signal bars: broker feed failed for %s: %s", symbol, exc)
+        if data is None:
+            data = fetch_real_data(symbol, period="120d", interval="1h")
+            bar_source = str(data.attrs.get("source") or "yahoo") if not data.empty else None
+        # A signal built on INVENTED prices must never reach a screen or an execution path.
+        #
+        # fetch_real_data falls back to generate_synthetic_data when the feed fails - a random walk
+        # that always ends 2024-12-31. On 24 September 2026 the owner asked why the dashboard showed
+        # BUY while gold was bearish. It was this: NAS100 has no Yahoo ticker at all (404, "Quote not
+        # found"), and BTCUSD's fetch had failed too, so both were publishing directional signals
+        # derived from a random number generator, on a bar 632 days old, with nothing on any page
+        # saying so. CLAUDE.md already forbids it: "never invent data to fill a gap - return
+        # available: false instead of a plausible-looking number."
+        #
+        # So a synthetic frame now produces a row that says UNAVAILABLE and why. HOLD would be wrong:
+        # HOLD is a real opinion meaning "no trade here", and this is the absence of an opinion.
+        if data is None or data.empty or str(bar_source or "").lower() == "synthetic":
+            payload.append({
+                "symbol": symbol,
+                "signal": "UNAVAILABLE",
+                "available": False,
+                "tradable": False,
+                "confidence": None,
+                "ensemble_probability": None,
+                "signal_bar_time": None,
+                "signal_bar_age_minutes": None,
+                "data_source": "unavailable",
+                "reason": (f"No real price data for {symbol}: the feed returned nothing, so no signal "
+                           "was produced. The system will not publish a direction it cannot price."),
+                "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            continue
         # Execution safety item 4: predict on the newest CLOSED 1h bar. The forming bar is dropped, and inference
         # features keep the last 3 rows that build_features used to discard for their unknown look-ahead target.
         from src.paper_trader import drop_forming_bars
@@ -6937,6 +6976,9 @@ def _build_signal_payload_uncached():
                     "lstm_f1_score": lstm_metrics.get("f1_score"),
                 },
                 "signal_bar_time": _signal_bar_time_text(engine_result.get("signal_time")),
+                # Which feed priced this signal. It was invisible before, which is how two symbols
+                # published directional calls from a random walk without anyone being able to tell.
+                "data_source": bar_source,
                 "signal_bar_age_minutes": _signal_bar_age_minutes(engine_result.get("signal_time"), signal_now),
                 "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -19620,6 +19662,9 @@ def signal_live_api():
       "ensemble_probability": item.get("ensemble_probability"),
       "signal_bar_time": item.get("signal_bar_time"),
       "signal_bar_age_minutes": age,
+      "data_source": item.get("data_source"),
+      "available": item.get("available", True),
+      "reason": item.get("reason"),
       "generated_at": item.get("generated_at"),
       "fresh": bool(item.get("signal_bar_time")) and age is not None and float(age) <= LIVE_SIGNAL_MAX_BAR_AGE_MINUTES,
     })

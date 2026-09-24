@@ -109,8 +109,25 @@ SYSTEM_MAGICS = (
     440603,   # volatility trend breakout
     440704,   # daily plan executor
     440805,   # sweep reversal
-    903110,   # the auto-trade route ("AI Auto Trader"), mt5_service's default magic
+    903110,   # AI Auto Trader - SEE THE CAVEAT BELOW; also mt5_service's default magic
 )
+
+# 903110 is the AI Auto Trader, which the owner confirmed on 24 September 2026 IS part of this
+# system, so it is counted. But it needs a caveat wherever it is reported, because it is also the
+# DEFAULT value of the ``magic`` parameter in trading/mt5_service.py: any caller that does not set a
+# magic - a dashboard button, a panel, a manual click - lands on the same number and becomes
+# indistinguishable from the auto trader's own work.
+#
+# That ambiguity is not theoretical. This account carries 34 distinct magic numbers and thousands of
+# trades from the owner's other experts, and over the period 903110 shows 94 closed trades the
+# system's own execution journal has no record of placing (it recorded 8 events and 4 tickets, all
+# magic 440401). So the number is reported WITH the caveat rather than as a clean figure, and the
+# real repair is to give the auto trader its own explicit magic so future trades are attributable.
+SHARED_DEFAULT_MAGICS = {
+
+    903110: ("AI Auto Trader - but this is also mt5_service's DEFAULT magic, so anything else routed "
+             "through that call without its own magic is counted here too"),
+}
 
 
 def trading_heatmaps(deals: Iterable[dict], magic=None) -> dict:
