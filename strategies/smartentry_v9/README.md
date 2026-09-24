@@ -25,14 +25,20 @@ spread window, and the result lands within 8 % of gold's stop when both are expr
 20 Aug - 24 Sep) **zero** bars exceeded either cap. Gold's tightest moment is the 22:00 UTC rollover
 hour, median 26 and max 28 against a cap of 30.
 
-**The `Structure*` inputs are the one open question.** `StructureDepth=210`, `StructureSpacing=110`
-and `StructureRefreshBars=60` are **identical** in both sets, while everything else price-related was
-scaled about 24x for bitcoin. If those inputs are counted in BARS that is correct and nothing is
-wrong. If they are counted in POINTS, bitcoin's structure detection is running at roughly 1/100th of
-the intended scale. The `.ex5` is compiled and the MT4 `AurumFlow-v7.mq4` on this machine is a
-different expert that does not contain these inputs, so it cannot be settled from the files. Settle
-it by running the bitcoin set once with `StructureSpacing=110` and once with `11000`: if the trade
-count barely moves they are bars, and if it changes sharply they are points.
+**The `Structure*` inputs are BAR COUNTS - settled 24 September 2026, from source.** They are
+identical in both sets while everything else price-related was scaled about 24x for bitcoin, which
+looked like an oversight. It is not. `MQL4/Experts/AurumFlow-v7.mq4` is the same expert (same inputs,
+same `SL=2100`, `TP=1800`, `MagicNumber=060701111`) and uses them as bars, not points:
+
+    int start = MathMin(StructureDepth, Bars-3);          // a bar count
+    if(idx2 < 0 || MathAbs(idx2 - idx1) < StructureSpacing)  // a gap between BAR INDICES
+    if(g_barsSinceRedraw >= StructureRefreshBars)         // bars since the last redraw
+
+So leaving them unscaled for bitcoin is **correct**, and there is no bug here. Do not "fix" it.
+
+**The spread filter refuses outside the window, confirmed from the same source** - `if(spreadPoints <
+MinSpreadPoints) return false; if(spreadPoints > MaxSpreadPoints) return false;`. That is why the cap
+matters: a spread above it is a refused trade, silently.
 
 ## Candidates
 
