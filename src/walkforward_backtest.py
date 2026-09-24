@@ -87,6 +87,35 @@ BACKTEST_COSTS = {
                "note": "0.0267 % spread at the 90th percentile, doubled for slippage; measured "
                        "2026-09-22 over 100,912 M1 bars (was 0.0009, about 3.4x the real spread, "
                        "which was suppressing genuinely profitable bitcoin candidates)"},
+    # Added 24 Sep 2026 for the owner's three new markets, measured the SAME way on 60,000 M1 bars
+    # each from their own terminal, using the broker's per-minute spread column. The method was
+    # validated before it was trusted: re-measuring gold and bitcoin with it reproduced the stored
+    # figures almost exactly (XAUUSD 0.00011324 against 0.000115, BTCUSD 0.00053047 against
+    # 0.000534), so these three are on the same footing as the two that were already here.
+    #
+    #   NAS100  p50 0.0027 %  p90 0.0028 %  p99 0.0029 %  worst 0.0037 %
+    #   ETHUSD  p50 0.0995 %  p90 0.1293 %  p99 0.1310 %  worst 0.1320 %
+    #   XRPUSD  p50 0.5922 %  p90 0.8207 %  p99 0.8308 %  worst 0.8430 %
+    #
+    # XRPUSD IS THE FINDING, and it is a warning rather than an opportunity: a round trip costs
+    # 1.64 % of price, which is 31x bitcoin and 145x gold. A strategy needs an edge larger than that
+    # before it earns anything at all, so an XRP result that looks profitable under a generic cost
+    # assumption is almost certainly an artefact of the assumption. Charging it honestly is the only
+    # way the comparison between markets means anything.
+    #
+    # Same caveat as the others: two months of minutes, no stressed gap in the window. The doubling
+    # is what carries that risk.
+    "NAS100": {"round_trip_pct": 0.0000564,
+               "note": "0.0028 % spread at the 90th percentile, doubled for slippage; measured "
+                       "2026-09-24 over 60,000 M1 bars. The cheapest market here - less than half "
+                       "gold's cost"},
+    "ETHUSD": {"round_trip_pct": 0.00258555,
+               "note": "0.1293 % spread at the 90th percentile, doubled for slippage; measured "
+                       "2026-09-24 over 60,000 M1 bars. About 5x bitcoin's cost"},
+    "XRPUSD": {"round_trip_pct": 0.01641477,
+               "note": "0.8207 % spread at the 90th percentile, doubled for slippage; measured "
+                       "2026-09-24 over 60,000 M1 bars. A round trip costs 1.64 % of price - 31x "
+                       "bitcoin - so an edge must clear that before anything is earned"},
     "default": {"round_trip_pct": 0.001, "note": "generic assumption for an unmeasured symbol"},
 }
 
