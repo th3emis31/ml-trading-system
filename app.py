@@ -24158,6 +24158,46 @@ def analytics_api():
     if not history:
         history = build_signal_payload()
     return jsonify(build_signal_analytics(history))
+@app.route('/api/live-account')
+def live_account_api():
+  """Whether real money may trade, per platform, and every reason behind the answer.
+
+  Reports only: it places no orders and holds no password. The execution guard and the per-strategy
+  account checks still apply on top of whatever this says.
+  """
+  from src import live_account, performance_analytics as pa
+  mt5_account = mt4_account = None
+  try:
+    if MT5_ENGINE is not None and hasattr(MT5_ENGINE, 'account_info'):
+      info = MT5_ENGINE.account_info() or {}
+      mt5_account = info.get('account') if isinstance(info.get('account'), dict) else info
+  except Exception:
+    mt5_account = None
+  try:
+    status = MT4_ENGINE.status() or {}
+    if status.get('connected'):
+      mt4_account = {'login': status.get('account'), 'server': status.get('server'),
+                     'balance': status.get('balance'), 'currency': status.get('currency')}
+  except Exception:
+    mt4_account = None
+
+  growth = None
+  try:
+    if MT5_ENGINE is not None and hasattr(MT5_ENGINE, 'deal_history'):
+      history = MT5_ENGINE.deal_history(days=3650) or {}
+      deals = history.get('deals') if isinstance(history, dict) else history
+      growth = pa.growth_tracker(deals or [], magic=list(pa.SYSTEM_MAGICS))
+  except Exception:
+    growth = None
+
+  state = load_auto_trader_state()
+  session = state.get('session') if isinstance(state.get('session'), dict) else {}
+  out = live_account.live_readiness(mt5_account=mt5_account, mt4_account=mt4_account,
+                                    growth=growth, settings=session)
+  out['growth'] = (growth or {}).get('totals')
+  return jsonify(out)
+
+
 @app.route('/api/growth')
 def growth_api():
   """Win/loss and money earned per day, week, month and year - the two questions the owner asks most.
