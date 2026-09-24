@@ -155,10 +155,55 @@ def screen_one(symbol: str, terminal_path: Optional[str] = None, bars: int = DEF
         columns={"tick_volume": "volume"}).reset_index(drop=True)
     years = (frame["datetime"].iloc[-1] - frame["datetime"].iloc[0]).days / 365.25
 
-    out = run_walkforward_backtest(symbol.upper(), "5y", data=frame, n_folds=folds)
+    # rf_proba, not the live engine, and this is a screening decision rather than a shortcut.
+    #
+    # "live_engine" re-predicts every out-of-sample bar through the full ensemble, which is right when
+    # judging ONE strategy because it reproduces exactly what the dashboard would have done. Measured
+    # on 12,000 gold H4 bars it takes over 350 seconds against 26 for rf_proba - fifteen times - so a
+    # twelve-symbol screen becomes many hours on a machine that kills long jobs, which is how the
+    # first attempt lost seventy minutes and produced nothing.
+    #
+    # The screener's question is which markets deserve attention, and that is a RELATIVE ranking. The
+    # same signal path applied to every symbol answers it honestly. What this result must not be
+    # treated as is a verdict on a market: anything that ranks well here should then be re-run through
+    # the live-engine path before a single decision is made on it.
+    out = run_walkforward_backtest(symbol.upper(), "5y", data=frame, n_folds=folds,
+                                   signal_mode="rf_proba")
     if not out.get("available"):
         return {"symbol": symbol, "skipped": str(out.get("reason"))[:120]}
     return screen_row(symbol, out.get("metrics") or {}, cost, len(frame), years)
+
+
+def _load_previous() -> dict:
+    """Symbols already screened in an earlier run, so a killed job resumes instead of restarting.
+
+    Keyed by symbol. Re-running the same list after a kill costs only the symbol that was in flight.
+    """
+    try:
+        prior = json.loads(RESULTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for row in (prior.get("ranked") or []) + (prior.get("skipped") or []):
+        if row.get("symbol"):
+            out[row["symbol"]] = row
+    return out
+
+
+def _save_report(rows: list, skipped: list, settings: dict) -> dict:
+    ranked = sorted(rows, key=rank_key)
+    report = {
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "settings": settings, "ranked": ranked, "skipped": skipped,
+        "with_evidence": [r for r in ranked if r.get("evidence")],
+        "done": len(rows) + len(skipped),
+        "places_orders": False,
+    }
+    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = RESULTS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(report, indent=1), encoding="utf-8")
+    tmp.replace(RESULTS_PATH)
+    return report
 
 
 def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: int = DEFAULT_BARS,
@@ -169,8 +214,20 @@ def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: in
     was killed twice by this machine's memory ceiling, and the reflex fix - fewer folds - would have
     bought speed by making every number less reliable.
     """
+    # Results are written after EVERY symbol, not at the end. The first run of this lost seventy
+    # minutes of completed work when the machine's memory ceiling killed it on symbol seven of
+    # twelve: eleven finished backtests existed only in a list in a process that no longer did. A
+    # long job on a machine that kills long jobs has to be able to lose only its current step.
+    settings = {"timeframe": "H4", "bars": bars, "folds": folds,
+                "min_trades_for_evidence": MIN_TRADES_FOR_EVIDENCE,
+                "costs": "measured per symbol from broker M1 spread, p90 doubled"}
     rows, skipped = [], []
+    done = _load_previous()
+    report = _save_report(rows, skipped, settings)
     for symbol in symbols:
+        if symbol in done:
+            (skipped if done[symbol].get("skipped") else rows).append(done[symbol])
+            continue
         cmd = [sys.executable, "-c",
                "import json,sys;from src.market_screener import screen_one;"
                f"print('@@'+json.dumps(screen_one({symbol!r}, {terminal_path!r}, {bars}, {folds})))"]
@@ -183,17 +240,6 @@ def screen(symbols: Iterable[str], terminal_path: Optional[str] = None, bars: in
         except Exception as exc:
             row = {"symbol": symbol, "skipped": f"{type(exc).__name__}: {exc}"}
         (skipped if row.get("skipped") else rows).append(row)
+        report = _save_report(rows, skipped, settings)     # after EVERY symbol, so a kill costs one step
 
-    ranked = sorted(rows, key=rank_key)
-    report = {
-        "at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "settings": {"timeframe": "H4", "bars": bars, "folds": folds,
-                     "min_trades_for_evidence": MIN_TRADES_FOR_EVIDENCE,
-                     "costs": "measured per symbol from broker M1 spread, p90 doubled"},
-        "ranked": ranked, "skipped": skipped,
-        "with_evidence": [r for r in ranked if r.get("evidence")],
-        "places_orders": False,
-    }
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RESULTS_PATH.write_text(json.dumps(report, indent=1), encoding="utf-8")
     return report

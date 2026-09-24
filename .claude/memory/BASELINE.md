@@ -153,3 +153,44 @@ for a finding later.
 Caveat on the whole table: daily bars and 3 folds, chosen because 5 symbols x 5 folds was killed twice
 by the 7.5 GB memory ceiling. Fewer folds means a coarser estimate, not a wrong one, but the ranking
 between markets is what should be trusted here rather than any single return figure.
+
+## 2026-09-24 — Market screen, 11 symbols, H4, measured costs, rf_proba
+
+Owner asked to backtest stocks and more assets and to improve the backtesting rather than repeat it.
+`src/market_screener.py`: H4 bars (daily makes the stop-before-target resolution ambiguous far more
+often and yields a sixth of the trades), each symbol's round trip MEASURED from its own M1 spread
+column, a 100-trade evidence gate, one symbol per process, ranked on after-cost expectancy.
+
+| Symbol | Trades | PF | Expectancy | Return | Max DD | Cost/RT | Evidence |
+|---|---|---|---|---|---|---|---|
+| AAPL | 1291 | 1.140 | +0.104 % | +200.11 % | 32.9 % | 0.0742 % | YES |
+| NAS100 | 1801 | 1.123 | +0.035 % | +78.36 % | 16.8 % | 0.0056 % | YES |
+| SP500 | 585 | 1.137 | +0.034 % | +20.36 % | 13.6 % | 0.0096 % | YES |
+| TSLA | 241 | 0.959 | −0.067 % | −28.14 % | 43.2 % | 0.0848 % | YES |
+| MSFT | 841 | 0.883 | −0.105 % | −64.82 % | 81.4 % | 0.0836 % | YES |
+| DELL | 174 | 0.923 | −0.123 % | −28.07 % | 54.3 % | 0.2339 % | YES |
+| INTEL | 880 | 0.718 | −0.442 % | −98.68 % | 98.9 % | 0.3552 % | YES |
+| XAUUSD | 81 | 0.963 | −0.025 % | −3.13 % | 20.7 % | 0.0113 % | no |
+| BTCUSD | 30 | 0.480 | −0.475 % | −13.59 % | 17.5 % | 0.0528 % | no |
+| NVDAUSD | 70 | 0.549 | −0.336 % | −21.45 % | 25.9 % | 0.2296 % | no |
+| ETHUSD | 30 | 0.678 | −0.495 % | −15.02 % | 16.9 % | 0.2583 % | no |
+
+**Three markets clear the evidence gate profitably: AAPL, NAS100 and SP500.** NAS100 is the most
+interesting of them - 1,801 trades, the LOWEST drawdown of the three at 16.8 %, and the cheapest cost
+of every symbol tested at 0.0056 % round trip, so its edge has the least to overcome. AAPL has the
+largest return but a third more drawdown and thirteen times the cost.
+
+**INTEL is the clearest warning about stocks**: −98.68 % with a 98.9 % drawdown on 880 trades, at a
+0.3552 % round trip. Four of the seven stocks with enough trades LOSE, and the losses track the cost
+column closely - the two dearest (INTEL, DELL) are both heavily negative.
+
+**The system's own two markets fail the evidence gate here.** Gold takes 81 trades and bitcoin 30,
+both negative. That is a statement about THIS signal path on H4, not about the rule strategies (VTB
+and the rest), which trade on their own logic and are not measured by this.
+
+LIMIT, and it matters: this uses `signal_mode="rf_proba"`, not the live engine. Measured on 12,000
+gold H4 bars, live_engine takes over 350 s against 26 s - fifteen times - so an eleven-symbol screen
+in live mode is many hours on a machine that kills long jobs, and the first attempt lost seventy
+minutes and produced nothing. rf_proba applied identically to every symbol answers the RELATIVE
+question honestly. Nothing here is a verdict on a market: AAPL, NAS100 and SP500 must be re-run
+through the live-engine path before any decision follows from them.
