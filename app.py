@@ -931,6 +931,33 @@ MT5_ENGINE = MT5Service()
 # this route never overrides it. Named here because the one-trade-per-asset rule counts positions by
 # it, and a rule that silently counted the wrong magic would either block everything or nothing.
 AUTO_TRADE_MAGIC = 903110
+
+# The markets this system trades, in ONE place.
+#
+# It was hard-coded as ['XAUUSD', 'BTCUSD'] in 44 separate spots, so enabling NAS100 and AAPL in the
+# settings switched them on for trading while every page, chart and API guard still denied they
+# existed - a symbol could be live and invisible at the same time. The owner's settings are the
+# source of truth; gold and bitcoin remain the fallback so behaviour is unchanged if the settings
+# cannot be read.
+DEFAULT_TRADED_SYMBOLS = ('XAUUSD', 'BTCUSD')
+
+
+def traded_symbols(state=None):
+  """Every symbol the owner has switched on, upper-cased, gold and bitcoin first."""
+  try:
+    state = state if isinstance(state, dict) else load_auto_trader_state()
+    assets = ((state.get('settings') or {}).get('asset_settings') or {})
+    on = [str(sym).upper() for sym, cfg in assets.items() if isinstance(cfg, dict) and cfg.get('auto_enabled')]
+  except Exception:
+    on = []
+  ordered = [s for s in DEFAULT_TRADED_SYMBOLS if s in on] + sorted(s for s in on if s not in DEFAULT_TRADED_SYMBOLS)
+  return ordered or list(DEFAULT_TRADED_SYMBOLS)
+
+
+def is_traded(symbol) -> bool:
+  """Whether a symbol may be asked for. Guards used a hard-coded pair and returned 400 for anything
+  else, which is why a newly enabled market could not even have its candles fetched."""
+  return str(symbol or '').upper() in set(traded_symbols())
 # Pin the MT4 bridge to one account. Several terminals can each expose a DWX
 # bridge, so without this the client attaches to whichever answers first and
 # could place orders on the wrong account. Override with MT4_ACCOUNT=0 to
@@ -2548,7 +2575,7 @@ def build_performance_summary():
     source = "recorded signals"
   else:
     sim_results = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
       summary = build_shadow_simulation(symbol, entries=12, horizon=24)
       sim_results.extend(summary.get("results", []))
     # Say so when the numbers are simulated rather than recorded signal outcomes.
@@ -6755,7 +6782,7 @@ def _signal_bar_age_minutes(signal_time, now):
 def _build_signal_payload_uncached():
     auto_state = load_auto_trader_state()
     payload = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         data = fetch_real_data(symbol, period="120d", interval="1h")
         if data.empty:
             data = generate_synthetic_data(symbol, n=500)
@@ -17241,7 +17268,7 @@ def auto_trade_stop_session_api():
 
 @app.route('/api/train-status')
 def train_status_api():
-    symbols = ['XAUUSD', 'BTCUSD']
+    symbols = traded_symbols()
     history = {
         symbol: {
             'daily': load_daily_history(symbol),
@@ -17260,7 +17287,7 @@ def train_status_api():
 def model_status_api():
     signals = {item['symbol']: item for item in build_signal_payload()}
     status = []
-    for symbol in ['XAUUSD', 'BTCUSD']:
+    for symbol in traded_symbols():
         metrics = get_model_status(symbol)
         current_signal = signals.get(symbol, {})
         status.append({
@@ -17298,7 +17325,7 @@ def model_status_api():
 def learn_status_api():
     signals = {item['symbol']: item for item in build_signal_payload()}
     symbols = []
-    for symbol in ['XAUUSD', 'BTCUSD']:
+    for symbol in traded_symbols():
         metrics = get_model_status(symbol)
         daily_history = load_daily_history(symbol)
         weekly_history = load_weekly_history(symbol)
@@ -17378,7 +17405,7 @@ def chart_learn(symbol: str):
 @app.route('/api/power-analysis/<symbol>', methods=['POST'])
 def power_analysis_api(symbol: str):
   symbol = symbol.upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     symbol = 'XAUUSD'
 
   notes = str(request.form.get('notes', '') or '').strip()
@@ -17406,7 +17433,7 @@ def power_analysis_api(symbol: str):
 @app.route('/api/screenshot-learn', methods=['POST'])
 def screenshot_learn_api():
   symbol = str(request.form.get('symbol', 'XAUUSD') or 'XAUUSD').upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     symbol = 'XAUUSD'
   frequency = str(request.form.get('frequency', 'daily') or 'daily').lower()
   frequency = 'weekly' if frequency == 'weekly' else 'daily'
@@ -17527,7 +17554,7 @@ def index():
 
 
 def build_live_plans():
-    return [build_live_plan_with_chart(symbol) for symbol in ['XAUUSD', 'BTCUSD']]
+    return [build_live_plan_with_chart(symbol) for symbol in traded_symbols()]
 
 # Signal Center v2 (13 Sep 2026). The page renders at once and loads everything in the browser:
 # live plans (/api/live-plan/<symbol>), broker candles (/api/data/bars) drawn with exact price
@@ -18769,7 +18796,7 @@ def tradingview_page():
 def tradingview_live_price_api():
   """Live broker bid/ask for the Daily plan chart (14 Sep 2026). Read-only; never places orders."""
   symbol = str(request.args.get('symbol') or '').upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD'}), 400
   if MT5_ENGINE is None:
     return jsonify({'available': False, 'symbol': symbol, 'reason': 'MT5 is not available'})
@@ -19237,7 +19264,7 @@ _tradingview_plan_cache = {}
 @app.route('/api/tradingview/plan')
 def tradingview_plan_api():
   symbol = str(request.args.get('symbol') or 'XAUUSD').upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD', 'places_orders': False}), 400
   cached = _tradingview_plan_cache.get(symbol)
   if cached and monotonic() < cached['expires_at'] and str(request.args.get('refresh') or '') != '1':
@@ -19455,7 +19482,7 @@ def analytics_page():
 @app.route('/api/market-summary')
 def market_summary():
     symbols = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         values = build_live_series(symbol)
         latest = values[-1]
         symbols.append(
@@ -19473,7 +19500,7 @@ def market_summary():
 @app.route('/api/live-data')
 def live_data():
     symbols = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         values = build_live_series(symbol)
         symbols.append({
             "symbol": symbol,
@@ -19488,7 +19515,7 @@ def live_data():
 @app.route('/api/market-data-source')
 def market_data_source_api():
     rows = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         rows.append(_market_data_source_status(symbol))
     return jsonify({
         "symbols": rows,
@@ -19616,7 +19643,7 @@ def train_daily():
     if refused:
         return refused
     results = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         results.append(DailyLearner(symbol).run_cycle('daily'))
     return jsonify(results)
 
@@ -19627,7 +19654,7 @@ def train_weekly():
     if refused:
         return refused
     results = []
-    for symbol in ["XAUUSD", "BTCUSD"]:
+    for symbol in traded_symbols():
         results.append(DailyLearner(symbol).run_cycle('weekly'))
     return jsonify(results)
 
@@ -19968,7 +19995,7 @@ def get_live_pipeline_trace(symbol: str, refresh: bool = False) -> dict:
 @app.route('/api/pipeline/live')
 def pipeline_live_api():
   requested = str(request.args.get('symbol') or '').upper()
-  symbols = [requested] if requested in {'XAUUSD', 'BTCUSD'} else ['XAUUSD', 'BTCUSD']
+  symbols = [requested] if is_traded(requested) else traded_symbols()
   refresh = str(request.args.get('refresh') or '') in {'1', 'true', 'yes'}
   return jsonify([get_live_pipeline_trace(symbol, refresh=refresh) for symbol in symbols])
 
@@ -20140,7 +20167,7 @@ def pipeline_backtest_runs_api():
 def pipeline_training_status_api():
   keep = ('symbol', 'model_loaded', 'accuracy', 'lstm_accuracy', 'lstm_last_trained_at', 'rf_precision', 'rf_recall', 'rf_f1')
   models = []
-  for symbol in ['XAUUSD', 'BTCUSD']:
+  for symbol in traded_symbols():
     status = get_model_status(symbol)
     metrics = load_metrics(symbol) or {}
     model_path = Path(__file__).resolve().parent / 'models' / f'{symbol.lower()}_model.joblib'
@@ -20680,7 +20707,7 @@ def get_bars(symbol: str, timeframe: str, count: int = 600):
 def data_bars_api():
   symbol = str(request.args.get('symbol') or '').upper()
   timeframe = str(request.args.get('timeframe') or '1h')
-  if symbol not in {'XAUUSD', 'BTCUSD'} or timeframe not in BARS_API_TIMEFRAMES:
+  if not is_traded(symbol) or timeframe not in BARS_API_TIMEFRAMES:
     return jsonify({'available': False, 'reason': 'symbol must be XAUUSD or BTCUSD and timeframe one of ' + ', '.join(BARS_API_TIMEFRAMES)}), 400
   # A start/end window (ISO date or datetime, UTC) reads a slice of deep history instead of the
   # newest `count` bars. get_bars can only walk back from the latest bar and stops at 50,000, which
@@ -22049,7 +22076,7 @@ def _performance_read_json(path):
 def performance_api():
   from src import performance_analytics as pa
   symbol = str(request.args.get('symbol') or 'XAUUSD').upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     return jsonify({'error': 'symbol must be XAUUSD or BTCUSD'}), 400
   # 'system' keeps only this system's own strategies. The account also carries other people's experts, and mixing
   # their trades with these makes the page unable to answer "what did this system earn?" - so the page asks for
@@ -25054,7 +25081,7 @@ def _ea_log_tail(limit: int = 25) -> dict:
 @app.route('/api/ea/overview')
 def ea_overview_api():
   """Everything the EA panel needs: bridge health, quotes, account, EA log."""
-  symbols = ['XAUUSD', 'BTCUSD']
+  symbols = traded_symbols()
   bridges = {}
   for key, engine in (('mt4', MT4_ENGINE), ('mt5', MT5_ENGINE)):
     try:
@@ -28327,7 +28354,7 @@ def system_health_api():
 
   # ── ML models ──────────────────────────────────────────────────────────────
   models = {}
-  for sym in ['XAUUSD', 'BTCUSD']:
+  for sym in traded_symbols():
     m = get_model_status(sym)
     models[sym] = {
       'loaded': m.get('model_loaded', False),
@@ -28338,7 +28365,7 @@ def system_health_api():
 
   # ── Prices (lite uses cache only; full can fetch live quotes) ─────────────
   prices = {}
-  for sym in ['XAUUSD', 'BTCUSD']:
+  for sym in traded_symbols():
     cached_quote = _market_get_cached_quote(sym) or {}
     p = cached_quote.get('price')
     chg = cached_quote.get('change_pct')
@@ -28682,7 +28709,7 @@ def camera_analyze_api():
   payload = request.get_json(silent=True) or {}
   b64_image = str(payload.get('image', '')).strip()
   symbol    = str(payload.get('symbol', 'XAUUSD')).upper()
-  if symbol not in {'XAUUSD', 'BTCUSD'}:
+  if not is_traded(symbol):
     symbol = 'XAUUSD'
 
   if not b64_image:
@@ -29042,7 +29069,7 @@ def jarvis_market_analysis():
     try:
         analysis = {}
         
-        for symbol in ['XAUUSD', 'BTCUSD']:
+        for symbol in traded_symbols():
             report = jarvis_analytics.generate_market_report(symbol)
             if report:
                 analysis[symbol] = report
