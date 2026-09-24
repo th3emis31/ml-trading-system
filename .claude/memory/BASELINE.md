@@ -275,3 +275,33 @@ the models.
 
 Recorded as a negative result so the next person does not re-run the calibration idea: it looks like
 the answer and it is not.
+
+## 2026-09-24 — AAPL's +200 % is drift, not skill. Not added. Test: random-entry benchmark.
+
+The screen ranked AAPL first (+200.11 % against +56.88 % buy-and-hold) and the owner asked to add it
+"very safely". Two checks were run before adding anything, and both failed it.
+
+**1. The live engine and rf_proba produced IDENTICAL results** - AAPL 1291 trades / +200.108 % / PF
+1.14 on both, NAS100 1801 / +78.356 % / 1.123 on both, to three decimals. Two different signal paths
+cannot agree exactly unless the signal never varies. The mode was verified as actually applied (the
+subprocess receives 'live_engine' and each row records it) before drawing that conclusion.
+
+**2. The random-entry benchmark settles it.** Same market, same test window, same 5-bar mean holding
+period taken from the strategy's own trades, same measured 0.0742 % cost, 2,000 random long entries:
+
+  strategy expectancy   +0.1045 % per trade
+  random long           +0.1032 % per trade  (median +0.2825 %, 54.9 % positive)
+  strategy percentile   46.9 %  -  BELOW the median random entry
+
+Every sampled trade was a BUY and exposure was 74.76 %. So the strategy is long three quarters of the
+time in a stock that rose, and its entry timing is indistinguishable from - very slightly worse than -
+choosing bars at random. The +200 % is AAPL's drift compounded over 1291 long trades, and the model
+contributes nothing.
+
+**Not added.** The safe option here is the refusal: putting this live would be a leveraged long on one
+stock wearing the label of a strategy, and its 32.9 % drawdown is the price of that leverage.
+
+The general lesson, and the cheapest test in this file: **a positive backtest on a market that rose
+proves nothing until it is compared with random entries of the same duration and exposure.** Buy-and-
+hold catches the worst cases; the random-entry benchmark catches the rest, and it cost one screenful
+of code.
