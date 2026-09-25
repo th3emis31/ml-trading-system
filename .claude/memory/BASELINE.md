@@ -650,3 +650,43 @@ The contrast is the whole point. SL 3000 in the current era reads 2100 +1234.62,
 4000 +1894.40, 5000 +1797.15**, 6000 +1243.32 - a smooth hill with three adjacent values beating the
 baseline. Bitcoin's spacing reads 116, 118, 120, 122, 124 all positive. Those are regions. Gold's 111
 is a spike, and the difference between them is what separates a mechanism from a lucky cell.
+
+## 2026-09-25 — Why the LSTM stops improving: it is not the data, and the champion is a lucky seed
+
+The owner observed that the LSTM never improves. It is retrained daily and the champion has not moved
+in weeks: XAUUSD 0.5424, BTCUSD 0.5499, with every challenger rejected. Today's two came in at 0.4601
+and 0.4969, the worst yet.
+
+**First finding - the daily retrain is almost a no-op.** `daily_learning` trains on `120d` of hourly
+bars = **2,880 rows**, while the broker holds **50,000** (2018-04-11 onward). That is 5.8 % of what
+exists, and each daily run adds 24 bars - **0.83 % new data**. A challenger trained on a window
+99.2 % identical to yesterday's is the same dice re-rolled with a different random seed, which is
+exactly the observed pattern: challengers scattered with no trend.
+
+**Second finding - and this is the one that matters - more data does not help.** Everything held
+fixed, only the window varied, trained in a sandbox so the live champions were untouched:
+
+| window | bars | runs | accuracy |
+|---|---|---|---|
+| 2,880 | 120 days | 2 | 0.4351, 0.4845 |
+| 8,760 | 1 year | 2 | 0.5000, 0.5188 |
+| 20,000 | 2.3 years | 2 | 0.4757, 0.4888 |
+| 40,000 | 4.6 years | 1 | 0.5092 |
+
+**Fourteen times the data moves nothing.** Every window sits at chance, 0.4351 to 0.5188, with no
+trend in window size. This agrees with the permutation result of 24 September: the features carry no
+directional signal, so there is nothing for a longer history to reveal.
+
+**Third finding - the live champion is an outlier draw, not a better model.** Its 0.5424 is ABOVE all
+seven measurements here and above both of today's challengers. The promotion gate keeps whichever
+challenger scored best and never lets a worse one through, so over months it has locked in the
+luckiest seed from a distribution centred on chance. It looks like a champion; it is a lottery
+winner, and no amount of retraining will beat it because beating it requires drawing luckier still.
+
+**What follows.** Retraining more often, or on more history, cannot fix this - both were measured.
+The lever is different FEATURES or a different prediction target, proven before anything goes live.
+Until then the honest position is the one the dashboard already shows: the gold model has no edge.
+
+Method note: the sandbox used `SMARTENTRY_MODELS_DIR`, as the test suite does, so no live model was
+written. The accuracies come from the trainer's own test split rather than the gate's holdout, so
+they are comparable with each other and only indicative against the champion's figure.
