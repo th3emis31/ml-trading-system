@@ -626,3 +626,27 @@ remains spread-bound: gross edge per trade must stay above this broker's 0.1694.
 **Rejected on bitcoin in the same session:** EnableRecoveryMode2 ON is catastrophic (19,390 trades,
 PF 0.77, 38% drawdown); PendingOrderDistance scaled to 3100 is worse; the SL sweep was noise (one
 positive cell between two much worse ones).
+
+## 2026-09-24 — Gold fine structure sweep: REJECTED (a spike, not a plateau)
+
+Bitcoin's whole improvement came from a fine move in StructureSpacing (110 -> 120), and gold's spacing
+had only ever been swept coarsely (75/90/120/135, all far worse), so the fine region was tested:
+
+| spacing | net | PF | DD% |
+|---|---|---|---|
+| 98 | −418.77 | 0.98 | 17.58 |
+| 101 | +2057.07 | 1.11 | 6.95 |
+| **105 (baseline)** | **+2007.89** | **1.12** | **6.34** |
+| 108 | +1797.19 | 1.10 | 6.29 |
+| **111** | **+2424.48** | 1.13 | 7.33 |
+| 114 | +750.15 | 1.04 | 11.20 |
+
+Spacing 111 beats the baseline by +416.59, which rivals the SL 3000 candidate's +444.63 - **and it is
+rejected**, because it sits between 108 (−210.70) and 114 (−1257.74). An isolated cell between two
+worse ones is the shape that failed on the bitcoin SL sweep, and the standard has to apply to the
+result that flatters the search as well as the one that does not.
+
+The contrast is the whole point. SL 3000 in the current era reads 2100 +1234.62, **3000 +1911.43,
+4000 +1894.40, 5000 +1797.15**, 6000 +1243.32 - a smooth hill with three adjacent values beating the
+baseline. Bitcoin's spacing reads 116, 118, 120, 122, 124 all positive. Those are regions. Gold's 111
+is a spike, and the difference between them is what separates a mechanism from a lucky cell.
