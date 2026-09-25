@@ -13,6 +13,7 @@ met, and a judgement is recorded rather than inferred. The EVIDENCE beside each 
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -197,6 +198,37 @@ def _self_improvement() -> dict:
         return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def _builder() -> dict:
+    """The making hand: can it build, and what have its own checks said about what it built?
+
+    Counts verdicts rather than builds, because "12 builds" says nothing - `verified` versus `failed`
+    is the only split that means anything, and a system that reported the total would be flattering
+    itself.
+    """
+    try:
+        from pathlib import Path
+
+        from .builder import MAX_REPAIRS
+        from .runtime_paths import smartentry_data_dir
+
+        record = Path(smartentry_data_dir()) / "builds" / "builds.jsonl"
+        verdicts: dict = {}
+        if record.exists():
+            for line in record.read_text(encoding="utf-8").splitlines():
+                try:
+                    verdicts[json.loads(line).get("verdict", "?")] =                         verdicts.get(json.loads(line).get("verdict", "?"), 0) + 1
+                except ValueError:
+                    continue
+        return {"available": True, "spec_first": True, "repairs_capped_at": MAX_REPAIRS,
+                "verdicts": verdicts, "builds": sum(verdicts.values()),
+                "evidence": ("Grounding checks in a spec measured +38pp more correct code than a "
+                             "strong baseline (arXiv:2607.06636); test COUNT measured as not the "
+                             "lever, so one check per rule."),
+                "never": "reports success on the model's own word - the verdict comes from the checks"}
+    except Exception as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def build_map_state() -> dict:
     """Everything the page shows, read from the running system."""
     done = [s for s in STEPS if s["done"]]
@@ -214,6 +246,7 @@ def build_map_state() -> dict:
         "loops": _loops(),
         "failure_modes": _failure_modes(),
         "portability": _portability(),
+        "builder": _builder(),
         "self_improvement": _self_improvement(),
         "constraint": ("Work anywhere with internet, and fully local without internet. Offline means "
                        "a small local model, so the competence is put in the SYSTEM rather than the "

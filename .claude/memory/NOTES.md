@@ -303,3 +303,39 @@ TWO BUGS THIS FOUND, both in guard code, both fixed with tests:
 
 Step 10 is marked done with its gap stated: the loop is NOT unattended. Scheduling it is a T3 action
 under its own rules, so that is the owner's decision.
+
+## 2026-09-25 - step 9's offline half is closed: the system is independent
+
+Ollama 0.34.4 installed (winget Ollama.Ollama) and `qwen2.5-coder:7b` pulled, 4.7 GB, which is the
+model `src/ai_provider.py` DEFAULT_CONFIG already expected at http://127.0.0.1:11434. The system now
+reports `independent: True` - "ollama answers locally, so this machine can work without the
+subscription".
+
+Verified by ASKING it, not by seeing the port open: forced the local provider specifically and got a
+correct one-sentence answer about stop-losses. **It took 107.6 seconds.** That is CPU inference on a
+7B model on a 7.5 GB machine, and it matters for how the offline path is used - it is fine for a
+nightly review or a single decision, and far too slow to sit inside an hourly cycle. Anything routed to
+it should be routed deliberately.
+
+Still open on step 9, and it is the only thing left: the system has never STARTED on a second physical
+PC. `scripts/first_run_on_new_machine.py` is the read-only command to run there - it names every path
+that is wrong on that machine, checks the system's own files, and records the answer in
+`data/system_health/first_run.json`. Verified READY here, with a real XAUUSD bid from account 11581419.
+
+## 2026-09-25 - a 225 GB leak, and a guard that could not fail
+
+Two things found while finishing the above, both silent for a long time:
+
+1. `tests/conftest.py` copied data/ and models/ into a temp sandbox on every run - ~3.1 GB - and never
+   removed it. 89 had accumulated holding **225 GB**, and C: was down to **1.59 GB free**, which is
+   enough to stop the live app writing its own state. The suite runs at least daily via the deep
+   doctor, so this grew every day and was invisible because a passing suite is never looked at. It now
+   removes its own sandbox and sweeps any left by an interrupted run.
+2. `tests/test_machine_portability.py` could not fail. A lost backslash left its pattern as `[\/]` - a
+   class matching forward slash ONLY - so it never matched a single Windows path and passed while
+   seventeen hard-coded paths sat in the code. Fixed by flattening separators before matching, so the
+   pattern needs no escaping, plus a test that pins the guard can still fail.
+
+Also fixed: `excel_refresh.py` matched the open workbook BY NAME, and the USB backup has the same file
+name. That copy was open in Excel, so the next hourly refresh would have written live data into the
+BACKUP and left the real dashboard stale. Now matched on full path.
