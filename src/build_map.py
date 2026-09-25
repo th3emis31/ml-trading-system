@@ -60,9 +60,16 @@ STEPS = (
               "and config on the drive. Where a path is absent it is named, never guessed.",
      "gap": "Not yet proven on a second PC, and offline still needs a local model - none is "
             "installed, which the provider evidence below reports as independent: false."},
-    {"n": 10, "phase": "Make it broad", "title": "Self-improvement loop", "done": False,
+    {"n": 10, "phase": "Make it broad", "title": "Self-improvement loop", "done": True,
      "delivers": "It proposes a change from its own evidence and measures the effect",
-     "proof": "Not yet built. Done when a change is proposed, applied and measured without being asked."},
+     "proof": "src/self_improvement.py, and it has turned once end to end. The prediction is hashed "
+              "when the experiment opens and a verdict is REFUSED if it changed; a command that "
+              "prints no number is inconclusive, never a result; acting on a result goes through "
+              "governance. First experiment (exp_20260925_01) asked whether the LSTM is starved of "
+              "price structure, predicted a 0.02 accuracy gain, measured 0.0044 on a paired 3-seed "
+              "run - refuted, and the feature-set explanation is now permanently ruled out.",
+     "gap": "Not yet unattended. Putting the loop on a schedule is a T3 action under its own "
+            "governance rules, so that is the owner's decision to make, not the loop's."},
 )
 
 SCOPE = (
@@ -173,6 +180,21 @@ def _portability() -> dict:
         return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def _self_improvement() -> dict:
+    """Step 10's evidence: what the loop has actually settled, and whether it looks honest."""
+    try:
+        from .self_improvement import experiment_report
+
+        report = experiment_report()
+        return {"available": True, "total": report["total"], "open": report["open"],
+                "counts": report["counts"], "confirm_rate": report["confirm_rate"],
+                "summary": report["summary"], "honest": report["honest"],
+                "honest_note": report["honest_note"],
+                "ruled_out": report["ruled_out"][:6], "tampered": len(report["tampered"])}
+    except Exception as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def build_map_state() -> dict:
     """Everything the page shows, read from the running system."""
     done = [s for s in STEPS if s["done"]]
@@ -190,6 +212,7 @@ def build_map_state() -> dict:
         "loops": _loops(),
         "failure_modes": _failure_modes(),
         "portability": _portability(),
+        "self_improvement": _self_improvement(),
         "constraint": ("Work anywhere with internet, and fully local without internet. Offline means "
                        "a small local model, so the competence is put in the SYSTEM rather than the "
                        "model: memory states what is known, skills carry the procedure, tools do "

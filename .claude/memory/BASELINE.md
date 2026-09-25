@@ -690,3 +690,47 @@ Until then the honest position is the one the dashboard already shows: the gold 
 Method note: the sandbox used `SMARTENTRY_MODELS_DIR`, as the test suite does, so no live model was
 written. The accuracies come from the trainer's own test split rather than the gate's holdout, so
 they are comparable with each other and only indicative against the champion's figure.
+
+## 2026-09-25 - LSTM feature set: REFUTED (self-improvement loop experiment exp_20260925_01)
+
+**Question.** Is the XAUUSD LSTM stuck because its feature set carries no price structure?
+
+**Why it was asked.** Two explanations were already measured and ruled out this morning (data volume,
+training window). The baseline from `data/learning_decisions.json` is real and countable: **30 XAUUSD
+LSTM challengers, mean accuracy 0.4909, sd 0.0286, max 0.5424 - and the champion IS that max,
+promoted once in 30 attempts.** That is what a best-of-N draw from a chance-centred distribution looks
+like. The remaining input-side candidate was the columns: `LSTM_FEATURE_COLUMNS` holds 21 entries, ten
+of them clock and session encodings, while `build_features` already computes fair-value gaps, pullback
+and reversal flags, a second moving-average pair and longer return/volatility horizons that the
+network never sees.
+
+**Prediction, locked before measuring** (digest `67d86eaa6793170467b4bd84cae1f885`):
+`accuracy_gain > 0.02`, where gain = mean(extended columns) - mean(current columns).
+
+**Method.** `scripts/lstm_feature_test.py`. Paired: both arms trained in ONE process on the SAME 8,738
+bars (1h XAUUSD, one year) with the SAME seeds (0, 1, 2), 50 epochs, only the column list differing -
+21 columns vs those 21 plus 8 price-structure columns. Sandboxed through `SMARTENTRY_MODELS_DIR`; the
+live champions were not touched. Deliberately NOT compared against the champion's 0.5424, which is the
+best of 30 draws - comparing a mean against a maximum is the multiple-comparisons trap.
+
+**Result.**
+
+| arm | columns | seed 0 | seed 1 | seed 2 | mean |
+|---|---|---|---|---|---|
+| current | 21 | 0.4944 | 0.4923 | 0.5209 | **0.5026** |
+| extended | 29 | 0.4854 | 0.4930 | 0.5425 | **0.5070** |
+
+**`accuracy_gain = 0.0044`** against a threshold of 0.02. **REFUTED.**
+
+**What it settles.** The spread between seeds *inside one arm* is 0.049 - **ten times** the difference
+between the arms. The columns are not the constraint, and neither seed ordering nor the extra features
+changed which seed happened to win. Three input-side explanations are now dead by measurement: data
+volume, training window, feature set.
+
+**What changed as a result:** nothing in the model. The value of the run is the removal.
+
+**Where the next hypothesis has to look:** the target or the architecture, not the inputs. The label is
+a 3-bar-ahead direction on hourly bars, which may simply carry no learnable signal at this horizon -
+that is a question about the TARGET and is testable the same way.
+
+Full record: `data/lstm_feature_test.json`, ledger row `data/self_improvement.jsonl`.

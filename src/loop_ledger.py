@@ -50,6 +50,9 @@ KNOWN_LOOPS = {
     "demo_plan": "scheduled", "daily_learning": "scheduled", "daily_report": "scheduled",
     "ai_employee": "scheduled", "obsidian_notes": "scheduled", "crt_forward": "scheduled",
     "i40_pilot": "scheduled",
+    # Not on a timer: it turns when an experiment is opened or settled. Listed anyway, so a
+    # loop that stops asking questions is visible instead of simply quiet.
+    "self_improvement": "on demand",
 }
 
 

@@ -23132,6 +23132,7 @@ function render(d){
       </div>`).join('')}`).join('');
 
   const po = d.portability || {};
+  const sl = d.self_improvement || {};
   const metric = (v,k) => `<div class="bm-metric"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
 
   document.getElementById('bm').innerHTML = `
@@ -23158,6 +23159,26 @@ function render(d){
             <div class="n">${esc(local.reason || '')}</div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>What it has ruled out</h2>
+      <div class="bm-card">
+        <p style="margin:0 0 10px;font-size:13.5px;opacity:.85;line-height:1.55">The loop states what it expects, hashes that prediction <b>before</b> measuring, and is refused a verdict if the prediction changes afterwards. A measurement that prints no number is <i>inconclusive</i> &mdash; never rounded up into a result. <b>A refuted prediction is the useful outcome:</b> it removes an explanation for good, which is the thing that was missing when the same three theories about the models kept coming back.</p>
+        <div class="bm-metrics">
+          ${metric(sl.counts ? sl.counts.refuted : '-', 'explanations ruled out')}
+          ${metric(sl.counts ? sl.counts.confirmed : '-', 'predictions that held')}
+          ${metric(sl.counts ? sl.counts.inconclusive : '-', 'no number came back')}
+          ${metric(sl.open ?? '-', 'still open')}
+        </div>
+        ${(sl.ruled_out || []).length ? `<div style="margin-top:12px">${(sl.ruled_out||[]).map(r => `
+          <div style="padding:8px 0;border-top:1px solid rgba(148,163,184,.18);font-size:13px">
+            <div>${esc(r.question || '')}</div>
+            <div style="opacity:.7;font-size:12px;margin-top:2px">measured ${esc(String(r.measured))} &mdash; ruled out</div>
+          </div>`).join('')}</div>` : ''}
+        ${sl.honest === false ? `<div style="margin-top:10px;font-size:13px;color:#fbbf24"><b>Watch this:</b> ${esc(sl.honest_note || '')}</div>` : ''}
+        ${sl.tampered ? `<div style="margin-top:10px;font-size:13px;color:#f87171"><b>${sl.tampered} prediction(s) were changed after being locked</b> &mdash; verdicts from those rows cannot be trusted.</div>` : ''}
       </div>
     </div>
 

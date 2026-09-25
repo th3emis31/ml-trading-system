@@ -811,6 +811,37 @@ def required_terminals() -> dict:
             if installed_terminal(key)}
 
 
+def check_self_improvement() -> dict:
+    """Is the loop that changes the system still honest about its own results?
+
+    Build map step 10. Two things here are worth waking someone for, and neither shows up anywhere
+    else: a prediction that was edited after it was locked, which makes any verdict from that row
+    worthless, and an experiment left open for weeks, which is how a question quietly turns back into
+    an opinion. A loop with nothing open and nothing wrong is fine and says so in one line.
+    """
+    try:
+        from .self_improvement import experiment_report
+    except Exception as exc:
+        return _result("Self-improvement loop", "doctor", "warn",
+                       f"the loop could not be read: {type(exc).__name__}: {exc}")
+    report = experiment_report()
+    # _result() takes `summary` positionally, and the report has a key of its own by that name.
+    detail = {key: value for key, value in report.items() if key != "summary"}
+    if report["tampered"]:
+        return _result("Self-improvement loop", "doctor", "fail",
+                       f"{len(report['tampered'])} experiment(s) had their prediction changed after it "
+                       "was locked - a verdict from those rows cannot be trusted and the result should "
+                       "not be acted on.",
+                       **detail)
+    if not report["honest"]:
+        return _result("Self-improvement loop", "doctor", "warn", report["honest_note"], **detail)
+    if report["stale"]:
+        return _result("Self-improvement loop", "doctor", "warn",
+                       f"{len(report['stale'])} experiment(s) open longer than {report['stale'][0]['age_days']:.0f} "
+                       "days with no measurement - settle or close them.", **detail)
+    return _result("Self-improvement loop", "doctor", "ok", report["summary"], **detail)
+
+
 def check_machine_paths() -> dict:
     """Is everything this MACHINE has to provide actually here? The first question on a new PC.
 
@@ -947,7 +978,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
         broker_check.update(result)
         return result
 
-    runners = [check_machine_paths, check_app_process, lambda: check_app_http(get), _brokers,
+    runners = [check_machine_paths, check_self_improvement, check_app_process, lambda: check_app_http(get), _brokers,
                lambda: check_terminals(brokers=broker_check), check_autonomy,
                lambda: check_demo_execution(get), check_demo_pullback,
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",

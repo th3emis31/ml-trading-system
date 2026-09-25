@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -52,6 +53,14 @@ TIER_MEANING = {
 # Matched on the action name the caller declares. Deliberately blunt: when a name matches more than
 # one tier the HIGHEST wins, because the cost of over-asking is a question and the cost of
 # under-asking is an order nobody approved.
+# Keywords that must match as a WHOLE WORD rather than as a substring. Only the shell commands are
+# here: `"rm "` was written with a trailing space to avoid matching "format", but it still fired on the
+# left-hand side of ordinary words - "one arm was" contains "rm ", which sent a note that changes
+# nothing to T3 with the reason "moves money". Over-asking is the cheap direction to fail in, so this
+# stayed harmless, but a misleading audit line is its own problem: the record has to say what actually
+# happened. Narrowing one keyword cannot lower any other action's tier.
+WORD_ONLY = {"rm", "drop"}
+
 TIER_RULES = {
     T3_CRITICAL: ("order", "trade", "buy", "sell", "position", "withdraw", "deposit", "transfer",
                   "funds", "payment", "delete", "rm ", "drop", "truncate", "format", "registry",
@@ -89,10 +98,15 @@ def tier_for(action: str, declared: Optional[str] = None) -> str:
     downward is exactly how a guard gets walked around.
     """
     text = f" {(action or '').lower()} "
+    words = set(re.findall(r"[a-z0-9_]+", text))
     found = T0_READ
     for tier in (T1_LOCAL, T2_OUTWARD, T3_CRITICAL):
-        if any(word in text for word in TIER_RULES[tier]):
-            found = tier
+        for word in TIER_RULES[tier]:
+            stripped = word.strip()
+            hit = stripped in words if stripped in WORD_ONLY else word in text
+            if hit:
+                found = tier
+                break
     if declared in TIER_ORDER and TIER_ORDER.index(declared) > TIER_ORDER.index(found):
         return declared
     return found

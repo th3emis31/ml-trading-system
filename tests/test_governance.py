@@ -142,3 +142,31 @@ def test_dry_run_beats_even_an_owner_approval(base):
     out = g.check_permission("place a buy order on XAUUSD", approval=approval,
                              figures={"lots": 0.01}, capability="untested_strategy", base=base)
     assert out.allowed is False and "dry run" in out.reason
+
+
+def test_a_shell_command_keyword_does_not_fire_inside_an_ordinary_word():
+    """`"rm "` carried a trailing space to avoid matching "format", but it still matched the LEFT side
+    of ordinary words: "one arm was" contains "rm ". A note that changed nothing was therefore graded
+    T3 with the reason "moves money", which is a misleading audit line even though over-asking is the
+    safe direction. WORD_ONLY narrows those keywords to whole words.
+
+    The half that matters is the other half: every genuinely dangerous phrasing must still be T3.
+    """
+    assert g.tier_for("the spread within one arm was larger") == g.T0_READ
+    assert g.tier_for("count the raindrops") == g.T0_READ
+    assert g.tier_for("reform the report wording") == g.T0_READ
+
+    for dangerous in ("rm -rf the folder", "please rm this file", "rm", "drop table trades",
+                      "drop the database", "place an order", "format the disk", "close the position",
+                      "transfer funds", "delete the archive"):
+        assert g.tier_for(dangerous) == g.T3_CRITICAL, dangerous
+
+
+def test_narrowing_a_keyword_did_not_lower_any_other_tier():
+    """A guard may be made more precise, never weaker. Every tier's own keywords still grade at least
+    as high as their tier when used as plain words."""
+    order = g.TIER_ORDER
+    for tier, words in g.TIER_RULES.items():
+        for word in words:
+            got = g.tier_for(f"please {word.strip()} the thing")
+            assert order.index(got) >= order.index(tier), f"{word!r} fell from {tier} to {got}"

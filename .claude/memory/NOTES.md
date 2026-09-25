@@ -266,3 +266,40 @@ to the code.
 Still open and NOT claimed as done: never run on a second physical PC, and offline needs a local
 model that is not installed (`independent: false`). Both are stated as step 9's `gap` on the build
 map page rather than hidden.
+
+## 2026-09-25 - build map step 10: the self-improvement loop
+
+`src/self_improvement.py`. An experiment is `propose()`d with a prediction - metric, direction,
+threshold, and the exact command that settles it - and that prediction is SHA-hashed at that moment.
+`settle()` recomputes the hash and refuses a verdict if it changed, so a result cannot be produced by
+moving the line after seeing where the ball landed. `run_measurement()` runs the declared command and
+reads `METRIC <name> = <number>` (or an `@@ {json}` line) out of its output; no number means
+`inconclusive`, and there is no code path that writes a result the measurement did not return.
+`record_outcome()` goes through `governance.check_permission`, so a confirmed result that would change
+live behaviour becomes a proposal rather than an action.
+
+`experiment_report()` treats REFUTED as progress, and flags the loop as not honest if the confirm rate
+reaches 80% over 5+ settled experiments - predictions that always hold were written after the fact or
+were too safe to teach anything. New doctor check `check_self_improvement()` fails on a tampered lock
+and warns on an experiment left open past 14 days.
+
+FIRST EXPERIMENT, end to end: exp_20260925_01 asked whether the LSTM is starved of price structure.
+Baseline was real and countable - 30 XAUUSD challengers in learning_decisions.json, mean 0.4909, sd
+0.0286, max 0.5424, and the champion IS that max. Predicted accuracy_gain > 0.02, locked, then measured
+with a PAIRED run (both arms, same 8,738 bars, same seeds 0/1/2, only the column list differing):
+gain 0.0044. REFUTED. The spread between seeds inside one arm was 0.049 - ten times the difference
+between arms. Feature set joins data volume and training window as measured and dead. Recorded in
+BASELINE.md.
+
+TWO BUGS THIS FOUND, both in guard code, both fixed with tests:
+
+1. `propose()` accepted any tier string. `governance.tier_for` deliberately ignores a `declared` tier
+   outside TIER_ORDER (correct - self-declaration must not lower a tier), so a typo like "T3_CRITICAL"
+   instead of "T3" left the action at whatever its wording matched. Now rejected where it is written.
+2. `governance`'s T3 keyword `"rm "` fired inside ordinary words: "one arm was" contains "rm ", which
+   graded a note that changed nothing as "moves money". Added `WORD_ONLY = {"rm", "drop"}` so those
+   match as whole words. A test asserts every dangerous phrasing is still T3 and that no other
+   keyword's tier fell.
+
+Step 10 is marked done with its gap stated: the loop is NOT unattended. Scheduling it is a T3 action
+under its own rules, so that is the owner's decision.
