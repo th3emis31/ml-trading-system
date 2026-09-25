@@ -68,8 +68,27 @@ foreach ($job in $jobs) {
     # /R:1 /W:1 so one locked file cannot hang the whole backup - the live app holds files open.
     $null = robocopy $job.src $job.dst /E /R:1 /W:1 /XJ /NFL /NDL /NP /NJH /NJS
     $code = $LASTEXITCODE
-    # robocopy: 0 nothing to do, 1 copied, 2 extras, 3 both. 8 and above is a real failure.
-    if ($code -ge 8) { $failedTotal++; Write-Line "  FAILED $($job.name) (robocopy $code)" }
+    # robocopy: 0 nothing to do, 1 copied, 2 extras, 3 both. 8 and above means some file failed.
+    if ($code -ge 8) {
+        $failedTotal++
+        # Almost always one cause: a workbook open in Excel cannot be read by robocopy, and /R:1 gives
+        # up fast by design. Everything else in the folder still copied, so say WHICH file and what
+        # the drive already holds - "FAILED excel (robocopy 8)" on its own sends the reader hunting.
+        $locks = @(Get-ChildItem -Path $job.src -Filter '~$*' -Force -Recurse -ErrorAction SilentlyContinue)
+        $excelOpen = [bool](Get-Process EXCEL -ErrorAction SilentlyContinue)
+        if ($locks.Count -gt 0 -or $excelOpen) {
+            $held = ($locks | ForEach-Object { $_.Name -replace '^~\$', '' }) -join ', '
+            Write-Line "  LOCKED $($job.name): open in Excel, so it was skipped$(if ($held) { " ($held)" })"
+            foreach ($existing in @(Get-ChildItem -Path $job.dst -Filter '*.xlsx' -ErrorAction SilentlyContinue)) {
+                if ($existing.Name -notlike '~$*') {
+                    Write-Line "    the drive still holds $($existing.Name) from $($existing.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))"
+                }
+            }
+            Write-Line "    close Excel and run this again to capture the current version"
+        } else {
+            Write-Line "  FAILED $($job.name) (robocopy $code)"
+        }
+    }
     else { $copiedTotal++; Write-Line "  ok $($job.name) (robocopy $code)" }
 }
 
