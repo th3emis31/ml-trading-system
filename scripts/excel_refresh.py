@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 BASE = "http://localhost:5000"
 
@@ -128,12 +129,35 @@ def refresh_balance(xl, wb) -> str:
             f"(so the balance tile shows the real {account['balance']:,.2f})")
 
 
-def main() -> int:
+WORKBOOK = Path(r"C:\Users\th_em\Desktop\Trading Dashboard\Trading-Business-Dashboard.xlsx")
+
+
+def open_workbook():
+    """Attach to the owner's Excel if it is running, otherwise start a private one for this run.
+
+    Returns (excel, workbook, started_here). A scheduled refresh cannot assume Excel is open, and it
+    must never close a window the owner is working in - so it only quits what it started itself.
+    """
     import win32com.client as win32
 
-    xl = win32.GetActiveObject("Excel.Application")
-    wb = xl.Workbooks(1)
-    print(f"refreshing {wb.Name}")
+    try:
+        xl = win32.GetActiveObject("Excel.Application")
+        for index in range(1, xl.Workbooks.Count + 1):
+            book = xl.Workbooks(index)
+            if book.Name.lower() == WORKBOOK.name.lower():
+                return xl, book, False
+        return xl, xl.Workbooks.Open(str(WORKBOOK)), False       # Excel open, this book is not
+    except Exception:
+        pass
+    xl = win32.DispatchEx("Excel.Application")                    # a private instance, not theirs
+    xl.Visible = False
+    xl.DisplayAlerts = False
+    return xl, xl.Workbooks.Open(str(WORKBOOK)), True
+
+
+def main() -> int:
+    xl, wb, started_here = open_workbook()
+    print(f"refreshing {wb.Name}" + (" (opened for this run)" if started_here else " (already open)"))
     xl.ScreenUpdating = False
     xl.Calculation = -4135                      # manual while writing; 40,000 rows recalculating per
     try:                                        # write would take minutes instead of seconds
@@ -156,6 +180,11 @@ def main() -> int:
           f"win {dash.Range('F5').Value:.1%}   PF {dash.Range('H5').Value:.2f}   "
           f"trades {int(dash.Range('J5').Value)}")
     print(f"  refreshed {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
+    if started_here:
+        # Only ever close what this run opened. Quitting the owner's own Excel would throw away
+        # whatever they had on screen.
+        wb.Close(SaveChanges=True)
+        xl.Quit()
     return 0
 
 
