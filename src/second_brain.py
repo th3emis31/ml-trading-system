@@ -55,18 +55,49 @@ def _read(path: Path) -> str:
 
 
 def _baseline_entries(path: Path) -> list[dict]:
-    """One entry per recorded result. The notes column carries the verdict, which is the part worth recalling."""
+    """Recorded results: one entry per SECTION, plus one per table row.
+
+    This used to index table rows only, and that made the evidence store half-blind to itself. Of
+    BASELINE.md's 652 lines, 309 are headings and prose - the part that says what was measured, what
+    was rejected and why - and none of it was searchable. Worse, a row's date was read from its first
+    cell, which on a parameter sweep is a spacing value, not a date; the result was that every finding
+    recorded on 24 September 2026 had no date at all and could not be found by when it happened.
+
+    ``recall`` and ``prior_work`` exist to stop settled questions being re-derived. They can only do
+    that if they can see the answers, so sections are indexed whole and every row inherits its
+    section's date and heading.
+    """
     out = []
+    heading, heading_date, buffer = None, None, []
+
+    def flush():
+        if heading and buffer:
+            body = " ".join(line.strip() for line in buffer if line.strip())
+            out.append({"kind": "result", "date": heading_date, "source": str(path),
+                        "title": heading[:160], "text": f"{heading} {body}"[:4000]})
+
     for line in _read(path).splitlines():
+        if line.startswith("## "):
+            flush()
+            heading = line[3:].strip()
+            found = DATE.search(heading)
+            heading_date, buffer = (found.group(1) if found else None), []
+            continue
+        buffer.append(line)
         if not line.startswith("|") or line.startswith("|---") or "| date |" in line:
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) < 4:
             continue
         found = DATE.search(cells[0])
-        out.append({"kind": "result", "date": found.group(1) if found else None, "source": str(path),
-                    "title": cells[3][:160] if len(cells) > 3 else cells[0],
-                    "text": " ".join(cells)})
+        out.append({"kind": "result",
+                    # The row's own date when it carries one, otherwise the section it sits under -
+                    # never the first cell blindly, which is how sweep rows acquired dates of "114".
+                    "date": found.group(1) if found else heading_date,
+                    "source": str(path),
+                    "title": (f"{heading}: " if heading else "") + (cells[3][:120] if len(cells) > 3 else cells[0]),
+                    "text": (f"{heading} " if heading else "") + " ".join(cells)})
+    flush()
     return out
 
 
@@ -280,3 +311,238 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ---------------------------------------------------------------------------
+# Memory kinds and provenance - i40 Pilot build map step 2.
+#
+# The four kinds already existed as files; what was missing is that they were all treated the same.
+# They are not the same, and the differences are what make the record trustworthy:
+#
+#   evidence    measured, append-only, permanent      BASELINE.md, learning decisions
+#   episodic    what happened and when, prunable      NOTES.md
+#   semantic    what is true here, correctable        LESSONS.md
+#   procedural  how a thing is done here, versioned   strategies/
+#
+# The rule this section enforces: **a claim is a FACT only when it traces to a measurement or a dated
+# event. Otherwise it is a HYPOTHESIS and is labelled one.** Without that distinction, a guess written
+# down on a bad day becomes indistinguishable six months later from a result measured over 7,669
+# trades, and the system will cite both with the same confidence.
+# ---------------------------------------------------------------------------
+
+KIND_RULES = {
+    "result":   {"memory": "evidence",   "append_only": True,  "prunable": False, "is_measured": True},
+    "learning": {"memory": "evidence",   "append_only": True,  "prunable": False, "is_measured": True},
+    "note":     {"memory": "episodic",   "append_only": False, "prunable": True,  "is_measured": False},
+    "lesson":   {"memory": "semantic",   "append_only": False, "prunable": False, "is_measured": False},
+    "strategy": {"memory": "procedural", "append_only": False, "prunable": False, "is_measured": False},
+    "backlog":  {"memory": "episodic",   "append_only": False, "prunable": True,  "is_measured": False},
+}
+
+# An explicit citation written into an entry, e.g. "(ref: BASELINE 2026-09-24 permutation)". Explicit
+# beats inferred every time, which is why the convention exists; inference below is only the fallback.
+REF = re.compile(r"\(ref:\s*([^)]{3,120})\)", re.I)
+
+# Words that mean the writer is reporting a measurement rather than a plan. Used only to decide
+# whether an untraced entry asserts a result (which needs a source) or records an intention (which
+# does not), so that ordinary working notes are not flagged as unsupported claims.
+# A figure: 1.12, 85.8%, +404, 7,669. Its presence is what separates "the edge is real" (an opinion,
+# and fine to write down) from "the edge is 0.0823 per trade" (a measurement, which must be traceable).
+NUMERIC = re.compile(r"\d+[\d,.]*\s*%?")
+
+CLAIM_WORDS = {"profitable", "better", "worse", "beats", "improves", "improved", "loses", "wins",
+               "profit", "expectancy", "drawdown", "accuracy", "percentile", "edge", "factor"}
+
+
+def memory_kind(entry: dict) -> str:
+    """Which of the four stores this entry belongs to."""
+    return KIND_RULES.get(entry.get("kind"), {}).get("memory", "episodic")
+
+
+def _refs(text: str) -> list:
+    return [m.strip() for m in REF.findall(text or "")]
+
+
+def trace(entry: dict, rows=None, limit: int = 4) -> dict:
+    """Where this entry's claim came from: explicit citation, then dated measurement, then nothing.
+
+    Three levels, and the third is the one that matters:
+
+    * ``cited``    - the entry names its source and that source exists. Trusted.
+    * ``inferred`` - a measured result from the same day shares its vocabulary. Plausible, and
+      labelled inferred so it is never quoted as though it had been cited.
+    * ``none``     - nothing supports it. If the entry asserts a result, it is a HYPOTHESIS.
+    """
+    rows = rows if rows is not None else entries()
+    text = entry.get("text") or ""
+    measured = [r for r in rows if KIND_RULES.get(r.get("kind"), {}).get("is_measured")]
+
+    cited = _refs(text)
+    if cited:
+        hits = []
+        for ref in cited:
+            terms = [w for w in _words(ref) if w not in STOP]
+            for row in measured:
+                body = (row.get("text") or "").lower()
+                if terms and sum(1 for t in terms if t in body) >= max(1, len(terms) // 2):
+                    hits.append({"id": row.get("id"), "date": row.get("date"),
+                                 "source": row.get("source"), "title": row.get("title")})
+        if hits:
+            return {"confidence": "cited", "refs": cited, "supports": hits[:limit], "is_fact": True,
+                    "note": "the entry names its source and that source is in the record"}
+        return {"confidence": "cited_but_missing", "refs": cited, "supports": [], "is_fact": False,
+                "note": "the entry cites a source that is NOT in the record - treat as unverified"}
+
+    same_day = [r for r in measured if r.get("date") and r.get("date") == entry.get("date")]
+    terms = {w for w in _words(text) if w not in STOP and len(w) > 3}
+    scored = []
+    for row in same_day:
+        overlap = terms & {w for w in _words(row.get("text") or "") if w not in STOP}
+        if len(overlap) >= 3:
+            scored.append((len(overlap), row))
+    scored.sort(key=lambda pair: -pair[0])
+    if scored:
+        return {"confidence": "inferred", "refs": [],
+                "supports": [{"id": r.get("id"), "date": r.get("date"), "source": r.get("source"),
+                              "title": r.get("title"), "shared_terms": n} for n, r in scored[:limit]],
+                "is_fact": True,
+                "note": "a measured result from the same day shares its vocabulary - inferred, not cited"}
+
+    # A claim word ALONE is far too blunt: a tooling lesson that happens to contain the word "edge"
+    # was flagged as an unsupported finding, and a checker that cries wolf gets ignored, which is
+    # worse than not having it. A MEASURED claim carries a NUMBER - "profit factor 1.12", "5 of 8
+    # years", "0.6th percentile". Opinions and instructions do not. Requiring both cuts the false
+    # positives without letting a real unsupported result through.
+    # Every entry begins with its own date, and a date is made of digits - so the numeric test has to
+    # ignore dates or it matches everything and discriminates nothing.
+    figures = NUMERIC.search(DATE.sub(" ", text))
+    asserts = bool(terms & CLAIM_WORDS) and bool(figures)
+    return {"confidence": "none", "refs": [], "supports": [], "is_fact": False,
+            "note": ("this asserts a result but nothing in the record measures it - HYPOTHESIS, not fact"
+                     if asserts else
+                     "nothing measures it, and it claims no result - an ordinary working note")}
+
+
+def hypotheses(rows=None) -> dict:
+    """Entries that read like findings but trace to no measurement.
+
+    These are the dangerous ones. Read back months later they look exactly like results, and the
+    difference between "we measured this" and "we thought this" is the difference between a decision
+    and a guess.
+    """
+    rows = rows if rows is not None else entries()
+    out = []
+    for entry in rows:
+        if memory_kind(entry) not in ("semantic", "episodic"):
+            continue
+        found = trace(entry, rows)
+        if found["confidence"] in ("none", "cited_but_missing") and not found["is_fact"]:
+            if found["confidence"] == "none" and "HYPOTHESIS" not in found["note"]:
+                continue                       # a plain note claiming nothing is not a hypothesis
+            out.append({"id": entry.get("id"), "date": entry.get("date"), "kind": entry.get("kind"),
+                        "title": entry.get("title"), "why": found["note"]})
+    return {"count": len(out), "entries": out,
+            "note": ("A hypothesis is not a mistake - it is a claim not yet measured. It becomes one "
+                     "only when it is cited as though it had been.")}
+
+
+def promotion_candidates(rows=None, min_repeats: int = 2) -> dict:
+    """Episodic entries that have earned a place in semantic memory.
+
+    Promotion is proposed, never performed: writing to LESSONS.md is the owner's call, and a system
+    that promotes its own notes to truths without review is how a guess becomes doctrine.
+
+    A note earns promotion by RECURRING - the same subject appearing on two or more separate days is
+    a pattern, where one mention is an incident.
+    """
+    rows = rows if rows is not None else entries()
+    notes = [r for r in rows if r.get("kind") == "note" and r.get("date")]
+    lessons = [r for r in rows if r.get("kind") == "lesson"]
+    lesson_terms = [{w for w in _words(l.get("text") or "") if w not in STOP} for l in lessons]
+
+    groups: dict = {}
+    for note in notes:
+        terms = frozenset(w for w in _words(note.get("text") or "")
+                          if w not in STOP and len(w) > 4)
+        if len(terms) < 5:
+            continue
+        placed = False
+        for key in list(groups):
+            if len(key & terms) >= 5:
+                groups[key].append(note)
+                placed = True
+                break
+        if not placed:
+            groups[terms] = [note]
+
+    out = []
+    for key, found in groups.items():
+        days = {n["date"] for n in found}
+        if len(days) < min_repeats:
+            continue
+        if any(len(key & lt) >= 5 for lt in lesson_terms):
+            continue                            # semantic memory already says this
+        out.append({"days": sorted(days), "occurrences": len(found),
+                    "subject": sorted(key)[:8],
+                    "examples": [n.get("title") for n in found[:3]]})
+    out.sort(key=lambda row: -row["occurrences"])
+    return {"count": len(out), "candidates": out,
+            "note": "Proposed only. Promotion into LESSONS.md is the owner's decision."}
+
+
+def compaction_candidates(rows=None, keep_days: int = 45) -> dict:
+    """Episodic entries old enough to prune - and only once nothing in them is awaiting promotion.
+
+    The ordering is the whole point: compacting before promoting destroys the evidence for a pattern
+    just as it becomes visible. Nothing here deletes anything; it proposes.
+    """
+    from datetime import datetime, timezone
+
+    rows = rows if rows is not None else entries()
+    pending = promotion_candidates(rows)
+    if pending["count"]:
+        return {"safe": False, "count": 0, "candidates": [],
+                "reason": (f"{pending['count']} note group(s) are awaiting promotion. Compacting now "
+                           "would delete the evidence for a pattern at the moment it became visible."),
+                "awaiting_promotion": pending["candidates"][:5]}
+    today = datetime.now(timezone.utc).date()
+    old = []
+    for entry in rows:
+        if not KIND_RULES.get(entry.get("kind"), {}).get("prunable") or not entry.get("date"):
+            continue
+        try:
+            age = (today - datetime.strptime(entry["date"], "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if age > keep_days:
+            old.append({"id": entry.get("id"), "date": entry.get("date"), "age_days": age,
+                        "kind": entry.get("kind"), "title": entry.get("title")})
+    return {"safe": True, "count": len(old), "candidates": old[:40], "keep_days": keep_days,
+            "note": "Proposed only. Nothing is pruned without the owner saying so."}
+
+
+def provenance_report(rows=None) -> dict:
+    """How much of the record can actually be traced - the acceptance test for build map step 2."""
+    rows = rows if rows is not None else entries()
+    by_memory: dict = {}
+    for entry in rows:
+        bucket = by_memory.setdefault(memory_kind(entry),
+                                      {"entries": 0, "cited": 0, "inferred": 0, "none": 0, "facts": 0})
+        bucket["entries"] += 1
+        if KIND_RULES.get(entry.get("kind"), {}).get("is_measured"):
+            bucket["cited"] += 1                # a measurement is its own source
+            bucket["facts"] += 1
+            continue
+        found = trace(entry, rows)
+        key = {"cited": "cited", "inferred": "inferred"}.get(found["confidence"], "none")
+        bucket[key] += 1
+        bucket["facts"] += 1 if found["is_fact"] else 0
+    total = sum(b["entries"] for b in by_memory.values())
+    traced = sum(b["cited"] + b["inferred"] for b in by_memory.values())
+    return {"total": total, "traceable": traced,
+            "traceable_pct": round(100.0 * traced / total, 1) if total else None,
+            "by_memory": by_memory,
+            "hypotheses": hypotheses(rows)["count"],
+            "promotion_pending": promotion_candidates(rows)["count"],
+            "note": ("Traceable means it cites a source that exists, or a measurement from the same "
+                     "day shares its vocabulary. Everything else is a hypothesis until measured.")}

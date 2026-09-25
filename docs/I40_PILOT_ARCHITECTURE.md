@@ -240,7 +240,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 | # | Step | Delivers | Done when |
 |---|---|---|---|
 | **1** | ~~Provider abstraction~~ **DONE 2026-09-25** | budgets, degraded reporting, fallback chain on the existing `ai_provider` | tests pin it; the machine currently reports *Dependent* because no local model is installed yet - honestly, rather than pretending |
-| **2** | Memory split | the four stores, with promotion and compaction | any fact can be traced to the event or measurement that produced it |
+| **2** | ~~Memory split~~ **DONE 2026-09-25** | the four kinds typed with their own rules, provenance tracing, hypothesis flagging, promotion and compaction proposals | **89.0 % of the 493-entry record is traceable**; 19 unsupported claims are named rather than hidden |
 | **3** | Context builder | budgeted five-slot assembly, cite-or-omit | a 4k brief and a 100k brief both run the same task |
 | **4** | Acceptance tests | every skill states how to check its own output | no skill can report success without a check that is not the model |
 | **5** | Loop closure everywhere | verify and record on all three loop kinds | no loop can finish without writing what it measured |
@@ -261,7 +261,7 @@ be believed about any of them.
 | Layer | Already built | Still to build |
 |---|---|---|
 | 0 Runtime | `src/ai_provider.py`: Claude CLI + Ollama, internet probe, selection, usage meter, **context budgets, degraded flag, fallback chain** (step 1, done 2026-09-25) | `I40_HOME`, and a local model actually installed |
-| 1 Memory | `.claude/memory`, `BASELINE.md`, `second_brain`, auto-memory | the four-way split, promotion, compaction |
+| 1 Memory | the four kinds typed in `second_brain.KIND_RULES`; `trace()`, `hypotheses()`, `promotion_candidates()`, `compaction_candidates()`, `provenance_report()` (step 2, done 2026-09-25); BASELINE prose now indexed | promotion/compaction actually applied, under governance |
 | 2 Context | `i40_pilot.context()` | budgeting, cite-or-omit, slots |
 | 3 Brain | `i40_pilot` identity, attention, signature rules | plan-and-critique, failure-mode register |
 | 4 Loop | `i40_pilot.loop`, `loop_closure`, 11 scheduled tasks | event and goal loops |
