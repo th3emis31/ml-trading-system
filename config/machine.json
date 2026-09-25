@@ -3,7 +3,12 @@
   "mt5_strategies": "C:/Users/th_em/AppData/Roaming/MetaTrader/terminal64.exe",
   "mt5_panel": "C:/Program Files/MetaTrader 5/terminal64.exe",
   "mt4_bridge": "C:/Users/th_em/AppData/Roaming/CMC Markets MetaTrader 4/terminal.exe",
-  "mt5_tester": "C:/Users/th_em/MT5_SwingTrend_Tester/terminal64.exe"
+  "mt5_tester": "C:/Users/th_em/MT5_SwingTrend_Tester/terminal64.exe",
+  "mt4_roaming": "C:/Users/th_em/AppData/Roaming/MetaTrader 4/terminal.exe",
+  "mt4_program_files": "C:/Program Files (x86)/MetaTrader 4/terminal.exe"
+ },
+ "terminal_data": {
+  "mt5_tester": "C:/Users/th_em/AppData/Roaming/MetaQuotes/Terminal/5163829A6BDAF7E3A6FE2C0F431EFD6B"
  },
  "excel_workbook": "C:/Users/th_em/Desktop/Trading Dashboard/Trading-Business-Dashboard.xlsx",
  "note": "Machine-specific paths. Edit these when the system moves to another PC; nothing else needs changing. A path that does not exist is reported, never guessed at."

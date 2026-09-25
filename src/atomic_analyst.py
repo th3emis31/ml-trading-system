@@ -23,7 +23,8 @@ from .event_defence import utc_timestamp
 SYMBOLS = ("XAUUSD", "BTCUSD")
 STALE_MINUTES = 30          # the panel rewrites its file on every tick while its chart is open
 PANEL_DIR_ENV = "ATOMIC_ANALYST_DIR"
-DEFAULT_PANEL_DIR = Path(os.environ.get("APPDATA", r"C:\Users\th_em\AppData\Roaming")) / "MetaQuotes" / "Terminal" / \
+_APPDATA = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+DEFAULT_PANEL_DIR = _APPDATA / "MetaQuotes" / "Terminal" / \
     "D0E8209F77C8CF37AD8BF550E51FF075" / "MQL5" / "Files" / "atomic_analyst"
 
 

@@ -15,9 +15,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.runtime_paths import installed_terminal          # noqa: E402
+
 FREEZE = ROOT / "data/ea_watch/freeze.json"
 OUT = ROOT / "data/ea_watch/week_report.json"
-TERMINAL = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+# The EA runs on the panel terminal, whose location is this machine's business and lives in
+# config/machine.json rather than here (build map step 9).
+TERMINAL = installed_terminal("mt5_panel")
 MAGICS = {60701111: "XAUUSD", 60701122: "BTCUSD"}
 
 

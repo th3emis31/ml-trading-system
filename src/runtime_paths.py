@@ -244,6 +244,11 @@ DEFAULT_MACHINE = {
         "mt5_panel": "C:/Program Files/MetaTrader 5/terminal64.exe",
         "mt4_bridge": "C:/Users/th_em/AppData/Roaming/CMC Markets MetaTrader 4/terminal.exe",
         "mt5_tester": "C:/Users/th_em/MT5_SwingTrend_Tester/terminal64.exe",
+        # Two more MT4s the owner runs. Started at logon with the rest, but deliberately NOT in
+        # REQUIRED_TERMINALS_BY_NAME: they are the owner's, not this system's, and the doctor must not
+        # fail over a terminal that is none of its business.
+        "mt4_roaming": "C:/Users/th_em/AppData/Roaming/MetaTrader 4/terminal.exe",
+        "mt4_program_files": "C:/Program Files (x86)/MetaTrader 4/terminal.exe",
     },
     # A terminal's DATA folder is machine-specific twice over: the user profile AND the per-install
     # hash differ on another PC, so it cannot be derived from the executable path.

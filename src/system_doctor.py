@@ -160,8 +160,11 @@ def check_app_process(netstat_text: Optional[str] = None) -> dict:
         netstat_text = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=60).stdout
     pids = parse_listeners(netstat_text)
     if not pids:
+        # ROOT, not a written-down folder. The literal here used to name C:\\Users\\th_em, which since the
+        # 16 September 2026 switch is the FALLBACK copy - so the repair instruction sent the reader to
+        # the wrong folder, where starting the app would run the old code against the old data.
         return _result("App server", "app", "fail", "Nothing listens on port 5000: the dashboard is down. "
-                       "start_trading.bat restarts it within seconds; if not, run it from C:\\Users\\th_em.", pids=pids)
+                       f"start_trading.bat restarts it within seconds; if not, run it from {ROOT}.", pids=pids)
     if len(pids) > 1:
         return _result("App server", "app", "fail", f"{len(pids)} app servers listen on port 5000 (PIDs {', '.join(pids)}). "
                        "Stop the python app.py process that start_trading.bat did not start.", pids=pids)

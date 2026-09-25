@@ -18,10 +18,22 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 
+# This machine's own locations come from config\machine.json (build map step 9), and the root is worked
+# out from where this script sits rather than written down - so the same script works from a copy on
+# another PC or on the USB drive. If the config cannot be read the literals below still apply: a boot
+# script is the last place that should fail because a json file is malformed.
+$Root = Split-Path -Parent $PSScriptRoot
+$machine = $null
+try { $machine = Get-Content (Join-Path $Root 'config\machine.json') -Raw | ConvertFrom-Json } catch { }
+function Get-TerminalPath([string]$key, [string]$fallback) {
+    if ($machine -and $machine.terminals -and $machine.terminals.$key) { return [string]$machine.terminals.$key }
+    return $fallback
+}
+
 # Everything below goes to a log as well as stdout. Under a scheduled task stdout goes nowhere, and
 # the reason the 22 September outage ran for seven hours unnoticed is that nothing recorded what did
 # or did not start. A boot that fails should leave evidence behind.
-$logDir = 'C:\Users\th_em\ml_trading_system\data\system_health'
+$logDir = Join-Path $Root 'data\system_health'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir 'autostart.log'
 function Write-Line([string]$text) {
@@ -36,13 +48,13 @@ $terminals = @(
     # The strategies' own account. MT5_PATH in start_trading.bat pins this one, and without it
     # MetaTrader5.initialize() binds to whichever terminal Windows offers - which is how the demo
     # strategies once halted on account 25446287 instead of 11581419.
-    @{ Path = 'C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe';        Name = 'MT5 demo 11581419 (SmartEntry strategies)' },
+    @{ Path = (Get-TerminalPath 'mt5_strategies' 'C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe'); Name = 'MT5 demo 11581419 (SmartEntry strategies)' },
     # ATOMIC ANALYST writes the panel files this system reads from disk, and SwingTrendPullback runs here.
-    @{ Path = 'C:\Program Files\MetaTrader 5\terminal64.exe';                    Name = 'MT5 demo 25446287 (Atomic panel, SwingTrendPullback)' },
+    @{ Path = (Get-TerminalPath 'mt5_panel' 'C:\Program Files\MetaTrader 5\terminal64.exe'); Name = 'MT5 demo 25446287 (Atomic panel, SwingTrendPullback)' },
     # The DWX ZeroMQ bridge, account 12755139: the app's MT4 quotes and orders go through it.
-    @{ Path = 'C:\Users\th_em\AppData\Roaming\CMC Markets MetaTrader 4\terminal.exe'; Name = 'MT4 bridge 12755139' },
-    @{ Path = 'C:\Users\th_em\AppData\Roaming\MetaTrader 4\terminal.exe';        Name = 'MT4 (Roaming)' },
-    @{ Path = 'C:\Program Files (x86)\MetaTrader 4\terminal.exe';                Name = 'MT4 (Program Files)' }
+    @{ Path = (Get-TerminalPath 'mt4_bridge' 'C:\Users\th_em\AppData\Roaming\CMC Markets MetaTrader 4\terminal.exe'); Name = 'MT4 bridge 12755139' },
+    @{ Path = (Get-TerminalPath 'mt4_roaming' 'C:\Users\th_em\AppData\Roaming\MetaTrader 4\terminal.exe'); Name = 'MT4 (Roaming)' },
+    @{ Path = (Get-TerminalPath 'mt4_program_files' 'C:\Program Files (x86)\MetaTrader 4\terminal.exe'); Name = 'MT4 (Program Files)' }
 )
 
 function Test-Running([string]$exe) {
@@ -73,8 +85,8 @@ try { $app = Invoke-WebRequest -Uri 'http://127.0.0.1:5000/api/signals' -Timeout
 if ($app) {
     Write-Line "  already trading app (port 5000 answering)"
 } else {
-    Start-Process -FilePath 'C:\Users\th_em\ml_trading_system\start_trading.bat' `
-                  -WorkingDirectory 'C:\Users\th_em\ml_trading_system' -WindowStyle Minimized
+    Start-Process -FilePath (Join-Path $Root 'start_trading.bat') `
+                  -WorkingDirectory $Root -WindowStyle Minimized
     Write-Line "  started trading app"
 }
 Write-Line "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] autostart done"

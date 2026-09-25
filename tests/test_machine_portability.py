@@ -39,9 +39,22 @@ def _flatten_separators(line: str) -> str:
     All three name the same file, so all three must be caught.
     """
     return line.replace("\\\\", "/").replace("\\", "/")
-# Files allowed to name them: the config layer's own defaults, and the backup script, which is about
-# THIS machine's disks by definition.
-ALLOWED = {"src/runtime_paths.py", "scripts/backup_to_usb.ps1"}
+# Files allowed to name them, each for a reason that would not go away by rewriting it:
+#
+#   runtime_paths.py      IS the config layer - its defaults are this machine's values by design.
+#   backup_to_usb.ps1     names this machine's disks, which is what a backup of this machine means.
+#   switch/rollback       one-off migration tools for the 16 September 2026 move between two SPECIFIC
+#                         folders on this PC. The whole point of them is those two paths; a portable
+#                         version would have nothing left to do.
+#   start_everything.ps1  reads config\\machine.json and keeps the literals only as a FALLBACK, because a
+#                         boot script must not fail to start the terminals over a malformed json file.
+ALLOWED = {
+    "src/runtime_paths.py",
+    "scripts/backup_to_usb.ps1",
+    "scripts/switch_live_to_ml_trading_system.ps1",
+    "scripts/rollback_live_to_home.ps1",
+    "scripts/start_everything.ps1",
+}
 
 
 def _sources():
