@@ -119,6 +119,21 @@ MIN_WORST_TASK = 0.40          # and no single task may collapse: an average can
 BENCH_FILE = "build_bench.json"
 
 
+def _check_is_valid(rule) -> bool:
+    """Could this check actually be adjudicated, or is it only shaped like a check?
+
+    A `number:` rule must compare a name against a literal; `returned_value >= low` cannot be read by
+    anything and so proves nothing. `run`, `file` and `appended` carry a path or command and are taken
+    as readable here - whether they PASS is a separate question decided elsewhere.
+    """
+    from .skill_acceptance import NUMBER_RULE
+
+    if rule.kind == "number":
+        body = (rule.check or "").split(":", 1)[-1].strip()
+        return bool(NUMBER_RULE.match(body))
+    return bool((rule.check or "").split(":", 1)[-1].strip())
+
+
 def score_spec(spec, task: dict) -> dict:
     """One task's score: did it parse, does it cover the boundaries, can a machine decide it?
 
@@ -132,11 +147,18 @@ def score_spec(spec, task: dict) -> dict:
     coverage = (sum(covered.values()) / len(covered)) if covered else 0.0
     enough = min(1.0, len(rules) / max(1, int(task.get("min_rules") or 1)))
     checked = [rule for rule in rules if rule.check]
-    machine = [rule for rule in checked if rule.machine_checked]
+    # Machine-decidable means the check can ACTUALLY be adjudicated, not merely that its kind is one of
+    # the automatic ones. Found on 25 September 2026: the builder writes `number: returned_value >= low`,
+    # which compares against a NAME rather than a value and cannot be read at all. Counting that as
+    # machine-decidable inflated this score, and an inflated score is what a trust bar must never rest
+    # on - so validity is checked here rather than assumed from the kind.
+    machine = [rule for rule in checked if rule.machine_checked and _check_is_valid(rule)]
     machine_fraction = (len(machine) / len(rules)) if rules else 0.0
     return {"task": task["key"], "rules": len(rules), "with_check": len(checked),
             "covered": covered, "coverage": round(coverage, 3),
             "enough_rules": round(enough, 3), "machine_fraction": round(machine_fraction, 3),
+            "malformed": [rule.number for rule in checked
+                          if rule.machine_checked and not _check_is_valid(rule)],
             "score": round((coverage + enough + machine_fraction) / 3, 3),
             "missed": [name for name, hit in covered.items() if not hit]}
 

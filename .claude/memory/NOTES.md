@@ -440,3 +440,48 @@ place to be wrong, on the one cost the owner had already had to stop and ask abo
 NOTE FOR NEXT SESSION: several commits today came from ANOTHER Claude session working in this repo
 (e145d17 self_improvement, d98c39c first_run_on_new_machine, ec0efbf the last machine paths). Check
 `git log` before building anything, or the same thing gets built twice.
+
+## 2026-09-25 - the builder can now build: generate, run, repair from the real error
+
+`src/build_exec.py` closes the loop that made `verified` unreachable. Spec -> code -> compile -> lint ->
+spec-grounded tests -> run them in a sandbox -> repair from the actual error -> verdict. Proven end to
+end through the LOCAL 3B model with no internet: pytest exit 0, 4 tests passed, 0 repair rounds needed.
+
+The lever is CoCoGen (ACL Findings 2024): handing the model its compiler and test errors improved
+project-context code by over 80%. Ruff and the compiler were already installed, so this cost nothing -
+capability bought with architecture instead of a subscription, which is what the owner asked for.
+
+**The safety boundary**, because this runs model-written code: OFF unless `allow_execution=True` is
+passed explicitly; cwd is a temp folder, never ROOT (skill_acceptance uses cwd=ROOT, right for a check
+the OWNER wrote in a skill file, wrong for one a model invented); `PYTHONPATH` emptied and `-I` so the
+repository is NOT importable and generated code cannot reach trading.mt5_service; a built environment of
+~10 variables so no key or token is visible; an allowlist of `python -m pytest <path>` / `python <file>`
+with every path required to resolve inside the sandbox, and `python -c` refused outright. Stated in the
+docstring and not oversold: this is not a container, there is no network block, and a generated TEST file
+can still contain anything pytest will run. 15 tests cover the gate.
+
+**Four real bugs found by running it rather than reasoning about it:**
+1. My own allowlist refused `-q`, the flag my own generated command used, so the tests silently never
+   ran. Benign output-only flags are now listed.
+2. A `file:` check naming a repo path was counted as a FAILURE of the artefact. It is about a file the
+   sandbox build was never going to create - now unadjudicated.
+3. A malformed check (`number: returned_value >= low`, comparing against a NAME) is reported by
+   skill_acceptance as failed. Correct for a skill file the owner wrote; wrong here, because it blames
+   the code for the spec's defect. Now unadjudicated and surfaced as `spec_defects`.
+4. THE INTERFACE MISMATCH, which is the interesting one. Asked for `clamp`, the model wrote a logically
+   perfect function and named it `bound_value`, then `check_value`, while the tests - written from the
+   same spec - imported `clamp`. Every test failed on ImportError and THREE repair rounds never found
+   it. Fixed structurally, not by more repairs: the entry-point name is derived once and stated to the
+   code prompt, the test prompt and every repair, so a mismatch is impossible. The very next run passed
+   with zero repairs.
+
+Also corrected an inflated number I had already reported. The benchmark credited a check as
+machine-decidable by its KIND, not by whether it could actually be adjudicated, so a malformed `number:`
+check counted. With validity enforced the holdout reads **0.8335** (I had reported 0.889 from the
+previous run). Still above the 0.80 bar. Worth remembering: two runs of the same benchmark gave 0.889
+and 0.834, so ONE run is not a stable estimate of spec quality - the model is stochastic and the bar
+should be read with that spread in mind.
+
+Principle worth keeping: the tests are generated from the SPEC and never from the code, and the repair
+loop fixes the ARTEFACT and never the tests. Repairing a test to agree with the code is how a loop
+"fixes" a bug by deleting the evidence of it.
