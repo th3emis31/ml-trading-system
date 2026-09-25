@@ -368,3 +368,34 @@ to sit beside the app and four terminals. The right size is a 3B-class model at 
 Granite 4's hybrid Mamba cuts long-context RAM by ~70%, which is the property that matters for
 reading a codebase. Note H-Tiny is 7B TOTAL / 1B ACTIVE - active params buy speed, TOTAL params still
 have to fit in RAM.
+
+## 2026-09-25 - the local model works, and 'independent' was a false claim
+
+The owner asked whether Ollama costs money. It does not for local use (MIT; only its cloud GPU tiers,
+launched 31 Aug 2026, are paid - and those would put a subscription back in the middle of the system,
+so they are never used). While checking, found Ollama 0.34.4 ALREADY installed with qwen2.5-coder:7b
+pulled, which corrects the earlier note that it was missing - `where ollama` only searches PATH, and
+Ollama installs to %LOCALAPPDATA%\Programs\Ollama.
+
+**The false claim.** provider_status reported `independent: True` and the build map page said
+"Without internet: Working now", while EVERY local request was failing. `OllamaProvider.available()`
+probes /api/tags, which proves a model file is on disk - not that it can run. Ollama's own log:
+`std::bad_alloc`, needing 1484 + 2977 MiB for a 7.6B Q4_K_M model with 0.8 GB free of 7.4 GB total.
+The fallback to claude_cli worked correctly and recorded the attempt, which is how it was found.
+
+Fixed by adding `local_proven()`: independence is now claimed only once a local provider has actually
+returned an answer, read from the usage ledger, and `at` is reported so a stale proof looks stale.
+`local_reachable` keeps the old probe meaning. This is the same failure shape as reporting a
+closed-trade counter instead of the broker account - a probe standing in for the reality it describes.
+
+**What now works.** granite4:micro-h (3B hybrid Mamba-2, 2.1 GB) loads in 12 s and answers with
+0.38 GB free. DEFAULT_CONFIG now points there rather than at a 7B that cannot load; the default is
+deliberately the model that works on the WEAKEST machine, and a bigger machine overrides `model` in
+data/ai_provider.json. End to end through the LOCAL model, no internet: the builder produced 6
+numbered rules, 5 machine-checkable, 1 correctly flagged as needing the owner, verdict `partial`.
+
+Two builder bugs the local model exposed, both mine: the rule regex demanded punctuation after the
+number (`R1.`) while the model wrote `R1 text`, so nine good rules parsed as zero; and asked for two
+separate sections it wrote the rules and silently skipped the checks. The prompt now asks for one line
+per rule as `R1 | requirement | check`, which makes a rule without a check impossible to express, and
+shows a worked example - a small model copies an example far more reliably than a description.

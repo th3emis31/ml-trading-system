@@ -153,3 +153,31 @@ def test_the_spec_prompt_asks_for_one_check_per_rule():
     assert "one check per rule" in SPEC_PROMPT.lower()
     assert "testable" in SPEC_PROMPT.lower()
     assert "boundaries" in SPEC_PROMPT.lower() or "invalid inputs" in SPEC_PROMPT.lower()
+
+
+def test_a_rule_number_without_punctuation_still_parses():
+    """The bug that cost a whole run: a 3B model wrote `R1 text`, not `R1. text`, and the regex
+    demanded punctuation - so nine good rules parsed as zero and the build reported no_spec."""
+    spec = parse_spec("R1 the function returns None for an empty list\n"
+                      "R2 rejects an hour outside 0-23\n"
+                      "R1 run: python -c \"pass\"\n")
+    assert [r.number for r in spec.rules] == [1, 2]
+    assert spec.rules[0].text == "the function returns None for an empty list"
+
+
+def test_one_line_carrying_rule_and_check_is_understood():
+    """The pipe form exists because asked for two sections a small model wrote the rules and silently
+    skipped the checks. This shape makes a rule without a check impossible to express."""
+    spec = parse_spec("R1 | returns None when the bar list is empty | run: python -m pytest -q\n"
+                      "R2 | rejects an hour outside 0-23 | number: max_hour <= 23\n")
+    assert len(spec.rules) == 2 and spec.uncovered == []
+    assert spec.rules[0].check == "run: python -m pytest -q"
+    assert spec.rules[1].kind == "number"
+
+
+def test_the_prompt_shows_the_shape_it_wants():
+    """A small model copies an example far more reliably than it follows a description of a format."""
+    from src.builder import SPEC_PROMPT
+
+    assert "R<number> |" in SPEC_PROMPT
+    assert "R1 |" in SPEC_PROMPT, "it must show a worked example, not only describe the form"

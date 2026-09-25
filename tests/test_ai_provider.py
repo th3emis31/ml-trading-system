@@ -65,12 +65,46 @@ def test_no_provider_returns_a_failure_rather_than_raising(monkeypatch, tmp_path
 def test_the_verdict_says_plainly_whether_the_machine_is_independent():
     found = [{"name": "claude_cli", "local": False, "available": True, "reason": "ok"},
              {"name": "ollama", "local": True, "available": False, "reason": "no server"}]
-    assert "Dependent" in ap._verdict(found, online=True)
+    proven = {"proven": True, "provider": "ollama", "at": "2026-09-25 16:24:22", "why": "answered"}
+    assert "Dependent" in ap._verdict(found, online=True, proven=proven)
     found[1]["available"] = True
-    assert "Independent" in ap._verdict(found, online=True)
+    assert "Independent" in ap._verdict(found, online=True, proven=proven)
     for entry in found:
         entry["available"] = False
-    assert "Nothing can answer" in ap._verdict(found, online=False)
+    assert "Nothing can answer" in ap._verdict(found, online=False, proven=proven)
+
+
+def test_a_reachable_local_model_that_has_never_answered_is_not_independence():
+    """The false claim this guards, from 25 Sep 2026: the server was up and listed its model, so the
+    probe passed and the build map said "Without internet: Working now" - while every local request
+    died with std::bad_alloc because a 7.6B model cannot load in 0.8 GB of free RAM. Listing a model
+    proves the file is on disk, not that it can run."""
+    found = [{"name": "ollama", "local": True, "available": True, "reason": "up, 1 model"}]
+    unproven = {"proven": False, "provider": None, "at": None, "why": "has never returned an answer"}
+    verdict = ap._verdict(found, online=True, proven=unproven)
+    assert "NOT yet independent" in verdict
+    assert "RAM" in verdict, "it must point at the cause that actually produced this"
+
+
+def test_local_proven_reads_the_ledger_and_ignores_the_hosted_provider(tmp_path):
+    """Only a LOCAL success counts. A hosted answer proves the internet works, not independence."""
+    ledger = tmp_path / "usage.jsonl"
+
+    def append(provider, ok, at):
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"at": at, "provider": provider, "ok": ok}) + chr(10))
+
+    append("claude_cli", True, "2026-09-25 10:00:00")   # hosted: proves the internet, not this
+    append("ollama", False, "2026-09-25 10:01:00")      # local but FAILED: still not proof
+    assert ap.local_proven(path=ledger)["proven"] is False
+    append("ollama", True, "2026-09-25 10:02:00")       # local AND worked: now it is proven
+    out = ap.local_proven(path=ledger)
+    assert out["proven"] is True and out["provider"] == "ollama"
+    assert out["at"] == "2026-09-25 10:02:00", "it must report WHEN, so a stale proof looks stale"
+
+
+def test_local_proven_is_false_when_nothing_has_ever_run(tmp_path):
+    assert ap.local_proven(path=tmp_path / "missing.jsonl")["proven"] is False
 
 
 def test_the_meter_records_the_call_but_never_the_prompt_or_the_answer(tmp_path):

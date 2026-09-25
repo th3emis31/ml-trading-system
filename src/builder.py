@@ -55,9 +55,18 @@ from .skill_acceptance import AUTOMATIC, CHECK, FAMILIES
 
 # One rule per line, numbered, so a check can cite the rule it grounds. The number is the join
 # between a requirement and its evidence; without it "which rule is untested" has no answer.
-RULE_LINE = re.compile(r"^\s*(?:R)?(\d+)[.):]\s*(.+?)\s*$")
+# `1. text`, `R1) text`, or plain `R1 text` - a small model writes the last of these and dropping it
+# cost a whole run: nine good rules parsed as zero because the number had no punctuation after it.
+RULE_LINE = re.compile(r"^\s*(?:R)?(\d+)\s*[.):]?\s+(.+?)\s*$")
 # A check declares the rule it grounds: `R3 run: python -m pytest -q tests/test_sweep.py`
-CHECK_LINE = re.compile(r"^\s*R?(\d+)\s+(run|file|number|ask|appended)\s*:\s*(.+?)\s*$", re.I)
+CHECK_LINE = re.compile(r"^\s*R?(\d+)\s*[.):]?\s+(run|file|number|ask|appended)\s*:\s*(.+?)\s*$", re.I)
+# One line carrying BOTH, which is what small models actually manage:
+#   R1 | the function returns None for an empty list | run: python -m pytest -q tests/test_x.py
+# Asked for two separate sections, a 3B model wrote the rules and silently skipped the checks. This
+# form makes a rule without a check impossible to express, which is also the paper's finding about
+# one check per rule - enforced by the FORMAT rather than by asking nicely.
+PIPE_LINE = re.compile(r"^\s*R?(\d+)\s*\|\s*(.+?)\s*\|\s*(run|file|number|ask|appended)\s*:\s*(.+?)\s*$",
+                       re.I)
 
 MAX_REPAIRS = 3          # the paper's finding: the loop is the cheap part, so it is capped early
 BUILDS_DIRNAME = "builds"
@@ -126,26 +135,31 @@ class Spec:
                 "uncovered": self.uncovered, "unattended": self.unattended}
 
 
-SPEC_PROMPT = """You are writing a SPECIFICATION before any code exists, for this request:
+SPEC_PROMPT = """Write a SPECIFICATION before any code exists, for this request:
 
 {request}
 
-Write two sections and nothing else.
+Output ONLY lines in exactly this form, one per requirement, and nothing else - no headings, no prose,
+no code:
 
-RULES
-Numbered, one per line, each a single statement that is TESTABLE - something a machine could later
-decide is true or false. Cover the boundaries and the invalid inputs, not only the normal case, because
-that is where this kind of work actually fails. Between 3 and 12 rules. Ordinary English is correct;
-do not write formal notation.
+R<number> | <the requirement, one testable sentence> | <check>
 
-CHECKS
-Exactly one line per rule, citing the rule's number, in one of these five forms:
-  R1 run: <a shell command that exits non-zero on failure>
-  R2 file: <path> contains <text>
-  R3 number: <name> >= <value>
-  R4 appended: <path>
-  R5 ask: <a question for the owner, ONLY when no machine can decide it>
-Prefer the machine-decidable forms. One check per rule - do not write extra checks, they do not help.
+The check is one of these five forms:
+  run: <a shell command that exits non-zero on failure>
+  file: <path> contains <text>
+  number: <name> >= <value>
+  appended: <path>
+  ask: <a question for the owner, ONLY when no machine could decide it>
+
+Rules for the rules:
+* Each requirement must be TESTABLE - something a machine could decide is true or false.
+* Cover the boundaries and the invalid inputs, not only the normal case. That is where this fails.
+* Between 3 and 12 lines. Exactly one check per rule - extra checks do not help.
+* Prefer the machine-decidable forms over `ask`.
+
+Example of the exact shape wanted:
+R1 | returns None when the bar list is empty | run: python -m pytest -q tests/test_range.py
+R2 | rejects an hour outside 0-23 | run: python -m pytest -q tests/test_range.py
 """
 
 
@@ -158,8 +172,14 @@ def parse_spec(text: str, request: str = "", title: str = "", family: str = "sof
     """
     rules: dict = {}
     for line in (text or "").splitlines():
-        found = CHECK_LINE.match(line)
-        if found:                                  # a check, matched BEFORE the looser rule pattern
+        found = PIPE_LINE.match(line)              # rule AND check on one line - tried first
+        if found:
+            number = int(found.group(1))
+            rules[number] = Rule(number=number, text=found.group(2).strip(),
+                                 check=f"{found.group(3).lower()}: {found.group(4).strip()}")
+            continue
+        found = CHECK_LINE.match(line)             # a check, matched BEFORE the looser rule pattern
+        if found:
             number = int(found.group(1))
             if number in rules:
                 rules[number].check = f"{found.group(2).lower()}: {found.group(3).strip()}"

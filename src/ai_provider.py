@@ -49,8 +49,16 @@ DEFAULT_CONFIG = {
         "claude_cli": {"enabled": True, "kind": "claude_cli", "local": False,
                        "context_tokens": 180000,
                        "note": "the Claude Code subscription, invoked as a CLI; needs the internet"},
+        # granite4:micro-h, not a 7B. MEASURED on this machine 25 Sep 2026: qwen2.5-coder:7b
+        # (7.6B, Q4_K_M, 4.68 GB) died with std::bad_alloc - it wanted ~4.5 GB of buffers and there
+        # was 0.8 GB free, because the app and four MetaTrader terminals hold the rest of 7.4 GB.
+        # This 3B hybrid loaded in 12 s and answered with 0.38 GB free. The default is deliberately
+        # the model that works on the WEAKEST machine the system runs on; a machine with more RAM
+        # overrides `model` in data/ai_provider.json rather than everyone inheriting a size that
+        # cannot load. The -h build is the hybrid Mamba-2 one, whose long-context memory saving is
+        # the property that matters when it has to read a codebase.
         "ollama": {"enabled": True, "kind": "ollama", "local": True,
-                   "url": "http://127.0.0.1:11434", "model": "qwen2.5-coder:7b",
+                   "url": "http://127.0.0.1:11434", "model": "granite4:micro-h",
                    "context_tokens": 8192,
                    "note": "a local model server; works with no internet at all"},
     },
@@ -251,27 +259,74 @@ def providers(config: Optional[dict] = None) -> list[Provider]:
     return out
 
 
+def local_proven(config: Optional[dict] = None, path: Optional[Path] = None) -> dict:
+    """Has a LOCAL provider ever actually answered? Reachable is not the same as working.
+
+    This exists because of a real false claim. On 25 September 2026 the status said
+    ``independent: True`` and the build map page said "Without internet: Working now", while every
+    local request was in fact failing: the server was up and listed its model, so the probe passed,
+    but ``llama-server`` died with ``std::bad_alloc`` on load - the 7.6B model needed about 4.5 GB and
+    the machine had 0.8 GB free. Listing a model proves the file is on disk, not that it can run.
+
+    So independence is claimed only once a local provider has genuinely produced an answer, taken from
+    the usage ledger. Known limitation, stated rather than hidden: a success recorded long ago stays
+    on the record even if the machine has since lost the headroom to repeat it, which is why ``at`` is
+    returned and shown - a stale proof should look stale.
+    """
+    config = config or load_provider_config()
+    local_names = {name for name, spec in (config.get("providers") or {}).items()
+                   if spec.get("enabled", True) and
+                   getattr(KINDS.get(spec.get("kind") or name), "local", False)}
+    target = Path(path or provider_paths()["usage"])
+    if not target.exists():
+        return {"proven": False, "provider": None, "at": None,
+                "why": "no local provider has answered yet - nothing has used one"}
+    latest = None
+    for line in target.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("ok") and row.get("provider") in local_names:
+            latest = row
+    if latest is None:
+        return {"proven": False, "provider": None, "at": None,
+                "why": ("a local provider is configured but has never returned an answer - reachable "
+                        "is not the same as working")}
+    return {"proven": True, "provider": latest.get("provider"), "at": latest.get("at"),
+            "why": f"{latest.get('provider')} answered locally at {latest.get('at')}"}
+
+
 def provider_status(config: Optional[dict] = None) -> dict:
     config = config or load_provider_config()
     found = [p.describe() for p in providers(config)]
     online = internet_reachable()
     usable = [p for p in found if p["available"]]
+    proven = local_proven(config)
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "internet": online, "prefer_local": bool(config.get("prefer_local", True)),
         "providers": found, "usable": [p["name"] for p in usable],
-        "local_usable": [p["name"] for p in usable if p["local"]],
-        "independent": bool([p for p in usable if p["local"]]),
-        "verdict": _verdict(found, online),
+        # reachable = the probe answered. proven = it actually generated something. Only the second
+        # one justifies telling the owner this machine can work offline.
+        "local_reachable": [p["name"] for p in usable if p["local"]],
+        "local_usable": [p["name"] for p in usable if p["local"]],   # kept: older callers read this
+        "local_proven": proven,
+        "independent": bool([p for p in usable if p["local"]]) and proven["proven"],
+        "verdict": _verdict(found, online, proven),
     }
 
 
-def _verdict(found: list[dict], online: bool) -> str:
+def _verdict(found: list[dict], online: bool, proven: Optional[dict] = None) -> str:
     local_ok = [p for p in found if p["available"] and p["local"]]
     hosted_ok = [p for p in found if p["available"] and not p["local"]]
-    if local_ok:
+    if local_ok and (proven or {}).get("proven"):
         return (f"Independent: {local_ok[0]['name']} answers locally, so this machine can work "
                 f"{'offline' if not online else 'without the subscription'}.")
+    if local_ok:
+        return (f"NOT yet independent: {local_ok[0]['name']} is reachable but has never returned an "
+                f"answer ({(proven or {}).get('why', 'unproven')}). A listed model is not a working "
+                f"one - check it can load in the RAM this machine actually has free.")
     if hosted_ok:
         return (f"Dependent: only {hosted_ok[0]['name']} can answer, and it is a hosted model. "
                 f"No local provider is reachable, so an offline machine could not work.")
