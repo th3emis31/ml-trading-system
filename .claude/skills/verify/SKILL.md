@@ -26,3 +26,13 @@ Report each step PASS or FAIL with evidence. Do not commit on any FAIL.
 6. **Memory** — append the outcome to `.claude/memory/NOTES.md`.
 
 Final line: `VERIFY: PASS` or `VERIFY: FAIL (<step>)`.
+
+## Acceptance
+
+```acceptance
+run: python -m compileall -q .
+run: python -m pytest -q
+run: bash scripts/claude-hooks/dup-check.sh
+```
+
+This skill IS the check for other work, so its own acceptance is that each step ran and reported.

@@ -46,3 +46,12 @@ Run one cycle and stop. Everything is idempotent: re-running updates, never dupl
 6. **Save** the layout as "SmartEntry <symbol>" (overwrite), screenshot both charts.
 7. **Report** a table per symbol: bias, entry, SL, TP1–3, R:R, action taken, paper P&L,
    and any contradiction between chart and plan. Then stop; the loop calls you again.
+
+## Acceptance
+
+```acceptance
+file: data/tradingview_plans
+ask: did the Trading Panel read "Paper Trading" before any Buy or Sell click?
+```
+
+The `ask` is the safety check and cannot be automated from here - the broker name is on screen.

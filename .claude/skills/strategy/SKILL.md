@@ -28,3 +28,12 @@ the hypothesis. Do not start coding until sections 1–8 are testable.
 ## Duplication guard
 Before creating a strategy file, `ls strategies/` and grep the codebase for the same idea.
 Extend an existing document rather than creating a near-duplicate.
+
+## Acceptance
+
+```acceptance
+file: strategies
+ask: does the hypothesis state, in advance, the number that would prove it WRONG?
+```
+
+A strategy document that cannot be refuted by any result is not a hypothesis, it is a description.

@@ -46,3 +46,15 @@ Never delete old model folders; never train on the test period; never promote si
 - Research models (new labels/features/models) go through `/edge-research`, never
   straight into the live path.
 - Tests: `python -m pytest -q tests/test_model_promotion.py` (run from C:\Users\th_em).
+
+## Acceptance
+
+```acceptance
+run: python -m pytest -q tests/test_signal_parity.py
+appended: data/learning_decisions.json
+number: accuracy >= 0.5
+ask: was the champion kept when the challenger did not clearly beat it?
+```
+
+The promotion gate is the point of this skill. A challenger promoted on a tie is a coin flip
+dressed as an improvement.

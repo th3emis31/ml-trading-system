@@ -25,3 +25,11 @@ built-in loop: `/loop 30m /improve-loop` (or `/loop /improve-loop` self-paced).
 
 Hard rules: one improvement per iteration; no deletions; no secrets; no push to `main`;
 if nothing safe is left, say so and stop.
+
+## Acceptance
+
+```acceptance
+run: python -m pytest -q
+run: bash scripts/claude-hooks/dup-check.sh
+appended: .claude/memory/NOTES.md
+```

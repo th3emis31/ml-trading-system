@@ -55,3 +55,12 @@ user's call after a strategy passes.
   signal (recorded, never executed) for a forward period before the user decides.
 - LSTM work follows the same labels, folds and holdout as the tree models so the
   numbers are directly comparable.
+
+## Acceptance
+
+```acceptance
+number: deflated_sharpe >= 0.95
+number: trades >= 100
+appended: .claude/memory/BASELINE.md
+ask: was the holdout untouched during selection?
+```

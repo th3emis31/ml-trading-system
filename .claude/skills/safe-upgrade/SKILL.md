@@ -21,3 +21,12 @@ Owner's standing rule: **always improve, always safe, nothing deleted, no errors
 5. **Verify** — run `/verify`. `git diff --stat` must show only intended files.
 6. **Record and commit** — append a dated line to `.claude/memory/NOTES.md`; commit on a
    `claude/*` branch with an imperative message. Never push to `main`; never force-push.
+
+## Acceptance
+
+```acceptance
+run: python -m compileall -q .
+run: python -m pytest -q
+run: bash scripts/claude-hooks/dup-check.sh
+ask: was anything removed, and if so was it replaced rather than dropped?
+```

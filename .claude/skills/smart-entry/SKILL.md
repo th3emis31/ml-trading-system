@@ -35,3 +35,12 @@ if they are missing.
 ## Review mode
 Output a table: rule → PASS/FAIL/N-A → file:line → concrete fix. Then apply the fixes
 with `/safe-upgrade` unless told otherwise.
+
+## Acceptance
+
+```acceptance
+run: python -m pytest -q tests/test_execute_api_security.py
+run: python -m pytest -q tests/test_signal_never_synthetic.py
+file: src/execution_guard.py contains side not in
+ask: can a non-directional signal reach an execution path anywhere in the change?
+```

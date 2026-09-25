@@ -22,3 +22,11 @@ Commands:
   and fill them in now.
 
 Never delete memory lines; strike through with `~~` if obsolete.
+
+## Acceptance
+
+```acceptance
+appended: .claude/memory/NOTES.md
+run: python -m src.second_brain status
+ask: can the new entry be traced to a measurement or a dated event, rather than an impression?
+```

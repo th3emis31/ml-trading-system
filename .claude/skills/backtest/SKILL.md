@@ -39,3 +39,17 @@ Extend it; do not write a second engine.
 - Research strategies: `src/edge_research.py` (triple-barrier, validation/holdout split,
   baselines, pass criteria). Use `/edge-research`.
 - `src/backtest.py` is the original synthetic-data demo: do not use it for results.
+
+## Acceptance
+
+How to tell the output is actually correct. Adjudicated by something other than the model.
+
+```acceptance
+appended: .claude/memory/BASELINE.md
+number: trades >= 100
+run: python -m pytest -q tests/test_signal_parity.py
+ask: does the reported window sit OUTSIDE the period the parameters were chosen on?
+```
+
+The `ask` is not a formality. On 24 September 2026 a 12x improvement and a +417 gold result both
+came from windows the parameters were fitted on, and both had to be withdrawn.

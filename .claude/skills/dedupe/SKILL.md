@@ -21,3 +21,11 @@ description: Find and consolidate duplicated functions, classes, formulas, and s
 3. **Status/summary files**: do not delete them; add a line to NOTES.md marking them stale.
 4. **Verify** with `/verify` and the tests. Commit one consolidation per commit.
 5. **Record** each consolidation in NOTES.md and add remaining groups to BACKLOG.md.
+
+## Acceptance
+
+```acceptance
+run: bash scripts/claude-hooks/dup-check.sh
+run: python -m pytest -q
+ask: was every consolidated definition kept as behaviour, with nothing silently dropped?
+```

@@ -62,3 +62,13 @@ plainly, because then the claim is not testable.
   ≥ 0.95 when many candidates were tried.
 - Record the verdict as a dated line in `.claude/memory/NOTES.md`; if a test you proposed is run
   later, the result belongs in `BASELINE.md`, including failures.
+
+## Acceptance
+
+```acceptance
+appended: .claude/memory/BASELINE.md
+ask: does the case name a specific measurement that would refute the strategy, not a general doubt?
+```
+
+A devil's case that cannot be settled by a number is an opinion. The point is to produce the check
+that would kill the idea, and then run it.
