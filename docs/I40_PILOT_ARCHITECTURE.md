@@ -239,7 +239,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 
 | # | Step | Delivers | Done when |
 |---|---|---|---|
-| **1** | Provider abstraction | `claude` and `local` behind one interface | the same task completes offline, with degraded quality honestly reported |
+| **1** | ~~Provider abstraction~~ **DONE 2026-09-25** | budgets, degraded reporting, fallback chain on the existing `ai_provider` | tests pin it; the machine currently reports *Dependent* because no local model is installed yet - honestly, rather than pretending |
 | **2** | Memory split | the four stores, with promotion and compaction | any fact can be traced to the event or measurement that produced it |
 | **3** | Context builder | budgeted five-slot assembly, cite-or-omit | a 4k brief and a 100k brief both run the same task |
 | **4** | Acceptance tests | every skill states how to check its own output | no skill can report success without a check that is not the model |
@@ -260,7 +260,7 @@ be believed about any of them.
 
 | Layer | Already built | Still to build |
 |---|---|---|
-| 0 Runtime | — | provider abstraction, `I40_HOME` |
+| 0 Runtime | `src/ai_provider.py`: Claude CLI + Ollama, internet probe, selection, usage meter, **context budgets, degraded flag, fallback chain** (step 1, done 2026-09-25) | `I40_HOME`, and a local model actually installed |
 | 1 Memory | `.claude/memory`, `BASELINE.md`, `second_brain`, auto-memory | the four-way split, promotion, compaction |
 | 2 Context | `i40_pilot.context()` | budgeting, cite-or-omit, slots |
 | 3 Brain | `i40_pilot` identity, attention, signature rules | plan-and-critique, failure-mode register |

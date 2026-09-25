@@ -47,9 +47,11 @@ DEFAULT_CONFIG = {
     "prefer_local": True,
     "providers": {
         "claude_cli": {"enabled": True, "kind": "claude_cli", "local": False,
+                       "context_tokens": 180000,
                        "note": "the Claude Code subscription, invoked as a CLI; needs the internet"},
         "ollama": {"enabled": True, "kind": "ollama", "local": True,
                    "url": "http://127.0.0.1:11434", "model": "qwen2.5-coder:7b",
+                   "context_tokens": 8192,
                    "note": "a local model server; works with no internet at all"},
     },
 }
@@ -77,14 +79,51 @@ def load_provider_config() -> dict:
     return merged
 
 
+# Four characters per token is the usual English approximation, and it is named an ESTIMATE because
+# that is what it is - real tokenisers differ per model and none is available offline for all of them.
+# It is used only to refuse an oversized prompt early with clear numbers; the provider stays the
+# authority on what it can actually accept.
+CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(text: str) -> int:
+    """Approximate token count. An estimate, never presented as exact."""
+    return max(1, len(text or "") // CHARS_PER_TOKEN)
+
+
 class Provider:
     """One way of asking a model a question. Implementations answer three things honestly."""
 
     name = "provider"
     local = False
+    # The fallback when a spec does not say. Small on purpose: guessing high would let an oversized
+    # prompt through to be silently truncated, which is the failure this whole check exists to stop.
+    default_context_tokens = 8192
 
     def __init__(self, spec: Optional[dict] = None):
         self.spec = spec or {}
+
+    def context_tokens(self) -> int:
+        try:
+            return int(self.spec.get("context_tokens") or self.default_context_tokens)
+        except (TypeError, ValueError):
+            return self.default_context_tokens
+
+    def too_long(self, prompt: str) -> Optional[dict]:
+        """Refuse an oversized prompt WITH the numbers, rather than letting it be truncated.
+
+        A silently shortened prompt asks a different question than the caller believes it asked, and
+        the caller then trusts the answer to the question it did not ask. That is the same class of
+        error as inventing data to fill a gap, which this codebase already forbids - it is how the
+        dashboard once published BUY signals derived from a random walk.
+        """
+        tokens, cap = estimate_tokens(prompt), self.context_tokens()
+        if tokens <= cap:
+            return None
+        return {"ok": False, "provider": self.name, "text": "", "prompt_tokens": tokens,
+                "context_tokens": cap,
+                "error": (f"prompt is about {tokens:,} tokens and {self.name} holds {cap:,}. "
+                          "Refused rather than truncated - shorten the context and ask again.")}
 
     def available(self) -> tuple[bool, str]:
         """(can it answer right now, why not). Probed, never assumed."""
@@ -97,7 +136,8 @@ class Provider:
     def describe(self) -> dict:
         ok, why = self.available()
         return {"name": self.name, "local": self.local, "available": ok, "reason": why,
-                "model": self.spec.get("model"), "note": self.spec.get("note")}
+                "model": self.spec.get("model"), "context_tokens": self.context_tokens(),
+                "note": self.spec.get("note")}
 
 
 class ClaudeCliProvider(Provider):
@@ -115,6 +155,9 @@ class ClaudeCliProvider(Provider):
         return True, f"claude CLI at {found}"
 
     def complete(self, prompt: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+        oversized = self.too_long(prompt)
+        if oversized:
+            return oversized
         ok, why = self.available()
         if not ok:
             return {"ok": False, "provider": self.name, "error": why, "text": ""}
@@ -157,6 +200,9 @@ class OllamaProvider(Provider):
         return True, f"{self._url()} with {len(names)} model(s)"
 
     def complete(self, prompt: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+        oversized = self.too_long(prompt)
+        if oversized:
+            return oversized
         ok, why = self.available()
         if not ok:
             return {"ok": False, "provider": self.name, "error": why, "text": ""}
@@ -285,16 +331,73 @@ def usage_summary(path: Optional[Path] = None, limit: int = 500) -> dict:
             "note": "A meter, not a transcript: no prompt or response text is ever stored."}
 
 
+def best_available(config: Optional[dict] = None) -> Optional[Provider]:
+    """The strongest provider that can answer, ignoring the prefer_local preference.
+
+    ``choose`` answers "which should we use", which defaults to local to keep the system independent.
+    This answers "which is the best we COULD use", and the gap between the two is what makes a reply
+    degraded. Hosted first: a 7B running on this machine is not the equal of the hosted model, and
+    pretending otherwise is what would let a weaker answer be reported with full confidence.
+    """
+    usable = [p for p in providers(config or load_provider_config()) if p.available()[0]]
+    if not usable:
+        return None
+    hosted = [p for p in usable if not p.local]
+    return hosted[0] if hosted else usable[0]
+
+
 def complete(prompt: str, task: str = "", timeout: int = DEFAULT_TIMEOUT,
              config: Optional[dict] = None, chooser: Optional[Callable] = None) -> dict:
-    """Ask whichever provider can answer, and meter it. Returns a failure rather than raising."""
-    provider = (chooser or choose)(config)
-    if provider is None:
-        result = {"ok": False, "provider": None, "text": "",
+    """Ask whichever provider can answer, fall back down the list, and meter it.
+
+    Three things this guarantees to the caller, because the layers above report to the owner:
+
+    * ``degraded`` is True when the answer did NOT come from the best provider available - either
+      because local was preferred, or because the better one failed and this is the fallback.
+    * ``attempts`` lists what was tried and why each failed, so a bad answer can be traced.
+    * With nothing reachable the result is ``ok=False``. It never invents text of its own, and it
+      never truncates a prompt to make it fit.
+    """
+    config = config or load_provider_config()
+    chosen = (chooser or choose)(config)
+    if chosen is None:
+        result = {"ok": False, "provider": None, "text": "", "degraded": True, "attempts": [],
                   "error": "no provider can answer right now (no local server, no reachable hosted model)"}
         record_usage(result, task)
         return result
-    result = provider.complete(prompt, timeout=timeout)
+
+    best = best_available(config)
+    best_name = best.name if best else None
+
+    # Try the chosen one first, then everything else that is reachable, strongest first. A provider
+    # that passes available() can still fail mid-call - a timeout, a crashed server - and the point of
+    # a fallback chain is that offline work continues instead of stopping at the first failure.
+    ordered = [chosen] + [p for p in providers(config)
+                          if p.name != chosen.name and p.available()[0]]
+    ordered = ordered[:1] + sorted(ordered[1:], key=lambda p: (p.local, p.name))
+
+    attempts = []
+    for provider in ordered:
+        result = provider.complete(prompt, timeout=timeout)
+        if result.get("ok") and (result.get("text") or "").strip():
+            result["degraded"] = provider.name != best_name
+            result["best_available"] = best_name
+            if attempts:
+                result["attempts"] = attempts
+            if result["degraded"]:
+                result["degraded_reason"] = (
+                    f"answered by {provider.name}"
+                    + (f" while {best_name} was available" if best_name and not attempts else "")
+                    + (f" after {len(attempts)} failure(s)" if attempts else "")
+                    + ". Treat the answer as lower confidence than the best provider would give.")
+            record_usage(result, task)
+            return result
+        attempts.append({"provider": provider.name, "error": (result.get("error") or "no text returned")[:200]})
+
+    result = {"ok": False, "provider": None, "text": "", "degraded": True, "attempts": attempts,
+              "best_available": best_name,
+              "error": "every reachable provider failed: "
+                       + "; ".join(f"{a['provider']}: {a['error']}" for a in attempts)}
     record_usage(result, task)
     return result
 
