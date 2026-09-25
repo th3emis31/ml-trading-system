@@ -1,5 +1,6 @@
 ---
 name: backtest
+family: trading
 description: Run or build a leak-free, cost-aware backtest and record comparable metrics against the baseline. Use when the user says backtest, test the strategy, historical performance, walk-forward, or out-of-sample.
 ---
 

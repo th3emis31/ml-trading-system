@@ -1,5 +1,6 @@
 ---
 name: safe-upgrade
+family: software
 description: Make an additive, zero-error improvement to this project. Use for any feature, fix, or refactor request. Never deletes; backs up, edits minimally, runs checks, verifies, commits.
 ---
 

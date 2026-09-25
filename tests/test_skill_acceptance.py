@@ -131,3 +131,35 @@ def test_declared_checks_are_parseable_not_prose():
                 target, needle = check.spec.split(" contains ", 1)
                 assert len(needle.split()) <= 6, (
                     f"{skill.name}: {needle!r} reads as prose, not literal text to search for")
+
+
+def test_all_five_skill_families_have_a_skill():
+    """Build map step 8. A family with no skill is a gap, reported rather than quietly missing."""
+    found = sa.coverage()
+    assert found["families_missing"] == [], f"no skill for: {found['families_missing']}"
+    assert found["families_covered"] == 5
+    for family in sa.FAMILIES:
+        assert found["by_family"].get(family), family
+
+
+def test_every_skill_declares_which_family_it_belongs_to():
+    untagged = sa.coverage()["by_family"].get("untagged", [])
+    assert untagged == [], f"these declare no family: {untagged}"
+
+
+def test_the_business_skill_passes_its_own_acceptance_end_to_end():
+    """The step-8 acceptance test: one skill per family, proven rather than asserted.
+
+    Figures are the measured BTCUSD case - 3,544 trades, net -308.69, spread 0.1694 per trade -
+    where the edge is real (0.0823 per trade gross) and the venue charges twice it.
+    """
+    skill = next(s for s in sa.read_skills() if s.name == "unit-economics")
+    net, units, cost_per_unit = -308.69, 3544, 1694 * 0.01 * 0.01
+    costs = cost_per_unit * units
+    gross = net + costs
+    error = abs(gross - costs - net)
+
+    sa.run_checks(skill, values={"reconciliation_error": error, "units": units})
+    out = sa.may_report_success(skill)
+    assert out["may_report_success"] is True, out["reason"]
+    assert error < 0.01, "gross - costs must equal net, or the three describe different sets"

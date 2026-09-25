@@ -44,6 +44,11 @@ SKILLS_DIR = ROOT / ".claude" / "skills"
 
 BLOCK = re.compile(r"```acceptance\s*\n(.*?)```", re.S | re.I)
 CHECK = re.compile(r"^\s*(run|file|number|ask|appended)\s*:\s*(.+?)\s*$", re.I)
+FAMILY_TAG = re.compile(r"^family:\s*(\S+)\s*$", re.M | re.I)
+
+# The five families the owner named, plus `core` for skills that serve the system itself rather than
+# a domain. A family with no skill is reported as a gap rather than quietly missing.
+FAMILIES = ("trading", "software", "market", "business", "media")
 
 # Adjudicated by the machine. `ask` is adjudicated by the owner, which is also not the model - but it
 # cannot run unattended, so a skill whose ONLY check is `ask` is flagged rather than accepted.
@@ -69,6 +74,7 @@ class SkillAcceptance:
     name: str
     path: str
     checks: list = field(default_factory=list)
+    family: str = ""
 
     @property
     def declared(self) -> bool:
@@ -79,7 +85,8 @@ class SkillAcceptance:
         return any(c.automatic for c in self.checks)
 
     def as_dict(self) -> dict:
-        return {"name": self.name, "path": self.path, "declared": self.declared,
+        return {"name": self.name, "path": self.path, "family": self.family,
+                "declared": self.declared,
                 "has_automatic": self.has_automatic,
                 "checks": [{"kind": c.kind, "spec": c.spec, "passed": c.passed,
                             "detail": c.detail} for c in self.checks]}
@@ -107,7 +114,9 @@ def read_skills(skills_dir: Optional[Path] = None) -> list:
             shown = str(skill_file.relative_to(ROOT))
         except ValueError:
             shown = str(skill_file)
-        out.append(SkillAcceptance(name=skill_file.parent.name, path=shown, checks=parse(text)))
+        tag = FAMILY_TAG.search(text)
+        out.append(SkillAcceptance(name=skill_file.parent.name, path=shown, checks=parse(text),
+                                   family=(tag.group(1).lower() if tag else "")))
     return out
 
 
@@ -117,8 +126,14 @@ def coverage(skills_dir: Optional[Path] = None) -> dict:
     undeclared = [s.name for s in found if not s.declared]
     manual_only = [s.name for s in found if s.declared and not s.has_automatic]
     ready = [s.name for s in found if s.has_automatic]
+    by_family: dict = {}
+    for skill in found:
+        by_family.setdefault(skill.family or "untagged", []).append(skill.name)
+    missing = [f for f in FAMILIES if f not in by_family]
     return {
         "total": len(found), "with_automatic_check": len(ready),
+        "by_family": by_family, "families_covered": len(FAMILIES) - len(missing),
+        "families_missing": missing,
         "coverage_pct": round(100.0 * len(ready) / len(found), 1) if found else None,
         "ready": ready, "manual_only": manual_only, "undeclared": undeclared,
         "skills": [s.as_dict() for s in found],

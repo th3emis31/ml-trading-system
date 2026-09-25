@@ -1,5 +1,6 @@
 ---
 name: verify
+family: software
 description: Full safety check before commit — compile/build, tests if present, deleted-code audit, secret scan. Use before every commit or when asked "is it safe".
 ---
 

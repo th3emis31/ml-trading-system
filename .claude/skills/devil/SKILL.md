@@ -1,5 +1,6 @@
 ---
 name: devil
+family: trading
 description: Build the strongest honest case that a strategy loses money live, so a result is attacked before it is trusted
 ---
 

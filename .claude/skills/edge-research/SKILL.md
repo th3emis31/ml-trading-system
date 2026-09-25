@@ -1,5 +1,6 @@
 ---
 name: edge-research
+family: trading
 description: One disciplined experiment per iteration to find a real, out-of-sample trading edge for the ML/LSTM models (buy and sell). Use when the user asks to make the models profitable, improve ML/LSTM, find an edge, or run the research loop (e.g. "/loop /edge-research").
 ---
 

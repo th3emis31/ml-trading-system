@@ -1,5 +1,6 @@
 ---
 name: improve-loop
+family: software
 description: Continuous improvement loop. Each iteration finds one safe, additive upgrade to the smart entry system or code quality, applies it with /safe-upgrade, verifies, commits. Use with /loop for recurring runs (e.g. "/loop 30m /improve-loop").
 ---
 

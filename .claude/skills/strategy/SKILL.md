@@ -1,5 +1,6 @@
 ---
 name: strategy
+family: trading
 description: Write, review, or refine a trading strategy as a testable hypothesis document before any code. Use when the user says strategy, new idea, entry rules, exit rules, edge, setup, or asks whether an idea is worth building.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: dedupe
+family: software
 description: Find and consolidate duplicated functions, classes, formulas, and status files without deleting behaviour. Use when the user mentions duplication, "same code twice", two versions of X, or before large features on a monolith.
 ---
 

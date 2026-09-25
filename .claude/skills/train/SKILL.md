@@ -1,5 +1,6 @@
 ---
 name: train
+family: trading
 description: Safe model training protocol — leak-free time split, versioned artifacts, evaluation against the baseline, explicit promotion. Use when the user says train, retrain, fit the model, update the model, or improve accuracy.
 ---
 

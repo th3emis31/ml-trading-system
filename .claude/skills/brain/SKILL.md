@@ -1,5 +1,6 @@
 ---
 name: brain
+family: core
 description: Read or update the project's persistent memory (CLAUDE.md, .claude/memory/NOTES.md, BACKLOG.md). Use when the user says "remember", "what did we decide", "memory", "context", or "brain".
 ---
 

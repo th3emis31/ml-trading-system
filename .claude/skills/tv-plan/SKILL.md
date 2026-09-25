@@ -1,5 +1,6 @@
 ---
 name: tv-plan
+family: trading
 description: One cycle of the TradingView daily plan — read the system's plan, redraw it on the 4H chart in Chrome, and manage a PAPER TRADING position only. Designed to repeat with /loop (e.g. "/loop 3h58m /tv-plan"). Requires Claude Code started with --chrome and TradingView logged in.
 ---
 

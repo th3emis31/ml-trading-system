@@ -1,5 +1,6 @@
 ---
 name: smart-entry
+family: trading
 description: Design, review, or improve the automated smart entry system (entry/SL/TP, risk sizing, regime and session gating, confidence, execution safety). Use when the user mentions entries, signals, execution, risk, SL/TP, orders, or "smart entry".
 ---
 
