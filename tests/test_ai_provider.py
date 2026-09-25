@@ -143,3 +143,44 @@ def test_no_key_in_the_source_and_it_cannot_trade():
     for forbidden in ("order_send", "OrderSend", "place_order", "auto_execute", "MetaTrader5",
                       "sk-ant-", "api_key="):
         assert forbidden not in text
+
+
+def test_the_local_model_does_not_sit_in_ram_after_answering():
+    """Measured 25 September 2026: 7.5 GB total, 0.9 GB free, 10.9 GB already paged to disk. Ollama's
+    default keep_alive of 5 minutes leaves ~2 GB of that resident long after the answer came back, which
+    on this machine is the difference between the next thing loading and not loading."""
+    sent = {}
+
+    class FakeResponse:
+        def read(self):
+            return b'{"response": "ok"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        if getattr(request, "data", None):
+            sent.update(json.loads(request.data.decode("utf-8")))
+        return FakeResponse()
+
+    provider = ap.OllamaProvider({"model": "granite4:micro-h", "url": "http://127.0.0.1:11434"})
+    original = ap.urllib.request.urlopen
+    ap.urllib.request.urlopen = fake_urlopen
+    try:
+        provider.available = lambda: (True, "stubbed")
+        out = provider.complete("hello")
+    finally:
+        ap.urllib.request.urlopen = original
+
+    assert out["ok"] is True
+    assert sent.get("keep_alive") == "60s", f"keep_alive must be sent, got {sent.get('keep_alive')!r}"
+
+
+def test_keep_alive_can_be_overridden_per_machine():
+    """A machine with plenty of RAM should be able to keep the model warm for longer."""
+    provider = ap.OllamaProvider({"model": "m", "keep_alive": "30m"})
+    assert provider.spec["keep_alive"] == "30m"
+    assert ap.DEFAULT_CONFIG["providers"]["ollama"]["keep_alive"] == "60s"

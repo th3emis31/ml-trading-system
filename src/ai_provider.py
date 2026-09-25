@@ -59,7 +59,7 @@ DEFAULT_CONFIG = {
         # the property that matters when it has to read a codebase.
         "ollama": {"enabled": True, "kind": "ollama", "local": True,
                    "url": "http://127.0.0.1:11434", "model": "granite4:micro-h",
-                   "context_tokens": 8192,
+                   "context_tokens": 8192, "keep_alive": "60s",
                    "note": "a local model server; works with no internet at all"},
     },
 }
@@ -214,7 +214,13 @@ class OllamaProvider(Provider):
         ok, why = self.available()
         if not ok:
             return {"ok": False, "provider": self.name, "error": why, "text": ""}
-        payload = json.dumps({"model": self.spec.get("model"), "prompt": prompt, "stream": False}).encode("utf-8")
+        # keep_alive: how long Ollama holds the model in RAM after answering. Its default is 5 minutes,
+        # which on this machine means ~2 GB of a 7.5 GB total sitting idle long after the answer came
+        # back - measured 25 Sep 2026 with 0.9 GB free and 10.9 GB already paged to disk. A short hold
+        # keeps a burst of calls fast (the model stays warm between them) while giving the memory back
+        # quickly afterwards, which matters far more here than saving a 12-second reload.
+        payload = json.dumps({"model": self.spec.get("model"), "prompt": prompt, "stream": False,
+                              "keep_alive": self.spec.get("keep_alive", "60s")}).encode("utf-8")
         request = urllib.request.Request(f"{self._url()}/api/generate", data=payload,
                                          headers={"Content-Type": "application/json"}, method="POST")
         started = time.monotonic()
