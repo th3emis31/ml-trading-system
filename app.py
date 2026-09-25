@@ -768,6 +768,7 @@ MAIN_NAV_GROUPS = [
     ('/strategy-lab', 'Strategy Lab'),
     ('/system-doctor', 'System Doctor'),
     ('/ai-employee', 'AI Employee'),
+    ('/i40-build-map', 'Build Map'),
   ]),
   ('Data', [
     ('/data-feed', 'Data Feed'),
@@ -22951,9 +22952,215 @@ def daily_report_page():
   return render_template_string(DAILY_REPORT_TEMPLATE, theme_css=THEME_CSS)
 
 
+# The build map page. Everything on it comes from /api/i40/build-map, which reads the running system -
+# no figure is written into this template, so it cannot go stale.
+I40_BUILD_MAP_TEMPLATE = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>i40 Pilot - Build Map</title>
+{{ theme_css|safe }}
+<style>
+  .bm-wrap{max-width:1000px;margin:0 auto;padding:22px 16px 60px;display:flex;flex-direction:column;gap:28px}
+  .bm-head h1{margin:0 0 6px;font-size:clamp(22px,4vw,32px);letter-spacing:-.02em}
+  .bm-head p{margin:0;max-width:64ch;opacity:.82;line-height:1.55}
+  .bm-eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;opacity:.6;margin-bottom:8px}
+  .bm-sec{display:flex;flex-direction:column;gap:12px}
+  .bm-sec > h2{margin:0;font-size:12px;letter-spacing:.11em;text-transform:uppercase;opacity:.6;
+    font-family:ui-monospace,Menlo,monospace}
+  .bm-card{background:var(--card,rgba(127,127,127,.08));border:1px solid var(--border,rgba(127,127,127,.22));
+    border-radius:10px;padding:16px 18px}
+  .bm-modes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  @media(max-width:640px){.bm-modes{grid-template-columns:1fr}}
+  .bm-mode{border:1px solid var(--border,rgba(127,127,127,.22));border-radius:8px;padding:12px 14px}
+  .bm-mode .k{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;opacity:.6}
+  .bm-mode .v{font-size:19px;font-weight:700;margin:3px 0 4px}
+  .bm-mode .n{font-size:13px;opacity:.82;line-height:1.5}
+  .bm-ok{color:#2fa36b}.bm-no{color:#d3695c}.bm-wait{color:#c79a3a}
+  .bm-bar{display:flex;gap:4px;height:11px;margin:4px 0 8px}
+  .bm-bar i{flex:1;border-radius:2px;background:rgba(127,127,127,.25)}
+  .bm-bar i.on{background:#2fa36b}.bm-bar i.next{background:#4a90c2}
+  .bm-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+  .bm-metric{border:1px solid var(--border,rgba(127,127,127,.22));border-radius:8px;padding:11px 13px}
+  .bm-metric .v{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .bm-metric .k{font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.09em;
+    text-transform:uppercase;opacity:.6;margin-top:2px}
+  .bm-phase{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;opacity:.65;padding:10px 0 2px;border-bottom:1px solid var(--border,rgba(127,127,127,.2))}
+  .bm-step{display:grid;grid-template-columns:34px 1fr auto;gap:0 12px;align-items:start;
+    border:1px solid var(--border,rgba(127,127,127,.22));border-radius:8px;padding:12px 14px;margin-top:8px}
+  @media(max-width:640px){.bm-step{grid-template-columns:28px 1fr}.bm-step .bm-chip{grid-column:2;justify-self:start;margin-top:7px}}
+  .bm-step.todo{opacity:.72;border-style:dashed}
+  .bm-step .num{font-family:ui-monospace,Menlo,monospace;font-size:14px;opacity:.55;font-weight:600}
+  .bm-step .t{font-weight:700;font-size:15px;letter-spacing:-.01em}
+  .bm-step .d{font-size:13px;opacity:.72;margin-top:1px}
+  .bm-step .p{font-size:13px;opacity:.86;margin-top:5px;line-height:1.5}
+  .bm-chip{font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;padding:3px 8px;border-radius:4px;white-space:nowrap}
+  .bm-chip.done{background:rgba(47,163,107,.16);color:#2fa36b}
+  .bm-chip.todo{background:rgba(127,127,127,.14);opacity:.75}
+  .bm-layer{display:grid;grid-template-columns:30px 118px 1fr;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--border,rgba(127,127,127,.14));align-items:baseline}
+  @media(max-width:640px){.bm-layer{grid-template-columns:26px 1fr}.bm-layer .d{grid-column:2}}
+  .bm-layer .l{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;opacity:.55}
+  .bm-layer .n{font-weight:700;font-size:13.5px}
+  .bm-layer.built .n{color:#2fa36b}
+  .bm-layer .d{font-size:13px;opacity:.75}
+  .bm-scope{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px}
+  .bm-scope .f{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.09em;
+    text-transform:uppercase;opacity:.7;margin-bottom:7px}
+  .bm-tags{display:flex;flex-wrap:wrap;gap:5px}
+  .bm-tags span{font-size:12px;padding:2px 7px;border-radius:4px;
+    border:1px solid var(--border,rgba(127,127,127,.22));opacity:.85}
+  .bm-loops{display:flex;flex-wrap:wrap;gap:6px}
+  .bm-loops span{font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:3px 8px;border-radius:4px;
+    border:1px solid var(--border,rgba(127,127,127,.22))}
+  .bm-foot{font-size:12px;opacity:.6;line-height:1.6}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;padding:1px 5px;border-radius:3px;
+    background:rgba(127,127,127,.14)}
+</style></head><body>
+{{ main_nav }}
+<div class="bm-wrap" id="bm">
+  <div class="bm-card">Loading the build map from the running system...</div>
+</div>
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(d){
+  const p = d.providers || {}, m = d.memory || {}, sk = d.skills || {}, lp = d.loops || {}, fm = d.failure_modes || {};
+  const online = (p.rows || []).find(r => !r.local) || {};
+  const local  = (p.rows || []).find(r =>  r.local) || {};
+  const bars = d.steps.map(s => s.done ? '<i class="on"></i>'
+                : (d.next_step && s.n === d.next_step.n ? '<i class="next"></i>' : '<i></i>')).join('');
+
+  const phases = [];
+  let current = null;
+  d.steps.forEach(s => {
+    if (s.phase !== current){ current = s.phase; phases.push({name: current, steps: []}); }
+    phases[phases.length-1].steps.push(s);
+  });
+
+  const stepHtml = phases.map(ph => `
+    <div class="bm-phase">${esc(ph.name)}</div>
+    ${ph.steps.map(s => `
+      <div class="bm-step ${s.done ? '' : 'todo'}">
+        <div class="num">${String(s.n).padStart(2,'0')}</div>
+        <div>
+          <div class="t">${esc(s.title)}</div>
+          <div class="d">${esc(s.delivers)}</div>
+          <div class="p">${esc(s.proof)}</div>
+        </div>
+        <span class="bm-chip ${s.done ? 'done' : 'todo'}">${s.done ? 'done' : (d.next_step && s.n === d.next_step.n ? 'next' : 'planned')}</span>
+      </div>`).join('')}`).join('');
+
+  const metric = (v,k) => `<div class="bm-metric"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+
+  document.getElementById('bm').innerHTML = `
+    <div class="bm-head">
+      <div class="bm-eyebrow">i40 Pilot &middot; build map &middot; ${esc(d.generated_at)}</div>
+      <h1>Your own AI system, built one step a week</h1>
+      <p>Memory, brain, context, loops, skills, tools and safety &mdash; designed so the whole thing runs on this machine with no internet and no subscription. Every figure below is read from the running system.</p>
+    </div>
+
+    <div class="bm-sec">
+      <h2>The constraint everything is built around</h2>
+      <div class="bm-card">
+        <div style="font-size:16px;font-weight:700">&ldquo;Work anywhere with internet, and fully local without internet.&rdquo;</div>
+        <p style="margin:9px 0 0;font-size:13.5px;opacity:.85;line-height:1.55">${esc(d.constraint)}</p>
+        <div class="bm-modes">
+          <div class="bm-mode">
+            <div class="k">With internet</div>
+            <div class="v ${online.usable ? 'bm-ok' : 'bm-no'}">${online.usable ? 'Working now' : 'Not available'}</div>
+            <div class="n">${esc(online.name || 'hosted model')} &middot; ${online.context_tokens ? Number(online.context_tokens).toLocaleString() + '-token window' : ''}</div>
+          </div>
+          <div class="bm-mode">
+            <div class="k">Without internet</div>
+            <div class="v ${p.offline_capable ? 'bm-ok' : 'bm-no'}">${p.offline_capable ? 'Working now' : 'Not yet'}</div>
+            <div class="n">${esc(local.reason || '')}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>Progress</h2>
+      <div class="bm-bar">${bars}</div>
+      <div style="font-size:13px;opacity:.82"><b>${d.steps_done} of ${d.steps_total} steps done</b>${d.next_step ? ' &mdash; next: ' + esc(d.next_step.title) : ' &mdash; all done'}</div>
+      <div class="bm-metrics">
+        ${metric(m.entries ?? '-', 'memory entries')}
+        ${metric((m.traceable_pct ?? '-') + '%', 'traceable to a source')}
+        ${metric((sk.total ?? '-') + ' / ' + (sk.families_covered ?? '-') + ' fam', 'skills self-checking')}
+        ${metric(fm.count ?? '-', 'failure modes armed')}
+        ${metric((lp.reporting ?? '-') + ' / ' + (lp.known ?? '-'), 'loops reporting')}
+      </div>
+    </div>
+
+    <div class="bm-sec"><h2>The ten steps</h2><div>${stepHtml}</div>
+      <p style="font-size:13px;opacity:.72;margin:4px 0 0">The order is deliberate. Broadening before the trust layer existed would have produced a system that does many things and cannot be believed about any of them.</p>
+    </div>
+
+    <div class="bm-sec">
+      <h2>How it is put together</h2>
+      <div class="bm-card">
+        ${d.layers.slice().reverse().map(l => `
+          <div class="bm-layer ${l.built ? 'built' : ''}">
+            <span class="l">${l.level}</span><span class="n">${esc(l.name)}</span><span class="d">${esc(l.desc)}</span>
+          </div>`).join('')}
+        <p style="font-size:12.5px;opacity:.7;margin:10px 0 0">Each layer calls only the one below it, which is what makes the model swappable: replacing the hosted model with a local one touches layer 0 alone.</p>
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>What it is being built to do</h2>
+      <div class="bm-scope">
+        ${d.scope.map(s => `<div class="bm-card"><div class="f">${esc(s.family)}</div>
+          <div class="bm-tags">${s.items.map(i => '<span>' + esc(i) + '</span>').join('')}</div></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>Loops</h2>
+      <div class="bm-card">
+        <div class="bm-loops">${Object.entries(lp.counts || {}).map(([k,v]) => `<span>${esc(k)}: ${v}</span>`).join('')}</div>
+        <p style="font-size:12.5px;opacity:.75;margin:10px 0 0">SILENT means a loop has never written a closure record, so nothing can tell whether it ran, did nothing, or died. OPEN means it reports but nothing it observes changes what it does.</p>
+      </div>
+    </div>
+
+    <div class="bm-foot">
+      Architecture: <code>docs/I40_PILOT_ARCHITECTURE.md</code> &middot; live state: <code>/api/i40/build-map</code> &middot; evidence: <code>.claude/memory/BASELINE.md</code><br>
+      This page reads the running system and places no orders.
+    </div>`;
+}
+
+fetch('/api/i40/build-map').then(r => r.json()).then(render).catch(e => {
+  document.getElementById('bm').innerHTML =
+    '<div class="bm-card">Could not read the build map: ' + esc(e.message) +
+    '. The page reports the failure rather than showing figures it does not have.</div>';
+});
+</script></body></html>"""
+
+
 @app.route('/system-doctor')
 def system_doctor_page():
   return render_template_string(SYSTEM_DOCTOR_TEMPLATE, theme_css=THEME_CSS)
+
+
+# The i40 Pilot build map (src/build_map.py). The owner asked for it inside their own system rather
+# than only as a hosted page - a page on somebody else's site is a dependency, and the point of this
+# system is that it needs none. Every figure is read live from the thing it describes, so the page
+# cannot drift away from reality the way a written status eventually always does. Read-only.
+@app.route('/api/i40/build-map')
+def i40_build_map_api():
+  try:
+    from src.build_map import build_map_state
+    return jsonify(build_map_state())
+  except Exception as exc:
+    return jsonify({'available': False, 'reason': f'{type(exc).__name__}: {exc}'}), 500
+
+
+@app.route('/i40-build-map')
+def i40_build_map_page():
+  return render_template_string(I40_BUILD_MAP_TEMPLATE, theme_css=THEME_CSS)
 
 
 # AI Employee (src/ai_employee.py): a daily read-only Claude Code review on the owner's subscription (task
