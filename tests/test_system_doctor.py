@@ -257,11 +257,14 @@ def test_terminals_are_matched_by_path_not_by_process_name():
     out = doc.check_terminals(run=lambda *a, **k: only_the_other_mt5)
     assert out["status"] == "fail"
     assert any("11581419" in m for m in out["detail"]["missing"] and
-               [doc.REQUIRED_TERMINALS[p] for p in out["detail"]["missing"]])
+               [doc.required_terminals()[p] for p in out["detail"]["missing"]])
 
 
 def test_all_required_terminals_running_is_ok():
-    running = "\n".join(doc.REQUIRED_TERMINALS)
+    # Configured paths use forward slashes and Windows reports backslashes, so this also proves
+    # the two spellings are matched as the same file rather than compared as strings.
+    running = "\n".join(
+        path.replace("/", chr(92)) for path in doc.required_terminals())
     out = doc.check_terminals(run=lambda *a, **k: _Proc(running))
     assert out["status"] == "ok"
 
@@ -269,8 +272,8 @@ def test_all_required_terminals_running_is_ok():
 def test_the_two_extra_mt4s_are_not_required():
     """The owner runs five terminals; only three are this system's business. Requiring the other two
     would make the doctor fail over terminals that are nothing to do with it."""
-    assert len(doc.REQUIRED_TERMINALS) == 3
-    assert not any("Program Files (x86)" in p for p in doc.REQUIRED_TERMINALS)
+    assert len(doc.required_terminals()) == 3
+    assert not any("Program Files (x86)" in p for p in doc.required_terminals())
 
 
 def test_missing_terminals_are_started_through_the_shared_script():

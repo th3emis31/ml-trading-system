@@ -101,13 +101,18 @@ def test_one_trade_per_asset_is_enforced_in_the_auto_trade_route():
     source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
     core = source[source.index("def _auto_trade_execute_core"):]
     core = core[:core.index("# Route to the trading engine")]
-    assert "MT5_ENGINE.positions(symbol=symbol, magic=AUTO_TRADE_MAGIC)" in core, \
+    assert "MT5_ENGINE.positions(symbol=symbol, magic=list(AUTO_TRADE_MAGICS))" in core, \
         "it must count existing positions before opening another"
     assert "one trade per asset" in core
     assert "log_rejection" in core, "a refused trade must be recorded, not silent"
     # The count must be scoped to this route's own magic: the owner's other experts trade the same
     # symbols and are not this system's to block.
-    assert "AUTO_TRADE_MAGIC = 903110" in source
+    # Two constants since SmartEntry took its own number on 24 Sep 2026: AUTO_TRADE_MAGIC is what
+    # new orders carry, and the legacy number is still COUNTED, because a position opened under it
+    # is just as much one open trade on that asset.
+    assert "AUTO_TRADE_MAGIC = 440906" in source
+    assert "AUTO_TRADE_LEGACY_MAGICS = (903110,)" in source
+    assert "AUTO_TRADE_MAGICS = (AUTO_TRADE_MAGIC,) + AUTO_TRADE_LEGACY_MAGICS" in source
 
 
 def test_the_rule_counts_only_this_systems_own_orders():
@@ -117,4 +122,5 @@ def test_the_rule_counts_only_this_systems_own_orders():
     source = pathlib.Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
     core = source[source.index("# ONE OPEN TRADE PER ASSET"):]
     core = core[:core.index("trade_record = {")]
-    assert "magic=AUTO_TRADE_MAGIC" in core and "magic=None" not in core
+    assert "magic=list(AUTO_TRADE_MAGICS)" in core, "the count must be scoped to this system's magics"
+    assert "magic=None" not in core, "an unscoped count would let another EA's trade block this one"

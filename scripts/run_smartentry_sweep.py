@@ -18,8 +18,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL = Path(r"C:/Users/th_em/MT5_SwingTrend_Tester")
-DATA = Path(r"C:/Users/th_em/AppData/Roaming/MetaQuotes/Terminal/5163829A6BDAF7E3A6FE2C0F431EFD6B")
+sys.path.insert(0, str(ROOT))
+
+from src.runtime_paths import installed_terminal, terminal_data_dir  # noqa: E402
+
+INSTALL = Path(installed_terminal("mt5_tester")).parent
+DATA = Path(terminal_data_dir("mt5_tester"))
 GOLDEN = ROOT / "strategies/smartentry_v9/BASELINE_v04_XAUUSD_M1.ini"
 RESULTS = ROOT / "data/smartentry_tests/sweep.json"
 

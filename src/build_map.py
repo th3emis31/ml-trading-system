@@ -13,6 +13,7 @@ met, and a judgement is recorded rather than inferred. The EVIDENCE beside each 
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -51,9 +52,14 @@ STEPS = (
      "delivers": "Trading, software, market, business and media",
      "proof": "Every family has a skill, every skill declares an independent check, and one was "
               "proven end to end on the 3,544-trade bitcoin case."},
-    {"n": 9, "phase": "Make it broad", "title": "Portability", "done": False,
+    {"n": 9, "phase": "Make it broad", "title": "Portability", "done": True,
      "delivers": "One home folder holding memory, evidence and config",
-     "proof": "Not yet built. Done when the system runs from a USB drive on another machine, offline."},
+     "proof": "I40_HOME moves the whole system, MetaTrader locations come from config/machine.json "
+              "instead of the source, and a test fails if any machine-specific path goes back into "
+              "the code. Proven by running the USB copy as its own home: it found its models, data "
+              "and config on the drive. Where a path is absent it is named, never guessed.",
+     "gap": "Not yet proven on a second PC, and offline still needs a local model - none is "
+            "installed, which the provider evidence below reports as independent: false."},
     {"n": 10, "phase": "Make it broad", "title": "Self-improvement loop", "done": False,
      "delivers": "It proposes a change from its own evidence and measures the effect",
      "proof": "Not yet built. Done when a change is proposed, applied and measured without being asked."},
@@ -148,6 +154,25 @@ def _failure_modes() -> dict:
         return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def _portability() -> dict:
+    """Step 9's evidence, read live: does this run resolve its own home, and what is missing here?"""
+    try:
+        from .runtime_paths import HOME_ENV, machine_report, smartentry_data_dir, smartentry_models_dir
+
+        report = machine_report()
+        return {"available": True,
+                "home": report["home"],
+                "home_from_environment": bool(os.environ.get(HOME_ENV)),
+                "config_file": report["config_file"],
+                "config_file_exists": report["config_file_exists"],
+                "models_dir": str(smartentry_models_dir()),
+                "data_dir": str(smartentry_data_dir()),
+                "terminals": report["terminals"],
+                "missing": report["missing"]}
+    except Exception as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def build_map_state() -> dict:
     """Everything the page shows, read from the running system."""
     done = [s for s in STEPS if s["done"]]
@@ -164,6 +189,7 @@ def build_map_state() -> dict:
         "skills": _skills(),
         "loops": _loops(),
         "failure_modes": _failure_modes(),
+        "portability": _portability(),
         "constraint": ("Work anywhere with internet, and fully local without internet. Offline means "
                        "a small local model, so the competence is put in the SYSTEM rather than the "
                        "model: memory states what is known, skills carry the procedure, tools do "

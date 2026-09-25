@@ -13,7 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src import market_screener as ms
 
-TERMINAL = r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe"
+from src.runtime_paths import installed_terminal
+
+TERMINAL = installed_terminal("mt5_strategies")
 
 if __name__ == "__main__":
     symbols = sys.argv[1:] or ["NAS100", "AAPL", "SP500"]

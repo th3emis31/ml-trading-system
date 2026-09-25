@@ -20,14 +20,33 @@ MODELS_DIR_ENV = "SMARTENTRY_MODELS_DIR"
 DATA_DIR_ENV = "SMARTENTRY_DATA_DIR"
 
 
+def _owned_dir(env_name: str, folder: str) -> Path:
+    """One of the folders the system owns, in precedence order.
+
+    1. its own variable, which the test suite sets to a temporary folder;
+    2. ``I40_HOME``/<folder>, so one variable moves the whole system to a USB drive or a second PC;
+    3. the plain relative name, which is what the app has always used.
+
+    Three is still the default precisely because it is the behaviour on this machine: setting nothing
+    changes nothing, and portability is something the owner opts into by naming a home.
+    """
+    override = os.environ.get(env_name)
+    if override:
+        return Path(override)
+    home = os.environ.get(HOME_ENV)
+    if home:
+        return Path(home) / folder
+    return Path(folder)
+
+
 def smartentry_models_dir() -> Path:
-    """Folder holding the live champion models (``models`` unless the test suite redirects it)."""
-    return Path(os.environ.get(MODELS_DIR_ENV) or "models")
+    """Folder holding the live champion models (``models`` unless redirected - see ``_owned_dir``)."""
+    return _owned_dir(MODELS_DIR_ENV, "models")
 
 
 def smartentry_data_dir() -> Path:
-    """Folder holding learning decisions and learning history (``data`` unless the test suite redirects it)."""
-    return Path(os.environ.get(DATA_DIR_ENV) or "data")
+    """Folder holding learning decisions and learning history (``data`` unless redirected)."""
+    return _owned_dir(DATA_DIR_ENV, "data")
 
 
 # The live champions may only be retrained around the SmartEntry Daily Learning task's own trigger. On 16 Sep 2026 an
@@ -199,3 +218,122 @@ def _main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+# ---------------------------------------------------------------------------
+# Where this MACHINE keeps things - i40 Pilot build map step 9 (portability).
+#
+# The system's own files already travel: models/ and data/ resolve relative to wherever it runs, so
+# copying the folder is enough. What did NOT travel were the paths to things INSTALLED on a
+# particular PC - the MetaTrader terminals above all - which were written into the source. On another
+# machine those are simply wrong, and a system that cannot be moved is not independent.
+#
+# So machine-specific locations live in ONE json file under the home folder, and every default here
+# is the value this machine already used - nothing changes on this PC, and a new machine edits a file
+# rather than the code.
+# ---------------------------------------------------------------------------
+
+HOME_ENV = "I40_HOME"
+MACHINE_CONFIG_NAME = "machine.json"
+
+# The terminals as this machine has them, used when the config file says nothing. Keys are stable
+# names the code asks for; the values are what a different machine would change.
+DEFAULT_MACHINE = {
+    "terminals": {
+        "mt5_strategies": "C:/Users/th_em/AppData/Roaming/MetaTrader/terminal64.exe",
+        "mt5_panel": "C:/Program Files/MetaTrader 5/terminal64.exe",
+        "mt4_bridge": "C:/Users/th_em/AppData/Roaming/CMC Markets MetaTrader 4/terminal.exe",
+        "mt5_tester": "C:/Users/th_em/MT5_SwingTrend_Tester/terminal64.exe",
+    },
+    # A terminal's DATA folder is machine-specific twice over: the user profile AND the per-install
+    # hash differ on another PC, so it cannot be derived from the executable path.
+    "terminal_data": {
+        "mt5_tester": ("C:/Users/th_em/AppData/Roaming/MetaQuotes/Terminal/"
+                       "5163829A6BDAF7E3A6FE2C0F431EFD6B"),
+    },
+    "excel_workbook": "C:/Users/th_em/Desktop/Trading Dashboard/Trading-Business-Dashboard.xlsx",
+    "note": ("Machine-specific paths. Edit these when the system moves to another PC; nothing else "
+             "needs changing. A path that does not exist is reported, never guessed at."),
+}
+
+
+def i40_home() -> Path:
+    """The portable root: everything the system owns lives under here.
+
+    Defaults to the folder holding this repository, so behaviour is unchanged. Set ``I40_HOME`` to
+    run the same code against a different copy - a USB drive, a second machine, a restored backup.
+    """
+    override = os.environ.get(HOME_ENV)
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[1]
+
+
+def machine_config_path() -> Path:
+    return i40_home() / "config" / MACHINE_CONFIG_NAME
+
+
+def machine_config() -> dict:
+    """This machine's paths, falling back to the defaults above so a missing file changes nothing."""
+    import json
+
+    merged = {key: (dict(value) if isinstance(value, dict) else value)
+              for key, value in DEFAULT_MACHINE.items()}
+    try:
+        stored = json.loads(machine_config_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return merged
+    for key, value in (stored or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key].update(value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def installed_terminal(name: str) -> str:
+    """One terminal's executable path by stable name, e.g. ``mt5_strategies``.
+
+    Distinct from active_account.terminal_path, which answers "which terminal am I TRADING
+    through"; this one answers "where is that terminal INSTALLED on this machine".
+
+    Returns the configured string even when the file is absent: whether it EXISTS is a separate
+    question, and the caller that checks can then say "configured here, not found" rather than
+    silently falling back to whatever happens to exist on this machine.
+    """
+    return str((machine_config().get("terminals") or {}).get(name) or "")
+
+
+def terminal_data_dir(name: str) -> str:
+    """One terminal's DATA folder - where its MQL5/, .ini files and tester reports live."""
+    return str((machine_config().get("terminal_data") or {}).get(name) or "")
+
+
+def same_path(left, right) -> bool:
+    """Do two path strings name the same file? Windows is case-insensitive and mixes separators.
+
+    The config writes forward slashes, because a json file full of escaped backslashes is a trap to
+    edit by hand, while Windows reports a process's ExecutablePath with backslashes. Comparing those
+    as plain strings never matches, which would turn "the terminal is running" into a silent and
+    permanent failure - so every comparison against a configured path goes through here.
+    """
+    if not left or not right:
+        return False
+    return os.path.normcase(os.path.normpath(str(left))) == os.path.normcase(os.path.normpath(str(right)))
+
+
+def machine_report() -> dict:
+    """Which configured paths are actually present. For the doctor, and for moving machines."""
+    config = machine_config()
+    terminals = {}
+    for name, path in (config.get("terminals") or {}).items():
+        terminals[name] = {"path": path, "exists": bool(path) and Path(path).exists()}
+    workbook = config.get("excel_workbook") or ""
+    return {
+        "home": str(i40_home()),
+        "config_file": str(machine_config_path()),
+        "config_file_exists": machine_config_path().exists(),
+        "terminals": terminals,
+        "excel_workbook": {"path": workbook, "exists": bool(workbook) and Path(workbook).exists()},
+        "missing": [name for name, row in terminals.items() if not row["exists"]],
+    }

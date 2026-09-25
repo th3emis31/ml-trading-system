@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .runtime_paths import smartentry_data_dir
+from .runtime_paths import installed_terminal, smartentry_data_dir
 # The project's one tolerant JSON reader (UTF-8, BOM, or the ANSI MetaTrader writes). src/ea_monitor.py
 # and src/forward_evidence.py import the same one rather than each adding another.
 from .system_doctor import _read_json as _read_json_or_none
@@ -47,7 +47,7 @@ from .system_doctor import _read_json as _read_json_or_none
 # The account and terminal the system has traded since 16 September. Used when nothing is selected,
 # so an absent or unreadable config file changes nothing rather than opening anything up.
 DEFAULT_LOGIN = 11581419
-DEFAULT_TERMINAL = r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe"
+DEFAULT_TERMINAL = installed_terminal("mt5_strategies")
 DEFAULT_SERVER = "VantageMarkets-Demo"
 # MT4 is a separate connection with its own account: the bridge expert serves whichever account its
 # terminal is logged into. Kept in this same file so one place answers "which accounts am I using",

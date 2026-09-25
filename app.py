@@ -23126,10 +23126,12 @@ function render(d){
           <div class="t">${esc(s.title)}</div>
           <div class="d">${esc(s.delivers)}</div>
           <div class="p">${esc(s.proof)}</div>
+          ${s.gap ? `<div class="p" style="color:#fbbf24;opacity:.95"><b>Still open:</b> ${esc(s.gap)}</div>` : ''}
         </div>
         <span class="bm-chip ${s.done ? 'done' : 'todo'}">${s.done ? 'done' : (d.next_step && s.n === d.next_step.n ? 'next' : 'planned')}</span>
       </div>`).join('')}`).join('');
 
+  const po = d.portability || {};
   const metric = (v,k) => `<div class="bm-metric"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
 
   document.getElementById('bm').innerHTML = `
@@ -23156,6 +23158,20 @@ function render(d){
             <div class="n">${esc(local.reason || '')}</div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>Where this run is reading from</h2>
+      <div class="bm-card">
+        <p style="margin:0 0 10px;font-size:13.5px;opacity:.85;line-height:1.55">The system travels as one folder. <code>I40_HOME</code> names it, and the things a MACHINE provides &mdash; MetaTrader, the workbook &mdash; come from <code>config/machine.json</code> rather than from the code, so moving to another PC means editing one file. A path that is not there is named, never guessed at.</p>
+        <div class="bm-metrics">
+          ${metric(po.home_from_environment ? 'I40_HOME' : 'this folder', 'home set by')}
+          ${metric(po.config_file_exists ? 'yes' : 'defaults', 'machine config')}
+          ${metric(Object.keys(po.terminals || {}).length - (po.missing || []).length + ' / ' + Object.keys(po.terminals || {}).length, 'terminals found here')}
+        </div>
+        <div style="margin-top:12px;font-size:12.5px;opacity:.8;word-break:break-all"><b>home</b> ${esc(po.home || '-')}<br><b>models</b> ${esc(po.models_dir || '-')} &nbsp; <b>data</b> ${esc(po.data_dir || '-')}</div>
+        ${(po.missing || []).length ? `<div style="margin-top:10px;font-size:13px;color:#fbbf24"><b>Not found on this machine:</b> ${(po.missing||[]).map(esc).join(', ')} &mdash; point them at the right place in ${esc(po.config_file || 'config/machine.json')}.</div>` : ''}
       </div>
     </div>
 

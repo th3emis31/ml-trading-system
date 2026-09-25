@@ -19,7 +19,9 @@ class _Proc:
 
 
 def _all_running(*_args, **_kwargs):
-    return _Proc("\n".join(sd.REQUIRED_TERMINALS))
+    # backslashes, as Windows reports them, against the config's forward slashes
+    return _Proc("\n".join(
+        path.replace("/", chr(92)) for path in sd.required_terminals()))
 
 
 def _brokers(connected, message="no answer"):

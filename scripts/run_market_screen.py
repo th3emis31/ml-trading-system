@@ -17,7 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.market_screener import screen
 
-TERMINAL = r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe"
+from src.runtime_paths import installed_terminal
+
+TERMINAL = installed_terminal("mt5_strategies")
 DEFAULT = ["XAUUSD", "NAS100", "BTCUSD", "INTEL", "AAPL", "MSFT", "NVDAUSD", "TSLA", "SP500"]
 
 if __name__ == "__main__":

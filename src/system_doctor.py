@@ -678,7 +678,8 @@ def apply_ram_trend(checks: list, history: list, now: datetime) -> None:
             resources["status"] = "info"
 
 
-from .runtime_paths import LEARNING_WINDOW, inside_learning_window  # noqa: E402  shared with the training gate
+from .runtime_paths import (LEARNING_WINDOW, inside_learning_window,  # noqa: E402  shared with the training gate
+                            installed_terminal, machine_report, same_path)
 MODEL_FILE_PATTERNS = ("xauusd_*", "btcusd_*")
 
 
@@ -795,11 +796,42 @@ def fix_missing_tasks(check: dict, run: Callable = subprocess.run) -> list[dict]
     return applied
 
 
-REQUIRED_TERMINALS = {
-    r"C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe": "MT5 demo 11581419 (SmartEntry strategies)",
-    r"C:\Program Files\MetaTrader 5\terminal64.exe": "MT5 demo 25446287 (Atomic panel, SwingTrendPullback)",
-    r"C:\Users\th_em\AppData\Roaming\CMC Markets MetaTrader 4\terminal.exe": "MT4 bridge 12755139",
+# Which terminals this system cannot work without, by the config's stable names. The PATHS live in
+# config/machine.json (defaults unchanged), so moving to another PC edits that file, not this code.
+REQUIRED_TERMINALS_BY_NAME = {
+    "mt5_strategies": "MT5 demo 11581419 (SmartEntry strategies)",
+    "mt5_panel": "MT5 demo 25446287 (Atomic panel, SwingTrendPullback)",
+    "mt4_bridge": "MT4 bridge 12755139",
 }
+
+
+def required_terminals() -> dict:
+    """{path: description}, read fresh so editing the config does not need a restart."""
+    return {installed_terminal(key): label for key, label in REQUIRED_TERMINALS_BY_NAME.items()
+            if installed_terminal(key)}
+
+
+def check_machine_paths() -> dict:
+    """Is everything this MACHINE has to provide actually here? The first question on a new PC.
+
+    Build map step 9. The system's own files travel with the folder, but MetaTrader and the workbook
+    are installed software: on a machine that has never run this, they are somewhere else or absent.
+    This says which, by name, so the first thing the owner sees on a new PC is a list of what to
+    install or re-point - never a guess at a path that happens to exist.
+    """
+    report = machine_report()
+    missing = list(report["missing"])
+    if not report["excel_workbook"]["exists"]:
+        missing.append("excel_workbook")
+    where = f"home {report['home']}"
+    if not missing:
+        return _result("Machine paths", "doctor", "ok",
+                       f"All {len(report['terminals'])} configured terminals and the workbook are "
+                       f"present ({where}).", **report)
+    return _result("Machine paths", "doctor", "warn",
+                   f"{len(missing)} configured path(s) not found on this machine: "
+                   f"{', '.join(missing)}. Edit {report['config_file']} to match where they are "
+                   f"installed here; nothing else needs changing.", **report)
 
 
 def check_terminals(run: Callable = subprocess.run, brokers: Optional[dict] = None) -> dict:
@@ -830,7 +862,10 @@ def check_terminals(run: Callable = subprocess.run, brokers: Optional[dict] = No
         running = {line.strip() for line in (proc.stdout or "").splitlines() if line.strip()}
     except Exception as exc:
         return _result("MetaTrader terminals", "broker", "warn", f"Could not list terminals: {exc}")
-    missing = {path: name for path, name in REQUIRED_TERMINALS.items() if path not in running}
+    required = required_terminals()
+    # same_path, not `in`: the config writes forward slashes and Windows reports backslashes.
+    missing = {path: name for path, name in required.items()
+               if not any(same_path(path, live) for live in running)}
     if missing:
         return _result("MetaTrader terminals", "broker", "fail",
                        f"{len(missing)} required terminal(s) not running: {', '.join(missing.values())}. "
@@ -839,14 +874,14 @@ def check_terminals(run: Callable = subprocess.run, brokers: Optional[dict] = No
     mt4 = ((brokers or {}).get("detail") or {}).get("mt4") or {}
     if mt4.get("connected") is False:
         return _result("MetaTrader terminals", "broker", "warn",
-                       f"All {len(REQUIRED_TERMINALS)} required terminals are running, but the MT4 "
+                       f"All {len(required)} required terminals are running, but the MT4 "
                        "terminal's DWX bridge is not answering - the process is up and the bridge is "
                        "silent, so restarting the terminal is not the repair. Remove the DWX EA from "
                        "its chart and attach it again inside MT4; nothing outside MT4 can do that.",
                        running=sorted(running), mt4_bridge_silent=True,
                        mt4_bridge_message=mt4.get("message"))
     return _result("MetaTrader terminals", "broker", "ok",
-                   f"All {len(REQUIRED_TERMINALS)} required terminals are running "
+                   f"All {len(required)} required terminals are running "
                    f"({len(running)} in total).", running=sorted(running))
 
 
@@ -912,7 +947,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
         broker_check.update(result)
         return result
 
-    runners = [check_app_process, lambda: check_app_http(get), _brokers,
+    runners = [check_machine_paths, check_app_process, lambda: check_app_http(get), _brokers,
                lambda: check_terminals(brokers=broker_check), check_autonomy,
                lambda: check_demo_execution(get), check_demo_pullback,
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",

@@ -158,6 +158,38 @@ import inside try/except and report status. Preserve that: a missing dependency
 should surface as a status field, not a 500. Equally, never invent data to fill
 a gap — return `available: false` instead of a plausible-looking number.
 
+## Machine paths and portability
+
+**Never write a path that names this PC into the source.** Anything machine-specific - the
+MetaTrader terminals, a terminal's data folder, the Excel workbook - lives in `config/machine.json`
+and is read through `src/runtime_paths.py`:
+
+```python
+from .runtime_paths import installed_terminal, terminal_data_dir, same_path
+installed_terminal("mt5_strategies")   # the executable, by stable name
+terminal_data_dir("mt5_tester")        # its data folder (a per-install hash)
+```
+
+The names are `mt5_strategies`, `mt5_panel`, `mt4_bridge`, `mt5_tester`. The defaults in
+`DEFAULT_MACHINE` are this machine's own values, so a missing or unreadable config file changes
+nothing. `tests/test_machine_portability.py` **fails the build** if such a path reappears in `src/`,
+`scripts/` or `trading/`.
+
+Two traps it exists to prevent:
+
+- **Slashes.** The config writes forward slashes (a json file of escaped backslashes is a trap to
+  edit by hand) and Windows reports `ExecutablePath` with backslashes. Compare configured paths with
+  `same_path()`, never `==` or `in` - that exact bug would make the doctor call a running terminal
+  missing.
+- **Guessing.** A configured path that does not exist is *reported by name*, never replaced with
+  whatever happens to be installed. `check_machine_paths()` in the doctor is the first check to run
+  and lists each path found / NOT FOUND.
+
+`I40_HOME` names the folder the system owns: set it and `config/`, `models/` and `data/` all resolve
+under it, which is how the USB copy runs as its own system. Unset (the normal case on this machine)
+nothing changes - `models` and `data` stay relative, exactly as before. `SMARTENTRY_MODELS_DIR` and
+`SMARTENTRY_DATA_DIR` still win over it, so the test suite's sandboxing is unaffected.
+
 ## MetaTrader bridge
 
 `trading/mt4_service.py` speaks the DWX ZeroMQ protocol: PUSH on the command
