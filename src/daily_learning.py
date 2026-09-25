@@ -223,6 +223,28 @@ class DailyLearner:
                 "archive": archive.get("path"),
             })
         self._append_history(frequency, entry)
+        # Close the loop. This is the loop the whole idea came from: as of 20 September 2026 it had
+        # recorded eleven consecutive runs saying the live model loses money on unseen bars, and not
+        # one threshold, weight or gate had moved. A promotion is the action; a run without one is an
+        # observation, and enough of those in a row is a finding rather than a quiet success.
+        try:
+            from .loop_ledger import record_closure
+            promoted = bool(entry.get("rf_promoted") or entry.get("lstm_promoted"))
+            record_closure(
+                "daily_learning", kind="scheduled",
+                observed=f"{entry.get('symbol')} {frequency}: {entry.get('rows')} rows, "
+                         f"accuracy {entry.get('accuracy')}",
+                decided=str(entry.get("rf_decision") or entry.get("status") or "")[:280],
+                acted=promoted,
+                measured={"accuracy": entry.get("accuracy"),
+                          "challenger_accuracy": entry.get("challenger_accuracy"),
+                          "champion_rescored": entry.get("champion_rescored_accuracy")},
+                # The gate keeping a champion is a CORRECT outcome, so acceptance is "the gate ran and
+                # decided", not "something was promoted". Promotion is the ACTION, tracked separately.
+                acceptance_passed=(entry.get("status") == "trained"),
+                note=("promoted" if promoted else "champion kept"))
+        except Exception:
+            pass                       # learning must never fail because the ledger could not be written
         return entry
 
 

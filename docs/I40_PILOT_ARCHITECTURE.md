@@ -243,7 +243,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 | **2** | ~~Memory split~~ **DONE 2026-09-25** | the four kinds typed with their own rules, provenance tracing, hypothesis flagging, promotion and compaction proposals | **89.0 % of the 493-entry record is traceable**; 19 unsupported claims are named rather than hidden |
 | **3** | ~~Context builder~~ **DONE 2026-09-25** | five budgeted slots; identity and task never truncated; every evidence line carries its source | measured: the same task builds at 282 tokens on a 4k window and 1,490 on 180k, 8 vs 40 cited results |
 | **4** | ~~Acceptance tests~~ **DONE 2026-09-25** | four check kinds - `run`, `file`, `number`, `appended` - plus `ask` for the owner; shell checks gated by governance | coverage 0% -> **100%**; `may_report_success()` refuses on no check, any failure, or nothing adjudicated |
-| **5** | Loop closure everywhere | verify and record on all three loop kinds | no loop can finish without writing what it measured |
+| **5** | ~~Loop closure~~ **DONE 2026-09-25** | the ledger and `closing_run`; two loops wired, the other 11 reported SILENT rather than assumed fine | a loop's state is now visible: `daily_learning` **CLOSED** (4 of 14 runs acted), `system_doctor` WATCHING |
 | **6** | Governance | four tiers, audit, kill switch, dry-run default | a T3 action is impossible without explicit, figure-level approval |
 | **7** | Failure-mode register and critique pass | the plan is criticised before it runs | each past failure is represented by a line that would have caught it |
 | **8** | Skill families | trading · software · market · business · media | each family has one skill passing its own acceptance test end to end |
@@ -264,7 +264,7 @@ be believed about any of them.
 | 1 Memory | the four kinds typed in `second_brain.KIND_RULES`; `trace()`, `hypotheses()`, `promotion_candidates()`, `compaction_candidates()`, `provenance_report()` (step 2, done 2026-09-25); BASELINE prose now indexed | promotion/compaction actually applied, under governance |
 | 2 Context | `src/context_builder.py`: five budgeted slots, cite-or-omit, depth scales with the window, refuses rather than truncates (step 3, done 2026-09-25) | working-set retrieval from the actual diff |
 | 3 Brain | `i40_pilot` identity, attention, signature rules | plan-and-critique, failure-mode register |
-| 4 Loop | `i40_pilot.loop`, `loop_closure`, 11 scheduled tasks | event and goal loops |
+| 4 Loop | `src/loop_ledger.py`: append-only closure ledger, `closing_run` records even on a raise, SILENT/WATCHING/OPEN/CLOSED/STALE states (step 5, done 2026-09-25); doctor and daily learning wired | the remaining 11 loops adopting it; event and goal loops |
 | 5 Skills | 12 skills, **all 12 declaring an independent acceptance check**; `src/skill_acceptance.py` adjudicates and gates the success claim (step 4, done 2026-09-25) | the five families |
 | 6 Tools | MT5/MT4, browser, files, shell, charts | media, SEO, typed declarations, tiers |
 | 7 Governance | execution guard, control secret, approval queue, dry runs | unified tiers, audit, kill switch |

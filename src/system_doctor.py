@@ -954,6 +954,25 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
     }
     if save:
         store_health_report(report)
+        # Close the loop: what was observed, what was decided, whether anything actually changed.
+        # A doctor run that finds nothing and a doctor that stopped running look identical from
+        # outside unless the run says so itself. `fixes` is the action - a cycle that only observes
+        # is an OPEN loop, and eleven of those in a row is a finding rather than a quiet success.
+        try:
+            from .loop_ledger import record_closure
+            counts = report["counts"]
+            record_closure(
+                "system_doctor", kind="scheduled",
+                observed=f"{len(checks)} checks: {counts['ok']} ok, {counts['warn']} warn, {counts['fail']} fail",
+                decided=(", ".join(f.get("fix", "?") for f in fixes) if fixes
+                         else "nothing needed repairing"),
+                acted=bool(fixes),
+                measured={k: counts[k] for k in ("ok", "warn", "fail")},
+                # The doctor's own acceptance: it ran every check and found nothing broken.
+                acceptance_passed=(counts["fail"] == 0),
+                note=report["overall"], seconds=report["duration_sec"])
+        except Exception as exc:                 # a ledger problem must never fail a health check
+            report["closure_error"] = f"{type(exc).__name__}: {exc}"
     return report
 
 
