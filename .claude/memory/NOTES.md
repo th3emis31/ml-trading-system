@@ -339,3 +339,32 @@ Two things found while finishing the above, both silent for a long time:
 Also fixed: `excel_refresh.py` matched the open workbook BY NAME, and the USB backup has the same file
 name. That copy was open in Excel, so the next hourly refresh would have written live data into the
 BACKUP and left the real dashboard stale. Now matched on full path.
+
+## 2026-09-25 - the builder: spec-first, verdict from the checks
+
+Researched what to add for the "build anything" capability and the evidence pointed away from a
+bigger model. Haeri & Ghelichi, arXiv:2607.06636 (7 Jul 2026), held model / test budget / repair loop
+fixed and changed only whether the tester could see a spec: **+38 percentage points** more correct
+code (+36 held out), replicating across vendors. Doubling the test budget barely helped; eight
+ungrounded suites plateaued below one grounded suite; given the spec as a paragraph the tester found
+27/30 bugs, without it 2/30; an AlphaCodium-style loop only matched the baseline. The alternative -
+RLVR fine-tuning of small models, arXiv:2605.30478 - bought +13 points for a whole training pipeline.
+
+So `src/builder.py`: a request becomes numbered testable rules, ONE machine check per rule joined to
+it by number, and `verdict_for()` returns verified / partial / failed computed by
+`src.skill_acceptance` - the same adjudicator the skills use, never the model. `ok` is True only for
+`verified`. A rule with no check, an unrun command or an unmeasured number caps the verdict at
+`partial` rather than passing. Every build is appended to `data/builds/builds.jsonl` including the
+failures. 15 tests.
+
+Two bugs caught by reading the code I was calling rather than assuming its shape: `run_checks`
+MUTATES and returns the SkillAcceptance (not a list of results), and the acceptance parser's pattern
+ends `(.+?)$`, so my trailing `# R1: ...` comment would have been captured INTO the shell command and
+executed. Both are now pinned by tests.
+
+HARDWARE FINDING that corrects an earlier note: this PC has **7.4 GB RAM total and no usable GPU**
+(0.5 GB iGPU), so the `qwen2.5-coder:7b` (~4.7 GB) suggestion written into the USB README is too big
+to sit beside the app and four terminals. The right size is a 3B-class model at Q4 (~2 GB); IBM
+Granite 4's hybrid Mamba cuts long-context RAM by ~70%, which is the property that matters for
+reading a codebase. Note H-Tiny is 7B TOTAL / 1B ACTIVE - active params buy speed, TOTAL params still
+have to fit in RAM.
