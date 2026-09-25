@@ -241,7 +241,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 |---|---|---|---|
 | **1** | ~~Provider abstraction~~ **DONE 2026-09-25** | budgets, degraded reporting, fallback chain on the existing `ai_provider` | tests pin it; the machine currently reports *Dependent* because no local model is installed yet - honestly, rather than pretending |
 | **2** | ~~Memory split~~ **DONE 2026-09-25** | the four kinds typed with their own rules, provenance tracing, hypothesis flagging, promotion and compaction proposals | **89.0 % of the 493-entry record is traceable**; 19 unsupported claims are named rather than hidden |
-| **3** | Context builder | budgeted five-slot assembly, cite-or-omit | a 4k brief and a 100k brief both run the same task |
+| **3** | ~~Context builder~~ **DONE 2026-09-25** | five budgeted slots; identity and task never truncated; every evidence line carries its source | measured: the same task builds at 282 tokens on a 4k window and 1,490 on 180k, 8 vs 40 cited results |
 | **4** | Acceptance tests | every skill states how to check its own output | no skill can report success without a check that is not the model |
 | **5** | Loop closure everywhere | verify and record on all three loop kinds | no loop can finish without writing what it measured |
 | **6** | Governance | four tiers, audit, kill switch, dry-run default | a T3 action is impossible without explicit, figure-level approval |
@@ -262,7 +262,7 @@ be believed about any of them.
 |---|---|---|
 | 0 Runtime | `src/ai_provider.py`: Claude CLI + Ollama, internet probe, selection, usage meter, **context budgets, degraded flag, fallback chain** (step 1, done 2026-09-25) | `I40_HOME`, and a local model actually installed |
 | 1 Memory | the four kinds typed in `second_brain.KIND_RULES`; `trace()`, `hypotheses()`, `promotion_candidates()`, `compaction_candidates()`, `provenance_report()` (step 2, done 2026-09-25); BASELINE prose now indexed | promotion/compaction actually applied, under governance |
-| 2 Context | `i40_pilot.context()` | budgeting, cite-or-omit, slots |
+| 2 Context | `src/context_builder.py`: five budgeted slots, cite-or-omit, depth scales with the window, refuses rather than truncates (step 3, done 2026-09-25) | working-set retrieval from the actual diff |
 | 3 Brain | `i40_pilot` identity, attention, signature rules | plan-and-critique, failure-mode register |
 | 4 Loop | `i40_pilot.loop`, `loop_closure`, 11 scheduled tasks | event and goal loops |
 | 5 Skills | 12 skills | acceptance tests, the five families |
