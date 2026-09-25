@@ -244,7 +244,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 | **3** | ~~Context builder~~ **DONE 2026-09-25** | five budgeted slots; identity and task never truncated; every evidence line carries its source | measured: the same task builds at 282 tokens on a 4k window and 1,490 on 180k, 8 vs 40 cited results |
 | **4** | ~~Acceptance tests~~ **DONE 2026-09-25** | four check kinds - `run`, `file`, `number`, `appended` - plus `ask` for the owner; shell checks gated by governance | coverage 0% -> **100%**; `may_report_success()` refuses on no check, any failure, or nothing adjudicated |
 | **5** | ~~Loop closure~~ **DONE 2026-09-25** | the ledger and `closing_run`; two loops wired, the other 11 reported SILENT rather than assumed fine | a loop's state is now visible: `daily_learning` **CLOSED** (4 of 14 runs acted), `system_doctor` WATCHING |
-| **6** | Governance | four tiers, audit, kill switch, dry-run default | a T3 action is impossible without explicit, figure-level approval |
+| **6** | ~~Governance~~ **DONE 2026-09-25** | tiers that cannot be self-declared downward; approval that names one action and does not carry; dry run gating every tier | a T3 action is refused without approval, with drifted figures, while halted, or in dry run |
 | **7** | Failure-mode register and critique pass | the plan is criticised before it runs | each past failure is represented by a line that would have caught it |
 | **8** | Skill families | trading · software · market · business · media | each family has one skill passing its own acceptance test end to end |
 | **9** | Portability | one `I40_HOME`, copy-to-move | the system runs from a USB drive on another machine, offline |
@@ -267,7 +267,7 @@ be believed about any of them.
 | 4 Loop | `src/loop_ledger.py`: append-only closure ledger, `closing_run` records even on a raise, SILENT/WATCHING/OPEN/CLOSED/STALE states (step 5, done 2026-09-25); doctor and daily learning wired | the remaining 11 loops adopting it; event and goal loops |
 | 5 Skills | 12 skills, **all 12 declaring an independent acceptance check**; `src/skill_acceptance.py` adjudicates and gates the success claim (step 4, done 2026-09-25) | the five families |
 | 6 Tools | MT5/MT4, browser, files, shell, charts | media, SEO, typed declarations, tiers |
-| 7 Governance | execution guard, control secret, approval queue, dry runs | unified tiers, audit, kill switch |
+| 7 Governance | `src/governance.py`: four tiers, per-action approval with figure matching, append-only audit, halt that never closes positions, dry-run by default (step 6, done 2026-09-25); plus the existing execution guard | every caller routed through it |
 | 8 Interfaces | dashboard, voice, API | CLI, phone |
 
 Roughly half of layers 1–5 exists in some form. **The gap is not features — it is discipline:**
