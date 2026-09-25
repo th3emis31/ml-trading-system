@@ -399,3 +399,44 @@ number (`R1.`) while the model wrote `R1 text`, so nine good rules parsed as zer
 separate sections it wrote the rules and silently skipped the checks. The prompt now asks for one line
 per rule as `R1 | requirement | check`, which makes a rule without a check impossible to express, and
 shows a worked example - a small model copies an example far more reliably than a description.
+
+## 2026-09-25 - when the builder can be trusted, measured; and step 10 turned on it
+
+**The trust question, made answerable.** `src/build_bench.py` measures the builder on 8 fixed tasks
+split calibrate (4) / holdout (4), scoring three equal parts: boundary coverage, enough rules against
+the task's floor, and the fraction of rules a machine can decide. It measures SPECIFICATION quality -
+NOT that generated code runs - and says so, because the paper this is built on found spec grounding to
+be the driver (+38pp) and calling it 'correctness' would be the flattering version.
+
+The bar, fixed in the module before any number arrived, read from the HOLDOUT only: >= 4 tasks, mean
+spec score >= 0.80, >= 70% machine-decidable, and no single task below 0.40 - because a mean hides one
+collapse and the collapse is what ships unnoticed. A pass is bounded too: it means the SPECS can be
+acted on, not that anything built is correct; only a build whose own checks pass is that.
+
+**Baseline: holdout 0.7223 (calibrate 0.9167) -> NOT trusted.** One task, equity_curve, produced a
+single rule, so the min_rules floor was being ignored entirely.
+
+**Step 10 turned, properly.** Opened exp_20260925_02 through src/self_improvement.propose with the
+prediction LOCKED first (spec_score higher than 0.78, baseline 0.7223, digest recorded). Applied ONE
+change: SPEC_PROMPT now names four boundary CATEGORIES - nothing / wrong / edge / result - and sets a
+floor of 4 rules. Deliberately generic categories: naming the holdout's specific misses would have been
+fitting to the benchmark. Then let `run_measurement` execute the experiment's own declared command
+rather than typing the number in. Result **0.8890, confirmed**, and equity_curve went 0.444 -> 1.000.
+The builder now clears the bar. `record_outcome` noted that ACTING on a confirmed result is the owner's
+call under governance, which is correct even though this particular change is a prompt string in git.
+
+**The new-machine page.** `/new-machine` + `GET /api/setup/new-machine` from `src/new_machine.py`: ten
+steps in dependency order, each with its COST and, where checkable, how this machine stands against it
+right now (5/5 passing here, including reading a real XAUUSD price). It instructs;
+`scripts/first_run_on_new_machine.py` (written by another session earlier today) checks. Nothing
+required costs money - verified by a test, since the owner's goal is a system that needs no
+subscription.
+
+A bug caught before it shipped: the page listed the local model as needing payment, because the filter
+matched the word 'subscription' inside the sentence explaining that Ollama's paid tier is AVOIDED.
+Replaced prose-matching with an explicit `free` flag per step. That would have been the worst possible
+place to be wrong, on the one cost the owner had already had to stop and ask about.
+
+NOTE FOR NEXT SESSION: several commits today came from ANOTHER Claude session working in this repo
+(e145d17 self_improvement, d98c39c first_run_on_new_machine, ec0efbf the last machine paths). Check
+`git log` before building anything, or the same thing gets built twice.

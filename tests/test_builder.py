@@ -152,7 +152,13 @@ def test_the_spec_prompt_asks_for_one_check_per_rule():
 
     assert "one check per rule" in SPEC_PROMPT.lower()
     assert "testable" in SPEC_PROMPT.lower()
-    assert "boundaries" in SPEC_PROMPT.lower() or "invalid inputs" in SPEC_PROMPT.lower()
+    # The four boundary CATEGORIES, named generically. The measured baseline missed exactly these
+    # kinds, and naming the category is grounding; naming the holdout's specific cases would be
+    # fitting to the benchmark, which is why the words here are generic.
+    lower = SPEC_PROMPT.lower()
+    for category in ("nothing", "wrong", "edge", "result"):
+        assert category in lower, f"the prompt must name the {category!r} boundary category"
+    assert "at least 4" in lower, "a floor on the rule count: one task produced a single rule"
 
 
 def test_a_rule_number_without_punctuation_still_parses():

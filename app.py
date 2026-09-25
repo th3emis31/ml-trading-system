@@ -769,6 +769,7 @@ MAIN_NAV_GROUPS = [
     ('/system-doctor', 'System Doctor'),
     ('/ai-employee', 'AI Employee'),
     ('/i40-build-map', 'Build Map'),
+    ('/new-machine', 'New Machine'),
   ]),
   ('Data', [
     ('/data-feed', 'Data Feed'),
@@ -23275,6 +23276,124 @@ def i40_build_map_api():
 @app.route('/i40-build-map')
 def i40_build_map_page():
   return render_template_string(I40_BUILD_MAP_TEMPLATE, theme_css=THEME_CSS)
+
+
+# Putting the system on a new laptop or PC. Everything comes from /api/setup/new-machine, which reads
+# src.new_machine - so each step also reports how THIS machine stands against it. A guide nobody can
+# see working is a guide nobody trusts, and a guide kept in a note goes stale.
+NEW_MACHINE_TEMPLATE = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New machine setup</title>{{ theme_css|safe }}
+<style>
+  .nm-wrap{max-width:1040px;margin:0 auto;padding:22px 18px 60px}
+  .nm-head h1{margin:6px 0 8px;font-size:27px;letter-spacing:-.4px}
+  .nm-eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;opacity:.62}
+  .nm-lede{font-size:14.5px;line-height:1.6;opacity:.86;max-width:74ch;margin:0}
+  .nm-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0 6px}
+  .nm-tile{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);
+           border-radius:11px;padding:13px 15px}
+  .nm-tile .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;word-break:break-word}
+  .nm-tile .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;opacity:.62;margin-top:3px}
+  .nm-min{background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.3);border-radius:11px;
+          padding:14px 16px;margin:18px 0 26px;font-size:14px;line-height:1.6}
+  .nm-step{display:grid;grid-template-columns:40px 1fr;gap:14px;padding:18px 0;
+           border-top:1px solid rgba(255,255,255,.08)}
+  .nm-num{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+          font-weight:700;font-size:14px;background:rgba(255,255,255,.07)}
+  .nm-num.ok{background:rgba(34,197,94,.17);color:#4ade80}
+  .nm-num.no{background:rgba(248,113,113,.17);color:#f87171}
+  .nm-t{font-size:16.5px;font-weight:650;margin:0 0 4px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+  .nm-badge{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:5px;
+            border:1px solid rgba(255,255,255,.16);opacity:.85}
+  .nm-badge.req{background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.4);color:#fbbf24}
+  .nm-cost{font-size:12.5px;margin:0 0 8px}
+  .nm-cost.free{color:#4ade80}
+  .nm-cost.pay{color:#fbbf24}
+  .nm-why{font-size:13.5px;line-height:1.6;opacity:.85;margin:0 0 10px;max-width:74ch}
+  .nm-cmd{background:rgba(0,0,0,.34);border:1px solid rgba(255,255,255,.09);border-radius:8px;
+          padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
+          line-height:1.75;overflow-x:auto;white-space:pre;margin:0 0 9px}
+  .nm-note{font-size:12.5px;line-height:1.6;opacity:.72;margin:0 0 7px;max-width:76ch}
+  .nm-live{font-size:12.5px;padding:7px 11px;border-radius:7px;margin-top:8px;display:inline-block}
+  .nm-live.ok{background:rgba(34,197,94,.1);color:#86efac}
+  .nm-live.no{background:rgba(248,113,113,.1);color:#fca5a5}
+  .nm-foot{margin-top:30px;font-size:12.5px;opacity:.66;line-height:1.7}
+  @media(max-width:560px){.nm-step{grid-template-columns:1fr}.nm-num{display:none}}
+</style></head><body>
+<div class="nm-wrap"><div id="nm">Reading this machine&hellip;</div></div>
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NL = String.fromCharCode(10);
+
+function render(d){
+  if (d.available === false){ document.getElementById('nm').textContent = 'Not available: ' + d.reason; return; }
+  const steps = d.steps.map((s, i) => {
+    const st = s.status;
+    const cls = !st ? '' : (st.ok ? 'ok' : 'no');
+    const payish = s.free === false;   // the explicit flag, never a guess from the prose
+    return [
+      '<div class="nm-step">',
+      '<div class="nm-num ' + cls + '">' + (st ? (st.ok ? '&#10003;' : '!') : (i+1)) + '</div>',
+      '<div>',
+      '<div class="nm-t">' + esc(s.title) + '<span class="nm-badge ' + (s.required ? 'req' : '') + '">' +
+        (s.required ? 'required' : 'optional') + '</span></div>',
+      '<p class="nm-cost ' + (payish ? 'pay' : 'free') + '"><b>Cost:</b> ' + esc(s.cost) + '</p>',
+      '<p class="nm-why">' + esc(s.why) + '</p>',
+      (s.commands || []).length ? '<div class="nm-cmd">' + s.commands.map(esc).join(NL) + '</div>' : '',
+      s.notes ? '<p class="nm-note">' + esc(s.notes) + '</p>' : '',
+      s.verify ? '<p class="nm-note"><b>Done when:</b> ' + esc(s.verify) + '</p>' : '',
+      st ? '<div class="nm-live ' + cls + '"><b>On this machine:</b> ' + esc(st.detail) + '</div>' : '',
+      '</div></div>'
+    ].join('');
+  }).join('');
+
+  const tile = (v,k) => '<div class="nm-tile"><div class="v">' + esc(v) + '</div><div class="k">' +
+                        esc(k) + '</div></div>';
+
+  document.getElementById('nm').innerHTML = [
+    '<div class="nm-head">',
+    '<div class="nm-eyebrow">i40 Pilot &middot; setup &middot; ' + esc(d.generated_at) + '</div>',
+    '<h1>Putting this system on a new laptop or PC</h1>',
+    '<p class="nm-lede">The steps in dependency order. Every one states what it costs, and the ones that ',
+    'can be checked show how <b>this</b> machine stands against them right now &mdash; so you can see the ',
+    'guide working before you trust it somewhere else.</p>',
+    '</div>',
+    '<div class="nm-sum">',
+    tile(d.passing + ' / ' + d.checked, 'checkable steps passing here'),
+    tile(d.required_total, 'steps that are required'),
+    tile(d.costs_nothing.length, 'steps that cost nothing'),
+    tile(d.blocking.length ? d.blocking.join(', ') : 'none', 'blocking here'),
+    '</div>',
+    '<div class="nm-min"><b>The minimum that works:</b> ' + esc(d.minimum) + '</div>',
+    '<div>' + steps + '</div>',
+    '<div class="nm-foot">',
+    'Home: <code>' + esc(d.home) + '</code><br>',
+    'Machine paths: <code>' + esc(d.machine_config) + '</code> &mdash; the only file that needs editing per machine.<br>',
+    'Start with <code>' + esc(d.first_run_command) + '</code>, which changes nothing and cannot place an order.<br>',
+    'Live state: <code>/api/setup/new-machine</code> &middot; health: <a href="/system-doctor">/system-doctor</a>',
+    ' &middot; the whole plan: <a href="/i40-build-map">/i40-build-map</a>',
+    '</div>'
+  ].join('');
+}
+
+fetch('/api/setup/new-machine').then(r => r.json()).then(render)
+  .catch(e => { document.getElementById('nm').textContent = 'Could not read the setup state: ' + e; });
+</script></body></html>"""
+
+
+@app.route('/api/setup/new-machine')
+def new_machine_api():
+  try:
+    from src.new_machine import setup_state
+    return jsonify(setup_state())
+  except Exception as exc:
+    return jsonify({'available': False, 'reason': f'{type(exc).__name__}: {exc}'}), 500
+
+
+@app.route('/new-machine')
+def new_machine_page():
+  return render_template_string(NEW_MACHINE_TEMPLATE, theme_css=THEME_CSS)
 
 
 # AI Employee (src/ai_employee.py): a daily read-only Claude Code review on the owner's subscription (task

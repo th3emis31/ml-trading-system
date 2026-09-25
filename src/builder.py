@@ -153,9 +153,16 @@ The check is one of these five forms:
 
 Rules for the rules:
 * Each requirement must be TESTABLE - something a machine could decide is true or false.
-* Cover the boundaries and the invalid inputs, not only the normal case. That is where this fails.
-* Between 3 and 12 lines. Exactly one check per rule - extra checks do not help.
+* Write AT LEAST 4 lines. Fewer than 4 is always an incomplete specification.
+* Exactly one check per rule - extra checks do not help.
 * Prefer the machine-decidable forms over `ask`.
+
+Write at least one rule for EACH of these, because this is where the work actually fails:
+  1. NOTHING - empty input, a missing file, an absent value. What happens then?
+  2. WRONG - a value out of range, the wrong type, a malformed or non-numeric entry.
+  3. EDGE - the exact boundary: the first and last allowed value, and equality rather than just
+     greater-or-less.
+  4. RESULT - what is returned and in what shape, including whether it can raise or must not.
 
 Example of the exact shape wanted:
 R1 | returns None when the bar list is empty | run: python -m pytest -q tests/test_range.py
