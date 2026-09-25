@@ -58,8 +58,10 @@ STEPS = (
               "instead of the source, and a test fails if any machine-specific path goes back into "
               "the code. Proven by running the USB copy as its own home: it found its models, data "
               "and config on the drive. Where a path is absent it is named, never guessed.",
-     "gap": "Not yet proven on a second PC, and offline still needs a local model - none is "
-            "installed, which the provider evidence below reports as independent: false."},
+     "gap": "Never yet started on a SECOND physical PC - that is the one claim no amount of work here "
+            "can settle, so scripts/first_run_on_new_machine.py exists to settle it there: one "
+            "read-only command that reports what that machine can and cannot give the system, names "
+            "every path that is wrong on it, and records the answer in data/system_health/first_run.json."},
     {"n": 10, "phase": "Make it broad", "title": "Self-improvement loop", "done": True,
      "delivers": "It proposes a change from its own evidence and measures the effect",
      "proof": "src/self_improvement.py, and it has turned once end to end. The prediction is hashed "
