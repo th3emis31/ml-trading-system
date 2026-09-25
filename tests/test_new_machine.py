@@ -72,3 +72,28 @@ def test_state_without_live_checks_does_not_touch_the_machine():
     assert state["checked"] == 0 and state["blocking"] == []
     assert len(state["steps"]) == len(nm.STEPS)
     assert all("status" not in step for step in state["steps"])
+
+
+def test_excel_is_not_counted_as_a_cost_of_this_system():
+    """The owner corrected this on 25 September 2026: they already have Excel licensed, so listing it
+    as something to pay for overstates what the system costs. There is also a genuinely free path -
+    openpyxl reads and writes .xlsx with no Excel installed at all."""
+    excel = next(step for step in nm.STEPS if step["id"] == "excel")
+    assert excel["free"] is True
+    assert "openpyxl" in excel["cost"], "the no-Excel-needed path belongs in the cost line"
+    state = nm.setup_state(include_live=False)
+    assert "excel" in state["costs_nothing"]
+
+
+def test_only_the_claude_cli_costs_anything_and_it_names_its_free_alternative():
+    """The answer to 'what is the alternative for Claude CLI' must live in the page, not only in chat."""
+    state = nm.setup_state(include_live=False)
+    assert state["needs_paying_for"] == ["claude_cli"]
+    cli = next(step for step in nm.STEPS if step["id"] == "claude_cli")
+    alt = cli.get("alternative") or ""
+    assert alt, "the one paid step must say what to use instead"
+    assert "local model" in alt, "the alternative already installed is the first answer"
+    for free_tier in ("Gemini", "Groq", "Mistral"):
+        assert free_tier in alt, f"{free_tier} is a current no-card free tier and should be listed"
+    # And it must not oversell a free tier as independence.
+    assert "not independence" in alt or "cheaper dependency" in alt

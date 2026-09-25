@@ -23315,6 +23315,10 @@ NEW_MACHINE_TEMPLATE = """<!doctype html>
           line-height:1.75;overflow-x:auto;white-space:pre;margin:0 0 9px}
   .nm-note{font-size:12.5px;line-height:1.6;opacity:.72;margin:0 0 7px;max-width:76ch}
   .nm-live{font-size:12.5px;padding:7px 11px;border-radius:7px;margin-top:8px;display:inline-block}
+  .nm-alt{font-size:12.5px;line-height:1.65;background:rgba(56,189,248,.07);
+          border:1px solid rgba(56,189,248,.24);border-radius:8px;padding:10px 12px;
+          margin:2px 0 8px;max-width:76ch}
+  .nm-alt p{margin:8px 0 0}
   .nm-live.ok{background:rgba(34,197,94,.1);color:#86efac}
   .nm-live.no{background:rgba(248,113,113,.1);color:#fca5a5}
   .nm-foot{margin-top:30px;font-size:12.5px;opacity:.66;line-height:1.7}
@@ -23343,6 +23347,8 @@ function render(d){
       (s.commands || []).length ? '<div class="nm-cmd">' + s.commands.map(esc).join(NL) + '</div>' : '',
       s.notes ? '<p class="nm-note">' + esc(s.notes) + '</p>' : '',
       s.verify ? '<p class="nm-note"><b>Done when:</b> ' + esc(s.verify) + '</p>' : '',
+      s.alternative ? '<div class="nm-alt"><b>Free alternative:</b> ' +
+        esc(s.alternative).split('|').join('</p><p>') + '</div>' : '',
       st ? '<div class="nm-live ' + cls + '"><b>On this machine:</b> ' + esc(st.detail) + '</div>' : '',
       '</div></div>'
     ].join('');

@@ -162,7 +162,22 @@ STEPS = (
      "check": _provider_status},
     {"id": "claude_cli", "title": "Install the Claude CLI (optional, faster while online)",
      "required": False, "free": False,
-     "cost": "needs a Claude subscription. Skip it and the system runs on the local model alone.",
+     "cost": ("needs a Claude subscription - the only paid item on this page, and it is optional. "
+              "Skip it and the system runs on the local model alone."),
+     "alternative": (
+         "You already have the free alternative: the local model from the step above, which the "
+         "system prefers anyway and which needs no account and no internet. The Claude CLI is a "
+         "speed and quality upgrade while online, never a requirement.|"
+         "If you want something stronger than a 3B model WITHOUT paying, several hosted APIs have "
+         "free tiers that need no card: Google Gemini Flash (~50 requests a day, 1M-token context), "
+         "Groq (Llama 3.3 70B at ~320 tokens/sec, ~1,000 requests a day), Cloudflare Workers AI, "
+         "and Mistral's Experiment tier (~1 billion tokens a month - but only if you opt IN to your "
+         "data being used for training, which is why it is last). Each needs a small provider class "
+         "in src/ai_provider.py beside ClaudeCliProvider and OllamaProvider.|"
+         "The trade-off, stated plainly: a free tier needs an account and an internet connection, "
+         "sends your prompts to someone else's machine, and can be changed or withdrawn at any "
+         "time. That is a cheaper dependency, not independence. The local model is the only option "
+         "nobody can take away."),
      "why": ("Much faster and stronger than a 3B local model, so it is preferred while there is "
              "internet. It is deliberately NOT required: the whole point of the step above is that "
              "nothing breaks when this is absent."),
@@ -207,8 +222,11 @@ STEPS = (
                "(Get-ScheduledTask -TaskName '<name>').Actions[0].Execute"),
      "verify": "the doctor's 'Scheduled tasks' check is ok",
      "check": None},
-    {"id": "excel", "title": "Excel dashboard (optional)", "required": False, "free": False,
-     "cost": "needs Microsoft Excel, which you already own; the code is free",
+    {"id": "excel", "title": "Excel dashboard (optional)", "required": False, "free": True,
+     "cost": ("free - the workbook and the code cost nothing, and the owner already has Excel "
+              "licensed. Reading and writing .xlsx needs no Excel at all (openpyxl); only the hourly "
+              "LIVE refresh drives desktop Excel through COM, and LibreOffice Calc or Excel for the "
+              "web open the workbook for free."),
      "why": "The Trading Business Dashboard, refreshed hourly from the running system.",
      "commands": ("python -m pip install pywin32 openpyxl",
                   "python scripts/excel_refresh.py"),
