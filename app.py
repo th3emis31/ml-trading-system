@@ -22202,6 +22202,83 @@ def _performance_read_json(path):
     return None
 
 
+# Closed trades as ROWS, for the Excel dashboard and anything else that needs the individual trades
+# rather than the totals. Defaults to this system's own magics: the account also carries the owner's
+# other experts, and a journal that mixes them cannot answer "what did this system do?".
+# Read-only; places no orders.
+@app.route('/api/trades/closed')
+def closed_trades_api():
+  from src import performance_analytics as pa
+  which = str(request.args.get('magic') or 'system').strip().lower()
+  if which in ('all', 'any'):
+    wanted = None
+  elif which.isdigit():
+    wanted = {int(which)}
+  else:
+    wanted = set(pa.SYSTEM_MAGICS)
+  try:
+    days = max(1, min(3650, int(request.args.get('days') or 3650)))
+  except ValueError:
+    days = 3650
+  if MT5_ENGINE is None or not hasattr(MT5_ENGINE, 'deal_history'):
+    return jsonify({'available': False, 'reason': 'MT5 engine unavailable', 'trades': []})
+  found = MT5_ENGINE.deal_history(days=days, include_entries=True)
+  if not found.get('ok'):
+    return jsonify({'available': False, 'reason': found.get('reason') or 'deal history unavailable',
+                    'trades': []})
+  # Pair each exit with the deal that opened its position, so the journal can carry a real entry
+  # price instead of a blank. Anything unpaired keeps a blank entry rather than a guessed one.
+  opens = {}
+  for deal in found.get('deals') or []:
+    if int(deal.get('entry') or 0) == 0 and deal.get('position_id') is not None:
+      opens[deal['position_id']] = deal
+
+  rows = []
+  for deal in found.get('deals') or []:
+    if int(deal.get('entry') or 0) == 0:
+      continue                      # opening deals are context for the exits, not trades themselves
+    magic = int(deal.get('magic') or 0)
+    if wanted is not None and magic not in wanted:
+      continue
+    # deal_history already keeps only EXIT deals - entry OUT, INOUT and OUT_BY - so filtering on
+    # entry == 1 here threw away every trade closed partially or by an opposite order. One row per
+    # completed trade comes from that upstream filter, not from a second one here.
+    net = float(deal.get('profit') or 0) + float(deal.get('swap') or 0) + float(deal.get('commission') or 0)
+    stamp = deal.get('time')
+    rows.append({
+      'ticket': deal.get('ticket'), 'position': deal.get('position_id'),
+      'time': stamp, 'symbol': deal.get('symbol'), 'magic': magic,
+      # A closing deal's type is the OPPOSITE of the position it closed, so a BUY close means the
+      # trade was a SELL. Reporting the deal's own side would flip every direction in the journal.
+      'direction': 'SELL' if int(deal.get('type') or 0) == 0 else 'BUY',
+      'volume': deal.get('volume'), 'price': deal.get('price'),
+      'entry_price': (opens.get(deal.get('position_id')) or {}).get('price'),
+      'opened_at': (opens.get(deal.get('position_id')) or {}).get('time'),
+      'profit': round(float(deal.get('profit') or 0), 2),
+      'swap': round(float(deal.get('swap') or 0), 2),
+      'commission': round(float(deal.get('commission') or 0), 2),
+      'net': round(net, 2), 'comment': (deal.get('comment') or '')[:40],
+    })
+  rows.sort(key=lambda r: str(r.get('time')))
+  wins = [r for r in rows if r['net'] > 0]
+  losses = [r for r in rows if r['net'] <= 0]
+  gross_win = sum(r['net'] for r in wins)
+  gross_loss = -sum(r['net'] for r in losses)
+  return jsonify({
+    'available': True, 'magic': sorted(wanted) if wanted else 'all', 'count': len(rows),
+    'totals': {
+      'net': round(sum(r['net'] for r in rows), 2),
+      'wins': len(wins), 'losses': len(losses),
+      'win_rate': round(len(wins) / len(rows), 4) if rows else None,
+      'won': round(gross_win, 2), 'lost': round(gross_loss, 2),
+      # None, not infinity: a run with no losing trade has an undefined profit factor, and printing
+      # "inf" onto a page has broken one here before.
+      'profit_factor': round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+    },
+    'trades': rows, 'places_orders': False,
+  })
+
+
 @app.route('/api/performance')
 def performance_api():
   from src import performance_analytics as pa

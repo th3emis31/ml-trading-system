@@ -366,8 +366,14 @@ class MT5Service:
         except Exception as exc:
             return {"ok": False, "executed": False, "message": str(exc)}
 
-    def deal_history(self, days: int = 3650) -> dict:
-        """Closed trades (exit deals) from the account history, times converted to UTC. Read-only."""
+    def deal_history(self, days: int = 3650, include_entries: bool = False) -> dict:
+        """Closed trades (exit deals) from the account history, times converted to UTC. Read-only.
+
+        ``include_entries`` also returns the OPENING deals, so a caller can pair them by
+        ``position_id`` and recover the entry price. Without it a trade journal can show what a trade
+        made but not where it was opened, and a journal without an entry price cannot be checked
+        against the chart.
+        """
         status = self.status()
         if not status["connected"] or self._mt5 is None:
             return {"ok": False, "reason": "MT5 is not connected", "deals": []}
@@ -388,7 +394,9 @@ class MT5Service:
                     for key in ("ticket", "position_id", "time", "type", "entry", "symbol", "volume", "price",
                                 "profit", "swap", "commission", "fee", "magic", "comment")
                 }
-                if int(item.get("entry") or 0) not in exit_entries or int(item.get("type") or 0) not in (0, 1):
+                wanted_entries = exit_entries | ({int(getattr(self._mt5, "DEAL_ENTRY_IN", 0))}
+                                                 if include_entries else set())
+                if int(item.get("entry") or 0) not in wanted_entries or int(item.get("type") or 0) not in (0, 1):
                     continue  # entries, balance and credit operations are not closed trades
                 profit = float(item.get("profit") or 0.0)
                 swap = float(item.get("swap") or 0.0)
@@ -409,6 +417,9 @@ class MT5Service:
                     "net": round(profit + swap + commission + fee, 2),
                     "magic": int(item.get("magic") or 0),
                     "comment": str(item.get("comment") or ""),
+                    # Carried through so a caller can tell an opening deal from a closing one. Without
+                    # it, include_entries returns both and nothing downstream can separate them.
+                    "entry": int(item.get("entry") or 0),
                 })
             account = self._mt5.account_info()
             return {"ok": True, "deals": deals, "server_utc_offset_hours": offset_hours,
