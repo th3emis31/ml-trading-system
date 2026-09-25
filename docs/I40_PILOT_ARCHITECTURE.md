@@ -245,7 +245,7 @@ Always the same five moves, and the fifth is the one usually skipped:
 | **4** | ~~Acceptance tests~~ **DONE 2026-09-25** | four check kinds - `run`, `file`, `number`, `appended` - plus `ask` for the owner; shell checks gated by governance | coverage 0% -> **100%**; `may_report_success()` refuses on no check, any failure, or nothing adjudicated |
 | **5** | ~~Loop closure~~ **DONE 2026-09-25** | the ledger and `closing_run`; two loops wired, the other 11 reported SILENT rather than assumed fine | a loop's state is now visible: `daily_learning` **CLOSED** (4 of 14 runs acted), `system_doctor` WATCHING |
 | **6** | ~~Governance~~ **DONE 2026-09-25** | tiers that cannot be self-declared downward; approval that names one action and does not carry; dry run gating every tier | a T3 action is refused without approval, with drifted figures, while halted, or in dry run |
-| **7** | Failure-mode register and critique pass | the plan is criticised before it runs | each past failure is represented by a line that would have caught it |
+| **7** | ~~Failure-mode register~~ **DONE 2026-09-25** | 14 modes from this repo's own history; `critique(plan)` raises only what applies | a parameter sweep now carries *'test the neighbours'* and *'name the window you chose on'* before any work starts |
 | **8** | Skill families | trading · software · market · business · media | each family has one skill passing its own acceptance test end to end |
 | **9** | Portability | one `I40_HOME`, copy-to-move | the system runs from a USB drive on another machine, offline |
 | **10** | Self-improvement loop | proposals from evidence, owner approves, effect measured | a change is proposed, applied and measured without being asked |
@@ -263,7 +263,7 @@ be believed about any of them.
 | 0 Runtime | `src/ai_provider.py`: Claude CLI + Ollama, internet probe, selection, usage meter, **context budgets, degraded flag, fallback chain** (step 1, done 2026-09-25) | `I40_HOME`, and a local model actually installed |
 | 1 Memory | the four kinds typed in `second_brain.KIND_RULES`; `trace()`, `hypotheses()`, `promotion_candidates()`, `compaction_candidates()`, `provenance_report()` (step 2, done 2026-09-25); BASELINE prose now indexed | promotion/compaction actually applied, under governance |
 | 2 Context | `src/context_builder.py`: five budgeted slots, cite-or-omit, depth scales with the window, refuses rather than truncates (step 3, done 2026-09-25) | working-set retrieval from the actual diff |
-| 3 Brain | `i40_pilot` identity, attention, signature rules | plan-and-critique, failure-mode register |
+| 3 Brain | `src/failure_modes.py`: 14 modes, each citing the occasion and the check that would have caught it, wired into every brief (step 7, done 2026-09-25) | the plan-and-execute loop itself |
 | 4 Loop | `src/loop_ledger.py`: append-only closure ledger, `closing_run` records even on a raise, SILENT/WATCHING/OPEN/CLOSED/STALE states (step 5, done 2026-09-25); doctor and daily learning wired | the remaining 11 loops adopting it; event and goal loops |
 | 5 Skills | 12 skills, **all 12 declaring an independent acceptance check**; `src/skill_acceptance.py` adjudicates and gates the success claim (step 4, done 2026-09-25) | the five families |
 | 6 Tools | MT5/MT4, browser, files, shell, charts | media, SEO, typed declarations, tiers |

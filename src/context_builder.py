@@ -158,7 +158,8 @@ def evidence_lines(task: str, limit: int = 12, recall: Optional[Callable] = None
 
 def assemble(task: str, *, budget_tokens: int, identity: str = "", acceptance: str = "",
              working: Optional[list] = None, episodic: Optional[list] = None,
-             evidence: Optional[list] = None, citations: Optional[list] = None) -> Brief:
+             evidence: Optional[list] = None, citations: Optional[list] = None,
+             critique_checks: Optional[list] = None) -> Brief:
     """Build the prompt for ``task`` inside ``budget_tokens``, and report what was left out.
 
     The same call works at 4,000 tokens and at 100,000: the task is identical, the depth is not, and
@@ -167,6 +168,12 @@ def assemble(task: str, *, budget_tokens: int, identity: str = "", acceptance: s
     usable = max(1, int(budget_tokens * (1 - OUTPUT_RESERVE)))
 
     task_block = f"TASK\n{task.strip()}"
+    # The critique rides WITH the task rather than in a slot of its own, because it must never be
+    # the thing the budget drops. A register that gets trimmed away under pressure protects nothing,
+    # and pressure is exactly when the shortcut gets taken.
+    if critique_checks:
+        task_block += ("\n\nCHECK FIRST (each of these has gone wrong here before)\n"
+                       + "\n".join(f"- {c}" for c in critique_checks[:4]))
     if acceptance.strip():
         # Stated before the work, in a form something other than the model can check. This is the
         # highest-leverage habit in the whole design: "done" defined in advance cannot be redefined
@@ -254,8 +261,13 @@ def brief_for_task(task: str, *, budget_tokens: int, identity: str = "", accepta
     """``assemble`` with the evidence slot filled from the system's own record."""
     limit, excerpt = depth_for(budget_tokens)
     lines, citations = evidence_lines(task, limit=limit, rows=rows, excerpt=excerpt)
+    # Ask the register what could make THIS task wrong, before any of it is done.
+    from .failure_modes import critique
+
+    checks = critique(task)["checks_first"]
     return assemble(task, budget_tokens=budget_tokens, identity=identity, acceptance=acceptance,
-                    working=working, episodic=episodic, evidence=lines, citations=citations)
+                    working=working, episodic=episodic, evidence=lines, citations=citations,
+                    critique_checks=checks)
 
 
 def budget_for_provider(provider=None) -> int:
