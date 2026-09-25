@@ -25,9 +25,14 @@ written; Excel fills the calculated ones itself.
 from __future__ import annotations
 
 import json
+import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.runtime_paths import machine_config, same_path        # noqa: E402
 
 BASE = "http://localhost:5000"
 
@@ -129,7 +134,9 @@ def refresh_balance(xl, wb) -> str:
             f"(so the balance tile shows the real {account['balance']:,.2f})")
 
 
-WORKBOOK = Path(r"C:\Users\th_em\Desktop\Trading Dashboard\Trading-Business-Dashboard.xlsx")
+# Where the workbook lives is a property of THIS machine, so it comes from config/machine.json like the
+# MetaTrader paths do (build map step 9). Moving to another PC edits that file, not this script.
+WORKBOOK = Path(machine_config().get("excel_workbook") or "")
 
 
 def open_workbook():
@@ -144,7 +151,11 @@ def open_workbook():
         xl = win32.GetActiveObject("Excel.Application")
         for index in range(1, xl.Workbooks.Count + 1):
             book = xl.Workbooks(index)
-            if book.Name.lower() == WORKBOOK.name.lower():
+            # Matched on the FULL PATH, never on the file name. The backup on the USB drive is called
+            # Trading-Business-Dashboard.xlsx as well, and on 25 September 2026 that copy was the one
+            # open in Excel - a name match would have written this refresh into the BACKUP and left the
+            # real dashboard stale, with both files looking perfectly plausible.
+            if same_path(book.FullName, WORKBOOK):
                 return xl, book, False
         return xl, xl.Workbooks.Open(str(WORKBOOK)), False       # Excel open, this book is not
     except Exception:
@@ -173,6 +184,22 @@ def main() -> int:
     from excel_system_live import read_system, write as write_live      # same folder
 
     print("  " + write_live(read_system()))
+
+    # Which session, day, hour and month the system actually earns in, rebuilt from the same trade
+    # history the journal above uses. It re-attaches through open_workbook(), so it finds this very
+    # workbook rather than opening a second copy.
+    try:
+        from excel_sessions import api as sessions_api, session_stats, write_sessions
+
+        payload = sessions_api("/api/trades/closed")
+        if payload.get("available"):
+            print("  " + write_sessions(session_stats(payload["trades"])))
+        else:
+            print(f"  Sessions sheet: NOT refreshed - {payload.get('reason')}")
+    except Exception as exc:
+        # One sheet failing must not lose the four refreshes above, which are already written.
+        print(f"  Sessions sheet: NOT refreshed - {type(exc).__name__}: {exc}")
+
     wb.Save()
     dash = wb.Sheets("Dashboard")
     print()

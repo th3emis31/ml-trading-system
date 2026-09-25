@@ -22,8 +22,23 @@ from src.runtime_paths import (DEFAULT_MACHINE, HOME_ENV, installed_terminal, ma
 
 ROOT = Path(__file__).resolve().parents[1]
 # A user profile or an absolute MetaTrader install in the code is what stops the system moving.
-FORBIDDEN = re.compile(r"C:[\/]+Users[\/]+th_em|C:[\/]+Program Files[\/]+MetaTrader",
-                       re.IGNORECASE)
+#
+# The pattern carries NO backslash on purpose, and every line is flattened before it is matched.
+# The first version of this test used a `[\\/]` character class and one backslash was lost on the way
+# into the file, leaving `[\/]` - a class matching forward slash only. It therefore could not match a
+# single Windows path and passed while four hard-coded paths sat in the code. A guard that cannot fail
+# is worse than no guard, because it is reported as protection. Normalising the separator first means
+# the pattern needs no escaping at all and cannot break the same way twice.
+FORBIDDEN = re.compile(r"C:/+Users/+th_em|C:/+Program Files/+MetaTrader", re.IGNORECASE)
+
+
+def _flatten_separators(line: str) -> str:
+    """Every way a Windows path can be spelled in source, reduced to forward slashes.
+
+    Source may hold a raw string (one backslash), an escaped string (two), or a forward-slash path.
+    All three name the same file, so all three must be caught.
+    """
+    return line.replace("\\\\", "/").replace("\\", "/")
 # Files allowed to name them: the config layer's own defaults, and the backup script, which is about
 # THIS machine's disks by definition.
 ALLOWED = {"src/runtime_paths.py", "scripts/backup_to_usb.ps1"}
@@ -47,10 +62,23 @@ def test_no_machine_specific_path_is_written_into_the_code():
         for number, line in enumerate(text.splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue          # a comment naming a path is documentation, not a dependency
-            if FORBIDDEN.search(line):
+            if FORBIDDEN.search(_flatten_separators(line)):
                 offenders.append(f"{rel}:{number}: {line.strip()[:110]}")
     assert not offenders, ("machine-specific paths belong in config/machine.json, not in the code:\n"
                            + "\n".join(offenders))
+
+
+def test_the_guard_itself_can_actually_fail():
+    """The test above is only worth having if it CAN fail. It could not: a lost backslash left its
+    pattern matching forward slashes only, so it passed over four real hard-coded paths. This pins the
+    three spellings a Windows path takes in source, so the guard can never go quietly blind again."""
+    assert FORBIDDEN.search(_flatten_separators(r'X = r"C:\Users\th_em\Desktop\book.xlsx"'))
+    assert FORBIDDEN.search(_flatten_separators('X = "C:\\\\Users\\\\th_em\\\\AppData"'))
+    assert FORBIDDEN.search(_flatten_separators('X = "C:/Users/th_em/AppData"'))
+    assert FORBIDDEN.search(_flatten_separators(r'X = r"C:\Program Files\MetaTrader 5\terminal64.exe"'))
+    # and it must not fire on paths that name no particular machine
+    assert not FORBIDDEN.search(_flatten_separators(r'X = r"C:\Program Files\Python310"'))
+    assert not FORBIDDEN.search(_flatten_separators('X = smartentry_data_dir() / "state.json"'))
 
 
 def test_forward_and_back_slashes_name_the_same_file():

@@ -11,12 +11,37 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-_ISOLATED = Path(tempfile.mkdtemp(prefix="smartentry_tests_"))
+_SANDBOX_PREFIX = "smartentry_tests_"
+# A sandbox from a run that never finished - Ctrl-C, a crash, a killed process - can never be removed
+# by that run, so each new run sweeps the old ones. Six hours, not "all of them", because the deep
+# doctor's 06:30 suite and a manual run can overlap and must not delete each other's working folder.
+#
+# This is not housekeeping for its own sake. The sandbox is a ~3.1 GB copy of data/ and models/, the
+# suite runs at least daily, and nothing removed them: by 25 September 2026 there were 89 of them
+# holding 225 GB, and the C: drive was down to 1.59 GB free - enough to stop the live app writing its
+# own state. The leak was silent because a test suite that passes is never looked at.
+_STALE_AFTER_SECONDS = 6 * 3600
+
+
+def _sweep_stale_sandboxes() -> None:
+    root = Path(tempfile.gettempdir())
+    cutoff = time.time() - _STALE_AFTER_SECONDS
+    for old in root.glob(_SANDBOX_PREFIX + "*"):
+        try:
+            if old.is_dir() and old.stat().st_mtime < cutoff:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            pass                    # a folder another run holds open is simply left alone
+
+
+_sweep_stale_sandboxes()
+_ISOLATED = Path(tempfile.mkdtemp(prefix=_SANDBOX_PREFIX))
 os.environ["SMARTENTRY_MODELS_DIR"] = str(_ISOLATED / "models")
 os.environ["SMARTENTRY_DATA_DIR"] = str(_ISOLATED / "data")
 (_ISOLATED / "models").mkdir(parents=True, exist_ok=True)
@@ -68,6 +93,11 @@ _LIVE_AT_START = _live_learning_fingerprint()
 
 
 def pytest_sessionfinish(session, exitstatus):
+    """Check nothing escaped isolation, then remove this run's sandbox.
+
+    The removal is last and never raises: a file TensorFlow still holds open is a reason to leave the
+    folder for the next run's sweep, not a reason to fail a suite that passed.
+    """
     after = _live_learning_fingerprint()
     changed = sorted(k for k in set(_LIVE_AT_START) | set(after) if _LIVE_AT_START.get(k) != after.get(k))
     if changed:
@@ -75,6 +105,18 @@ def pytest_sessionfinish(session, exitstatus):
         for name in changed:
             print("  ", name)
         session.exitstatus = 1
+
+    # The sandbox holds nothing unique - it is a copy of data/ and models/ - so it is always removed,
+    # pass or fail. What a failed run needs is its path printed, not 3.1 GB left on the disk.
+    try:
+        megabytes = sum(f.stat().st_size for f in _ISOLATED.rglob("*") if f.is_file()) / (1024 * 1024)
+    except OSError:
+        megabytes = 0.0
+    shutil.rmtree(_ISOLATED, ignore_errors=True)
+    if _ISOLATED.exists():
+        print(f"\nsandbox could not be removed (a file is still open): {_ISOLATED}")
+    else:
+        print(f"\nsandbox removed, {megabytes:,.0f} MB reclaimed")
 
 
 @pytest.fixture(scope="module")
