@@ -23148,6 +23148,7 @@ function render(d){
 
   const po = d.portability || {};
   const sl = d.self_improvement || {};
+  const ap = d.app_builder || {};
   const metric = (v,k) => `<div class="bm-metric"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
 
   document.getElementById('bm').innerHTML = `
@@ -23194,6 +23195,23 @@ function render(d){
           </div>`).join('')}</div>` : ''}
         ${sl.honest === false ? `<div style="margin-top:10px;font-size:13px;color:#fbbf24"><b>Watch this:</b> ${esc(sl.honest_note || '')}</div>` : ''}
         ${sl.tampered ? `<div style="margin-top:10px;font-size:13px;color:#f87171"><b>${sl.tampered} prediction(s) were changed after being locked</b> &mdash; verdicts from those rows cannot be trusted.</div>` : ''}
+      </div>
+    </div>
+
+    <div class="bm-sec">
+      <h2>What it can build</h2>
+      <div class="bm-card">
+        <p style="margin:0 0 10px;font-size:13.5px;opacity:.85;line-height:1.55">A module is proved by its tests. An <b>application</b> is not: a program whose tests pass and which dies on launch is exactly what a test-only check calls working. So an app is <b>started the way you would start it</b> and has to answer &mdash; a command-line tool must print its own result and exit clean, a local web app must answer <code>/health</code> with 200. It only reads <b>verified</b> when every file compiles, the rule tests pass <i>and</i> it answered. Compiling on its own is capped at <i>partial</i>.</p>
+        <div class="bm-metrics">
+          ${metric(ap.available ? 'yes' : 'no', 'can build apps')}
+          ${metric(ap.available ? Object.keys(ap.kinds || {}).length : '-', 'kinds it can prove')}
+          ${metric(ap.max_files ?? '-', 'files per app')}
+          ${metric(ap.verified ?? 0, 'apps that ran')}
+        </div>
+        ${ap.available ? `<div style="margin-top:12px;font-size:13px;opacity:.85;line-height:1.55">
+          ${Object.entries(ap.kinds || {}).map(([k, v]) => `<div style="padding:6px 0;border-top:1px solid rgba(148,163,184,.18)"><code>${esc(k)}</code> &mdash; ${esc(v)}</div>`).join('')}
+        </div>
+        <div style="margin-top:10px;font-size:12.5px;opacity:.72">Standard library only, and the sandbox runs with <code>${esc(ap.isolation || '')}</code> so a generated app cannot import this system and reach a broker. ${esc(ap.note || '')}</div>` : `<div style="margin-top:10px;font-size:13px;color:#fbbf24">Not available: ${esc(ap.reason || 'unknown')}</div>`}
       </div>
     </div>
 

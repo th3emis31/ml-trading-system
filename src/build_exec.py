@@ -163,11 +163,20 @@ def lint(path: Path, cwd: Path) -> dict:
             "error": (proc.stdout or proc.stderr or "").strip()[:1200], "note": ""}
 
 
-def safe_command(spec: str, sandbox: Path) -> dict:
+def safe_command(spec: str, sandbox: Path, isolation: tuple = ("-I",)) -> dict:
     """Is this model-written command one we are willing to execute? Allowlist, with the reason.
 
     Returns {ok, argv, reason}. Refusing is the safe outcome and is reported as "not adjudicated",
     never as a failure of the code being built - the command was the problem, not the artefact.
+
+    `isolation` is the interpreter's own isolation flags, and it is a parameter because the two builders
+    need different ones. `-I` is the default and the stronger: it puts NEITHER the script's directory nor
+    user site-packages on sys.path, which is right for a single self-contained module. An APPLICATION is
+    several files that import each other, and under `-I` the very first sibling import fails with
+    ModuleNotFoundError - so `src/app_builder.py` passes ("-E", "-s") instead, which still ignores every
+    environment variable (so PYTHONPATH cannot make this repository importable) and still skips user
+    site-packages, but leaves the SANDBOX itself importable. Nothing outside the sandbox becomes reachable
+    either way: the command's paths are vetted below and the working directory is the sandbox.
     """
     try:
         argv = shlex.split(spec or "")
@@ -211,7 +220,7 @@ def safe_command(spec: str, sandbox: Path) -> dict:
         except ValueError:
             return {"ok": False, "argv": argv,
                     "reason": f"{target!r} resolves outside the sandbox ({candidate}); refused"}
-    return {"ok": True, "argv": [sys.executable, "-I"] + rest, "reason": ""}
+    return {"ok": True, "argv": [sys.executable, *isolation] + rest, "reason": ""}
 
 
 def sandbox_env() -> dict:

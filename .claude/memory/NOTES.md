@@ -599,3 +599,48 @@ probe the network twice. It writes NO closure record: it is a tool, not a loop, 
 
 29 new tests (13 + 16). The honest state of the orchestration layer: the prompt exists and is answerable;
 nothing has yet been designed or built from it, and Task Scheduler is still the orchestrator.
+
+## 2026-09-26 - build map step 11: build a whole APPLICATION, not one module
+
+The map already claimed "applications" in its Software scope while the builder could only produce one
+module proved by tests. `src/app_builder.py` closes that gap, and the reason it is a separate module is
+that an application fails differently from a function:
+
+- **Its files have to agree with each other.** Per-file tests cannot see file A importing a name file B
+  never defined.
+- **It has to START.** A program whose unit tests pass and which dies on launch is exactly what a
+  test-only check certifies as working.
+
+So the acceptance test is a **smoke run**: a CLI app is run as a user runs it and must print `OK:` and exit
+0; a web app is started, asked `GET /health`, and must answer 200 - and it is killed on every path,
+including when the request raises. `verified` requires every file to compile AND the rule tests to pass AND
+the app to answer. Without `--execute` the verdict is capped at **partial**, because compiling is not
+running.
+
+**Three real bugs found by writing the tests, one of them a security bug:**
+
+1. `parse_file_plan` used `path.lstrip("./")`, which strips leading dots - so `"../app.py"` was *cleaned
+   into* `"app.py"` and accepted. Traversal is now rejected outright; cleaning attacker-shaped input is how
+   this class of bug is always made. There is a test per shape.
+2. The CLI smoke run passed `--selftest` INTO `safe_command`, whose flag allowlist correctly refused it, so
+   every CLI smoke run came back "not adjudicated" instead of running. The flag is ours, so it is appended
+   after the gate, not through it.
+3. `python -I` keeps the script's own directory OFF `sys.path`, so the first sibling import in a multi-file
+   app died with ModuleNotFoundError. `safe_command` now takes its isolation flags as a parameter: `-I`
+   stays the default for the module builder, and app builds use `-E -s`, which still ignores every
+   environment variable and skips user site-packages but leaves the sandbox importable. A test proves this
+   repository is still unreachable from inside the sandbox - a generated app that could
+   `import trading.mt5_service` would be one import from a live broker.
+
+Also refused, and stated on the page rather than hidden: third-party packages (installing one means reaching
+the network from a sandbox running model-written code), more than 8 files, and a GUI (a window cannot be
+checked without a person looking at it).
+
+30 tests, including an end-to-end build with a scripted model that produces a real two-file app, starts it
+and reads its answer. `data/builds/app_builds.jsonl` is deliberately separate from `builds.jsonl`: appending
+app builds there would have inflated the module builder's verdict counts on the build map page.
+
+**Noticed while restarting the app to load this:** `start_trading.bat` was running TWICE (two cmd loops,
+PIDs 21300 and 11672), so a second `app.py` was sitting idle waiting to take port 5000 the moment the first
+died - which means a stale server can silently replace the live one. Both were restarted; the duplicate
+launcher is still there and is the owner's to remove.

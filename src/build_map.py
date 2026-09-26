@@ -73,12 +73,34 @@ STEPS = (
               "run - refuted, and the feature-set explanation is now permanently ruled out.",
      "gap": "Not yet unattended. Putting the loop on a schedule is a T3 action under its own "
             "governance rules, so that is the owner's decision to make, not the loop's."},
+    {"n": 11, "phase": "Make it broad", "title": "Build a whole application", "done": True,
+     "delivers": "A request becomes several files that run, not one module that compiles",
+     "proof": "src/app_builder.py. An application differs from a module in two ways that matter: its "
+              "files have to agree with each other, and it has to START - a program whose unit tests "
+              "pass and which dies on launch is what a test-only check certifies as working. So the "
+              "acceptance test is a SMOKE RUN: a CLI app is run as a user runs it and must print OK: "
+              "and exit 0; a web app is started, asked GET /health, and must answer 200, and it is "
+              "killed on every path including when the request raises. `verified` needs every file to "
+              "compile AND the rule tests to pass AND the app to answer; static checks alone are "
+              "capped at partial, because compiling is not running. The file plan is vetted before a "
+              "byte is written - a path that climbs out of the sandbox is refused, and the first "
+              "version of that check was WRONG (it cleaned '../app.py' into 'app.py'), which is why "
+              "there is now a test for each shape. The interface is ours, not the model's: the entry "
+              "file, how it is invoked and what counts as an answer are handed identically to the "
+              "plan, every file, every repair and the tests.",
+     "gap": "Standard library only, at most 8 files, and two kinds - a command-line tool and a local "
+            "web app. No third-party package, because installing one means reaching the network from "
+            "a sandbox running model-written code; and no GUI, because a window cannot be checked "
+            "without a person looking at it. Isolation is one notch weaker than the module builder's: "
+            "-E -s instead of -I, so the app's files can import each other. A test proves this "
+            "repository is still unreachable from inside the sandbox."},
 )
 
 SCOPE = (
     ("Trading", ("trading systems", "expert advisors", "indicators", "bots", "auto-trading",
                  "Pine script", "backtesting")),
-    ("Software", ("applications", "websites", "dashboards", "automation", "PC control")),
+    ("Software", ("command-line apps", "local web apps", "modules", "dashboards", "automation",
+                  "PC control")),
     ("Market", ("SEO", "marketing", "deep analysis", "promotion", "web research")),
     ("Business", ("financial analysis", "planning", "reporting")),
     ("Media", ("video", "images", "charts")),
@@ -229,6 +251,29 @@ def _builder() -> dict:
         return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def _app_builder() -> dict:
+    """Step 11's evidence: what the app builder is allowed to do, and what it has actually produced.
+
+    Counted by verdict for the same reason `_builder` is: "3 apps built" hides whether any of them ran.
+    """
+    try:
+        from .app_builder import APP_ISOLATION, MAX_FILES, app_build_report, contract_for
+
+        report = app_build_report()
+        return {"available": True,
+                "kinds": {kind: contract_for(kind).must_answer for kind in ("cli", "web")},
+                "max_files": MAX_FILES,
+                "isolation": " ".join(APP_ISOLATION),
+                "stdlib_only": True,
+                "builds": report.get("builds"), "verdicts": report.get("verdicts") or {},
+                "verified": report.get("verified"),
+                "note": report.get("note") or "",
+                "never": ("calls an app working because it compiled - `verified` requires the smoke run, "
+                          "and without execution the verdict is capped at partial")}
+    except Exception as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def build_map_state() -> dict:
     """Everything the page shows, read from the running system."""
     done = [s for s in STEPS if s["done"]]
@@ -247,6 +292,7 @@ def build_map_state() -> dict:
         "failure_modes": _failure_modes(),
         "portability": _portability(),
         "builder": _builder(),
+        "app_builder": _app_builder(),
         "self_improvement": _self_improvement(),
         "constraint": ("Work anywhere with internet, and fully local without internet. Offline means "
                        "a small local model, so the competence is put in the SYSTEM rather than the "

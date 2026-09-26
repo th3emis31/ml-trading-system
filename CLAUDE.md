@@ -42,6 +42,8 @@ python -m src.ai_employee run [--force]|context|status   # daily read-only Claud
 python -m src.paper_trader [--status]         # gold 4H model forward test (+ demo hand-off)
 python -m src.daily_learning [--symbols XAUUSD BTCUSD] [--frequency daily|weekly]   # gated RF+LSTM retrain (keeps new model only if better on unseen bars)
 python -m src.edge_research --symbols XAUUSD --interval 4h --mtf [--rocket] --models xgb --configs tight
+python -m src.app_builder build "<what you want>" --kind cli|web [--execute]   # build a whole app in a sandbox: files, tests, and a smoke run that must answer; stdlib only, never trades
+python -m src.orchestration prompt [--budget N]   # the orchestration design prompt, rendered from live state
 ```
 
 ## Scheduled work (Windows Task Scheduler, runs while the user is logged in)
