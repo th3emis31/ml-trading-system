@@ -1142,3 +1142,53 @@ Three changes that respect the bar completely, for the owner to decide on:
    looking like a judgement on the strategy.
 
 Nothing was changed. This is a diagnosis and a proposal.
+
+## 2026-09-26 — market structure (BOS / CHOCH), and it vindicates the owner's own observation
+
+`src/market_structure.py` — layer 3 of the owner's engine diagram. Swings, HH/HL/LH/LL, BOS and CHOCH,
+reusing `breakout_finder.detect_pivots` rather than writing a second pivot detector. Reads only; it gates
+nothing and changes no signal.
+
+Choices stated rather than buried: breaks are measured on the **CLOSE** (a wick through and back is common
+on gold and would multiply the event count; `wick_break=True` switches it for comparison), trend starts
+**unknown** until a BOS confirms it, and HH/HL/LH/LL label each swing against the previous swing of the
+**same kind**. The confirmation lag is enforced everywhere: a swing at bar i is only usable from bar
+i+prd, and a test fails if any event references one earlier.
+
+XAUUSD 4h, 4,000 bars, pivot period 5: 482 swings (HH 128, HL 140, LH 103, LL 109), 185 events
+(BOS bullish 58, BOS bearish 40, CHOCH bullish 43, CHOCH bearish 44). **Structure on gold is bearish
+right now, and the last six events are all bearish BOS — including one on 2026-09-23 13:00, the day the
+system opened nine gold BUYs.**
+
+### The measurement: does structure carry information?
+
+Volatility Trend Breakout (long only) split by the structure state AT ENTRY, per-trade Sharpe:
+
+| split | XAUUSD | n | BTCUSD | n |
+|---|---|---|---|---|
+| all trades | +0.1046 | 284 | +0.1158 | 250 |
+| **last event was BOS** | **+0.1361** | 148 | **+0.1843** | 146 |
+| **last event was CHOCH** | +0.0718 | 136 | **+0.0194** | 104 |
+| bullish trend AND last was BOS | +0.1493 | 142 | +0.1763 | 141 |
+| structure bearish | **−0.5677** | 14 | too few | 7 |
+
+**Two markets agree independently: after a BOS the breakout works roughly twice as well as after a CHOCH
+on gold, and nine times as well on bitcoin.** CHOCH is the warning this system currently ignores.
+
+Forward evidence needed drops accordingly: BTCUSD "last event BOS" needs 156 trades against 665 for all
+trades; gold "bullish and BOS" needs 287 against 980.
+
+The bearish-structure row is the one that matches what the owner spotted — long entries while structure
+is bearish lose, at −0.57 per-trade Sharpe. But n = 14 and 7, so that specific number is NOT established;
+it agrees in direction with the EMA200 study of the same day, which had thousands of observations.
+
+DESCRIPTIVE, NOT A VALIDATED FILTER. These splits were chosen on full history, so under the NEVER-BLOCK
+rule none of them may gate an entry. The honest path is the one now built: the labels go into the record,
+and forward trades carrying them decide it. Nothing live was changed. 13 tests, most of them on the
+lookahead guard.
+
+One fixture bug worth recording because it hid half the module: the first test fixture generated a
+zig-zag that rose and fell only 80 % of the way back, making a net-rising staircase that could never break
+a prior swing LOW - so every bearish path went untested while the suite looked green. Replaced with
+explicit straight-leg paths, which produce the exact textbook sequence (BOS bullish at bar 28 breaking
+120.20, then CHOCH bearish at bar 44 breaking 109.80).
