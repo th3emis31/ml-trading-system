@@ -1192,3 +1192,74 @@ zig-zag that rose and fell only 80 % of the way back, making a net-rising stairc
 a prior swing LOW - so every bearish path went untested while the suite looked green. Replaced with
 explicit straight-leg paths, which produce the exact textbook sequence (BOS bullish at bar 28 breaking
 120.20, then CHOCH bearish at bar 44 breaking 109.80).
+
+## 2026-09-26 — CORRECTION: the entry commission was never charged to the legs
+
+Found while adding Sortino and Calmar, by chasing the inconsistency flagged earlier the same day -
+profit factor 1.135 sitting beside net -4.51 % on the same trades, which cannot both be true.
+
+`src/volatility_trend_breakout.backtest` did this:
+
+    entry_cost = fill * qty * comm
+    equity -= entry_cost          # charged to equity
+    ...
+    res.legs.append(Leg(..., gross - fee, ...))    # but NOT to the leg
+
+So `net_pct`, `net_usd` and `max_dd` were right all along, while **every leg-derived figure was
+flattered**: profit factor, win rate, average win and loss, and expectancy in R. On XAUUSD 4h that hid
+**GBP 1,129** of real cost at normal commission, and GBP 2,002 at double. Fixed by allocating the entry
+cost across the legs in proportion to size, and pinned by a new metric `pnl_matches_equity` plus a test
+that fails if any cost is ever charged to equity without reaching a leg.
+
+### Every affected number, restated
+
+| XAUUSD 4h | as reported earlier today | CORRECTED |
+|---|---|---|
+| profit factor | 1.269 | **1.168** |
+| per-trade Sharpe | 0.1046 | **0.0700** |
+| forward trades needed | 980 | **8,300** |
+| MC loss probability | 4.2 % | **13.1 %** (still passes the 20 % bar) |
+| **MC 5th percentile** | **+1.08 %** | **−8.71 %** |
+| net / drawdown | +21.36 % / 21.97 % | unchanged |
+
+| BTCUSD 4h | as reported | CORRECTED |
+|---|---|---|
+| profit factor | 1.254 | **1.213** |
+| per-trade Sharpe | 0.1158 | **0.1002** |
+| forward trades needed | 665 | **1,166** |
+| MC loss probability | 3.4 % | **6.5 %** (still passes) |
+| **MC 5th percentile** | **+2.65 %** | **−1.56 %** |
+| net / drawdown | +30.10 % / 12.85 % | unchanged |
+
+**The claim that must be withdrawn:** I reported that the 5th-percentile Monte Carlo outcome was positive
+on both markets - "even the unlucky one-in-twenty reordering still makes money". It is **negative on both**
+once the entry commission is accounted for. That was the strongest statement made about this strategy all
+day and it rested on overstated leg returns.
+
+What survives: both markets still pass both approved Monte Carlo gates (loss probability under 20 %,
+rolling 12-month windows above 55 %), and the permutation result of p = 0.01 is untouched because it
+compares the strategy against random entries measured the same way.
+
+### New metrics (the original task)
+
+Added to `metrics()`: `sharpe_per_position`, `sortino_per_position`, `calmar`, `years`.
+
+| | XAUUSD 4h | BTCUSD 4h |
+|---|---|---|
+| Sharpe / position | 0.0700 | 0.1002 |
+| Sortino / position | 0.1127 | 0.1739 |
+| **Calmar** | **0.0475** | **0.2463** |
+| span | 18.66 yr | 8.45 yr |
+
+**Bitcoin is five times better than gold on Calmar** - return per unit of worst drawdown - which agrees
+with everything else measured today: more cost headroom (4x versus 2x), better Monte Carlo, more
+positions.
+
+Sortino uses TARGET DOWNSIDE DEVIATION against a zero target - the root mean square of the negative part
+of every return - not the standard deviation of the losing subset. The second is a common shortcut and it
+inflates the ratio by discarding how often losses did not happen; a test asserts the two definitions
+differ so the distinction cannot quietly rot. Calmar returns None rather than assuming a span when the
+legs carry no parseable timestamps.
+
+All prior BASELINE rows produced by this module overstate profit factor, win rate and expectancy. Their
+net and drawdown figures stand.

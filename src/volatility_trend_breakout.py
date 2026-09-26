@@ -32,6 +32,7 @@ from __future__ import annotations
 import csv
 import statistics
 import math
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence
 
@@ -418,10 +419,19 @@ def backtest(candles: Sequence[Candle], cfg: Config = Config(),
                 px = price - slip if long else price + slip
             gross = (px - fill) * part if long else (fill - px) * part
             fee = px * part * comm
+            # The ENTRY commission is charged to equity once, when the position opens, so it must be
+            # allocated across the legs or every leg-derived figure overstates the result. Before
+            # 26 September 2026 it was not: `equity` carried it but `leg.pnl` did not, so `net_pct` and
+            # `max_dd` were right while `profit_factor`, `win_rate_pct`, `avg_win`, `avg_loss` and
+            # `expectancy_r_per_position` were all flattered. On XAUUSD 4h that hid GBP 1,129 of real cost
+            # and let profit factor read 1.269 while the equity curve had already paid it. It surfaced as
+            # PF 1.135 sitting beside net -4.51 %, which cannot both be true of the same trades.
+            entry_share = entry_cost * (part / qty) if qty else 0.0
+            net_leg = gross - fee - entry_share
             equity += gross - fee
             initial_risk = risk_dist * qty
             res.legs.append(Leg(sig.ts, ts, sig.direction, fill, px, part,
-                                gross - fee, (gross - fee) / initial_risk if initial_risk else 0.0,
+                                net_leg, net_leg / initial_risk if initial_risk else 0.0,
                                 kind))
             res.equity_curve.append(equity)
 
@@ -505,6 +515,46 @@ def metrics(res: Result, cfg: Config) -> dict:
             streak = 0
 
     net = res.final_equity - cfg.initial_capital
+
+    # Per-position returns as a share of the equity that existed at the time, which is what a ratio
+    # needs. Leg returns would double-count a position that exited in two pieces.
+    by_entry: dict = {}
+    for leg in legs:
+        by_entry.setdefault(leg.entry_ts, []).append(leg)
+    running, position_returns = cfg.initial_capital, []
+    for entry_ts in by_entry:
+        pnl = sum(l.pnl for l in by_entry[entry_ts])
+        if running > 0:
+            position_returns.append(pnl / running)
+        running += pnl
+
+    sharpe = sortino = None
+    if len(position_returns) >= 2:
+        mean = sum(position_returns) / len(position_returns)
+        variance = sum((r - mean) ** 2 for r in position_returns) / (len(position_returns) - 1)
+        sd = math.sqrt(variance)
+        sharpe = (mean / sd) if sd > 0 else None
+        # Sortino uses TARGET DOWNSIDE DEVIATION against a zero target - the root mean square of the
+        # negative part of every return, not the standard deviation of the losing subset. The second is a
+        # common shortcut and it inflates the ratio, because it throws away how often losses did NOT
+        # happen. Winners count here as zeros, which is the point.
+        downside = math.sqrt(sum(min(r, 0.0) ** 2 for r in position_returns) / len(position_returns))
+        sortino = (mean / downside) if downside > 0 else None
+
+    # Calmar: annualised return over the worst drawdown. Needs a span, so it is None when the legs do not
+    # carry parseable timestamps rather than being computed against an assumed year.
+    calmar = years = None
+    if legs and max_dd > 0:
+        try:
+            first = datetime.strptime(str(legs[0].entry_ts)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+            last = datetime.strptime(str(legs[-1].exit_ts)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+            years = (last - first).total_seconds() / (365.25 * 24 * 3600)
+            if years > 0 and res.final_equity > 0:
+                cagr = (res.final_equity / cfg.initial_capital) ** (1.0 / years) - 1.0
+                calmar = cagr / (max_dd / cfg.initial_capital)
+        except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+            calmar = years = None
+
     return {
         "closed_legs": len(legs),
         "positions": res.positions,
@@ -519,6 +569,13 @@ def metrics(res: Result, cfg: Config) -> dict:
         "max_dd_pct": 100.0 * max_dd / cfg.initial_capital,
         "longest_losing_streak": worst_streak,
         "size_capped_entries": res.capped_entries,
+        "sharpe_per_position": round(sharpe, 4) if sharpe is not None else None,
+        "sortino_per_position": round(sortino, 4) if sortino is not None else None,
+        "calmar": round(calmar, 4) if calmar is not None else None,
+        "years": round(years, 2) if years else None,
+        # The identity that exposes any cost charged to equity but not to a leg. It held false for the
+        # entry commission until 26 September 2026; anything that breaks it again is the same class of bug.
+        "pnl_matches_equity": abs(sum(l.pnl for l in legs) - net) < 0.01,
     }
 
 
