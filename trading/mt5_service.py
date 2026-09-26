@@ -536,8 +536,12 @@ class MT5Service:
         self._utc_offset_cache = (hours, monotonic())
         return hours
 
+    # M30 added 26 Sep 2026. Without it the app answered a 30m request from YAHOO, and
+    # mtf_data.fetch_app_bars correctly refused that frame - Yahoo prices gold as the GC=F future,
+    # about 1.4 % away from broker spot, so a backtest built on it would not match any fill.
     _TIMEFRAME_NAMES = {"1m": "TIMEFRAME_M1", "5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15",
-                        "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
+                        "30m": "TIMEFRAME_M30", "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4",
+                        "1d": "TIMEFRAME_D1"}
     MAX_RATES = 50000
 
     def copy_rates(self, symbol: str, timeframe: str, count: int = 600) -> dict:

@@ -35,6 +35,9 @@ TIMEFRAMES = {
     "1m": {"minutes": 1, "mt5": "TIMEFRAME_M1", "yahoo": ("7d", "1m"), "resample": None},
     "5m": {"minutes": 5, "mt5": "TIMEFRAME_M5", "yahoo": ("60d", "5m"), "resample": None},
     "15m": {"minutes": 15, "mt5": "TIMEFRAME_M15", "yahoo": ("60d", "15m"), "resample": None},
+    # Added 26 Sep 2026: the owner asked for a 30M backtest and 30m was in none of the three places a
+    # timeframe has to be listed. The broker has M30 natively, so nothing here is resampled from 15m.
+    "30m": {"minutes": 30, "mt5": "TIMEFRAME_M30", "yahoo": ("60d", "30m"), "resample": None},
     "1h": {"minutes": 60, "mt5": "TIMEFRAME_H1", "yahoo": ("729d", "1h"), "resample": None},
     "4h": {"minutes": 240, "mt5": "TIMEFRAME_H4", "yahoo": ("729d", "1h"), "resample": "4h"},
     "1d": {"minutes": 1440, "mt5": "TIMEFRAME_D1", "yahoo": ("max", "1d"), "resample": None},

@@ -1503,3 +1503,62 @@ its search window. **No live input, preset, demo strategy or EA changed.**
 
 The strongest *timing* evidence measured today remains the CISD row above — gold 4h, p = 0.015, where the
 random arm LOSES money and no trend filter is involved to muddy it. 14 + 11 tests.
+
+---
+
+## 2026-09-26 — the Trader's Grit liquidity/POI model on 30M: no edge, and a lookahead I caught in myself
+
+**The chart, read left to right:** an early high with buy-side liquidity marked `$$$`; structure breaks
+down (two `BOS` lines); a final low takes out the previous low (`SSL` — sell-side liquidity swept); price
+rallies back into the `POINT OF INTEREST` at the prior swing high; the boxes mark the trade there.
+
+The chart draws the setup but not the direction, so **both readings were tested**, as the 19 September
+correction taught: **fade** (the POI is resistance — sell into it, target the lows) and **ride** (the sweep
+is the entry — buy it, target the POI). `src/poi_liquidity.py`, structure from `src/market_structure.py`
+so every swing carries its confirmation lag. Grid declared first: 2 readings × 2 structure filters ×
+3 reward ratios × 2 markets = **24 trials**.
+
+**30m had to be added to the system first.** It was in none of the three places a timeframe must be listed
+(`mtf_data.TIMEFRAMES`, `strategy_lab.TIMEFRAME_MINUTES`, the bars API) and, worse, the app answered a 30m
+request from **Yahoo** — which prices gold as the `GC=F` future, ~1.4 % from broker spot. `mtf_data`
+correctly refused that frame. `trading/mt5_service` now maps `TIMEFRAME_M30`, and the data is broker bars:
+XAUUSD 50,000 from 2022-07, BTCUSD 50,000 from 2023-10.
+
+### The first run was wrong, and its numbers were the clue
+
+The first run showed the ride reading at **PF 2.50–2.74, +32 % gold / +58 % bitcoin, max drawdown 1.6 %,
+positive on all three splits on both markets**. Better than anything else in this file — which is a bug
+signature, not a discovery.
+
+It was a **lookahead in my own code**. `poi_setups` only records a setup once price has RETURNED to the
+POI, and the ride entry sits at the *sweep*, before that return. Truncating the bars at the sweep bar made
+the signal vanish. The earlier truncation test cut at the POI bar — *after* the ride entry — so it passed
+while the defect was live. `sweep_signals` now produces the ride entries from the sweep alone, with the POI
+as the target rather than a precondition, and a test truncates **every** signal at **its own** bar for
+both readings. Signals went 938 → 2,951 once the survivors-only filter was removed.
+
+### The honest result: 0 of 24 variants profitable
+
+| market | best of 24 | trades | net | PF | maxDD | inverse |
+|---|---|---|---|---|---|---|
+| XAUUSD 30m | `fade nobos rr2` | 100 | **−4.68%** | 0.72 | 7.92% | −10.16% |
+| XAUUSD 30m | `ride nobos rr2` | 498 | **−27.88%** | 0.70 | 31.70% | −4.69% |
+| BTCUSD 30m | `fade bos rr1` | 99 | **−9.83%** | 0.49 | 10.02% | −9.05% |
+| BTCUSD 30m | `ride bos rr1` | 521 | **−25.07%** | 0.69 | 27.75% | −13.85% |
+
+Nothing positive on any split. **The inverse loses too on every variant**, which is the same verdict this
+file already recorded for the fade reading of the previous chart: not a wrong-way signal that could be
+faded, a signal carrying no directional information.
+
+**And it is not the cost model** — the check this file's own rule demands when everything loses. Gross, with
+spread and swap set to zero: gold ride −23.64 % (PF 0.70), gold fade −3.57 % (PF 0.76), bitcoin fade
+−10.65 % (PF 0.49). Only bitcoin's ride is near parity gross (−4.80 %, PF 0.96) and costs take it to
+−27.79 % across 484 trades — the familiar shape of no edge plus turnover.
+
+### The honest limit on this reading
+
+The chart's POI is a **zone** — a drawn box, most likely an order block or fair-value gap — while this
+implementation uses **the previous confirmed swing high** as a single price. That is a proxy, not the same
+thing, exactly as the rolling-maximum proxy was for the equal-highs drawing on 19 September. A zone-based
+POI is the refinement worth testing and is NOT covered by this row. **No live input, preset, demo strategy
+or EA changed.** 16 tests.

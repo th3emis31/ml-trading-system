@@ -20937,9 +20937,11 @@ DATA_FEED_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 # /api/data/bars serves two finer timeframes than the Data Feed page shows. Intraday scanners
 # (premarket high, today's high of day) need minute bars, and putting 1m/5m on the page itself
 # would add rows nobody reads and a slower render. The page keeps DATA_FEED_TIMEFRAMES.
-BARS_API_TIMEFRAMES = ("1m", "5m") + DATA_FEED_TIMEFRAMES
+# 30m is served by the bars API but deliberately NOT added to DATA_FEED_TIMEFRAMES: the data feed
+# page polls every one of its timeframes, and 30m was added for backtesting rather than for a panel.
+BARS_API_TIMEFRAMES = ("1m", "5m", "30m") + DATA_FEED_TIMEFRAMES
 DATA_FEED_CACHE_TTL_SECONDS = 30
-BARS_CACHE_TTL_SECONDS = {"1m": 20, "5m": 40, "15m": 60, "1h": 300, "4h": 900, "1d": 1800}
+BARS_CACHE_TTL_SECONDS = {"1m": 20, "5m": 40, "15m": 60, "30m": 120, "1h": 300, "4h": 900, "1d": 1800}
 _bars_cache: dict = {}
 _bars_cache_lock = threading.Lock()
 _data_feed_cache = {"value": None, "expires_at": 0.0}
