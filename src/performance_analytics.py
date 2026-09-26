@@ -131,6 +131,91 @@ SHARED_DEFAULT_MAGICS = {
 }
 
 
+# The footprint of this system's own orders, used to split the ambiguous 903110 bucket above into the
+# auto trader's work and the owner's own clicks. Measured from the code that places the orders, not
+# guessed: every demo strategy sizes at 0.01 per leg, and every strategy here is long-only on gold - the
+# RF model produced 543 long to 20 short, the SwingTrendPullback EA 151 long to 0 short.
+OWN_LOT_SIZES = (0.01,)
+OWN_COMMENT_MARKS = ("smartentry", "gold4h", "vtb", "sweep", "daily plan", "pullback", "breakout")
+
+
+def attribute_trade(trade: dict) -> dict:
+    """Is this closed trade the SYSTEM's or the OWNER's? Returns {owner, confidence, why}.
+
+    Written on 26 September 2026 after reporting +GBP 381.96 as the system's performance when GBP 328.68
+    of it was the owner's own manual trading. The owner caught it: the winners were SELL gold at 0.04 to
+    0.08 lots, and this system is long-only at 0.01. The caveat on SHARED_DEFAULT_MAGICS above had
+    described the hazard for days; nothing acted on it.
+
+    Three signals, in order of strength:
+
+    1. **A dedicated magic settles it.** 440401/440502/440603/440704/440805/440906 are each placed by one
+       named strategy and by nothing else.
+    2. **The order comment.** This system writes its name into the comment. The broker's own `[tp 4028.40]`
+       or `[sl 4111.71]` annotation is NOT a system comment - it is what MT5 writes on an exit - so a
+       trade carrying only that was not placed through this system's order path.
+    3. **The footprint**, for the shared 903110 bucket only: 0.01 lots AND a BUY. This is a HEURISTIC and
+       is labelled `probable` rather than `certain`, because a manual 0.01 buy would be counted as the
+       system's. It errs toward crediting the system, which is the conservative direction when the
+       question is "is the automatic trading any good" - it cannot flatter the answer.
+    """
+    magic = int(trade.get("magic") or 0)
+    comment = str(trade.get("comment") or "").lower()
+    volume = float(trade.get("volume") or 0)
+    direction = str(trade.get("direction") or "").upper()
+
+    if magic in SYSTEM_MAGICS and magic not in SHARED_DEFAULT_MAGICS:
+        return {"owner": "system", "confidence": "certain",
+                "why": f"magic {magic} is placed by one named strategy and nothing else"}
+    if magic not in SYSTEM_MAGICS:
+        return {"owner": "other", "confidence": "certain",
+                "why": f"magic {magic} is not one this system places orders with"}
+
+    # Shared default (903110): decide on the comment first, then the footprint.
+    if any(mark in comment for mark in OWN_COMMENT_MARKS):
+        return {"owner": "system", "confidence": "certain",
+                "why": f"the order comment names this system ({comment[:40]!r})"}
+    if volume in OWN_LOT_SIZES and direction == "BUY":
+        return {"owner": "system", "confidence": "probable",
+                "why": (f"magic {magic} is shared, but {volume} lots BUY matches this system's only "
+                        "footprint - long-only at 0.01")}
+    return {"owner": "manual", "confidence": "probable",
+            "why": (f"magic {magic} is mt5_service's shared default and {volume} lots {direction} is "
+                    "outside this system's footprint (it is long-only at 0.01)")}
+
+
+def attribution_split(trades: Iterable[dict]) -> dict:
+    """The two totals, kept apart. Never report one number for an account that holds both.
+
+    `system_net` is what this system earned. `manual_net` is the owner's own trading. Handing the second
+    back as the first makes a losing automatic route look like a winner and removes the reason to fix it.
+    """
+    buckets: dict = {}
+    for trade in trades or []:
+        verdict = attribute_trade(trade)
+        bucket = buckets.setdefault(verdict["owner"], {"trades": 0, "net": 0.0, "probable": 0,
+                                                       "reasons": {}})
+        bucket["trades"] += 1
+        bucket["net"] += float(trade.get("net") or 0)
+        if verdict["confidence"] == "probable":
+            bucket["probable"] += 1
+        bucket["reasons"][verdict["why"][:70]] = bucket["reasons"].get(verdict["why"][:70], 0) + 1
+    for bucket in buckets.values():
+        bucket["net"] = _round(bucket["net"], 2)
+    return {
+        "buckets": buckets,
+        "system_trades": buckets.get("system", {}).get("trades", 0),
+        "system_net": buckets.get("system", {}).get("net", 0.0),
+        "manual_trades": buckets.get("manual", {}).get("trades", 0),
+        "manual_net": buckets.get("manual", {}).get("net", 0.0),
+        "other_trades": buckets.get("other", {}).get("trades", 0),
+        "other_net": buckets.get("other", {}).get("net", 0.0),
+        "caveat": ("Trades on magic 903110 are split on footprint, not proof: it is mt5_service's default, "
+                   "so a manual 0.01 buy would be credited to the system. The split errs toward crediting "
+                   "the system, so it cannot flatter the answer to 'is the automatic trading any good'."),
+    }
+
+
 def trading_heatmaps(deals: Iterable[dict], magic=None) -> dict:
     """P/L patterns and equity curve from closed deals: dicts with time (UTC epoch or ISO), net or profit/swap/commission.
 

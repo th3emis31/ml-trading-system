@@ -22261,12 +22261,26 @@ def closed_trades_api():
       'net': round(net, 2), 'comment': (deal.get('comment') or '')[:40],
     })
   rows.sort(key=lambda r: str(r.get('time')))
+  # Say WHOSE trade each one is. Magic 903110 is mt5_service's DEFAULT, so the owner's own manual
+  # clicks land on it and look identical to the auto trader's work. On 26 September 2026 that made
+  # +GBP 381.96 of account profit read as the system's when GBP 328.68 of it was the owner's own
+  # trading and the automatic route was actually NEGATIVE. Every caller of this endpoint - the Excel
+  # journal, the performance page, any report - needs the split, so it is served here rather than
+  # left to each of them to rediscover.
+  try:
+    from src.performance_analytics import attribute_trade, attribution_split
+    for row in rows:
+      row['attribution'] = attribute_trade(row)
+    split = attribution_split(rows)
+  except Exception as exc:
+    split = {'available': False, 'reason': f'{type(exc).__name__}: {exc}'}
   wins = [r for r in rows if r['net'] > 0]
   losses = [r for r in rows if r['net'] <= 0]
   gross_win = sum(r['net'] for r in wins)
   gross_loss = -sum(r['net'] for r in losses)
   return jsonify({
     'available': True, 'magic': sorted(wanted) if wanted else 'all', 'count': len(rows),
+    'attribution': split,
     'totals': {
       'net': round(sum(r['net'] for r in rows), 2),
       'wins': len(wins), 'losses': len(losses),

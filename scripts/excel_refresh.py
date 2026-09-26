@@ -45,7 +45,11 @@ PRICE_JOBS = (
 
 STRATEGY_NAMES = {440401: "GOLD4H model", 440502: "Gold session pullback",
                   440603: "Volatility breakout", 440704: "Daily plan",
-                  440805: "Sweep reversal", 903110: "SmartEntry auto"}
+                  440805: "Sweep reversal", 440906: "SmartEntry"}
+# 903110 is deliberately NOT in that map. It is mt5_service's DEFAULT magic, so the owner's own manual
+# trades carry it too - labelling them "SmartEntry auto" put the owner's own gold shorts in the journal
+# as the system's work, which on 26 September 2026 made GBP 328.68 of their trading read as the
+# system's. The row now takes its label from the API's attribution instead.
 
 
 def api(path: str, timeout: int = 300):
@@ -89,6 +93,19 @@ def refresh_prices(xl, wb) -> list:
     return done
 
 
+def _strategy_label(trade: dict) -> str:
+    """Who placed it. Falls back to the magic, never to a strategy name it cannot justify."""
+    named = STRATEGY_NAMES.get(trade.get("magic"))
+    if named:
+        return named
+    who = (trade.get("attribution") or {}).get("owner")
+    if who == "manual":
+        return "MANUAL (yours, not the system)"
+    if who == "system":
+        return "SmartEntry (shared magic 903110)"
+    return f"magic {trade.get('magic')}"
+
+
 def refresh_journal(xl, wb) -> str:
     payload = api("/api/trades/closed")
     if not payload.get("available"):
@@ -102,7 +119,7 @@ def refresh_journal(xl, wb) -> str:
         server = when + timedelta(hours=3)
         rows.append((
             server.strftime("%Y-%m-%d"), server.strftime("%H:%M"), trade["symbol"],
-            session_for(server.hour), STRATEGY_NAMES.get(trade["magic"], f"magic {trade['magic']}"),
+            session_for(server.hour), _strategy_label(trade),
             trade["direction"], trade.get("entry_price") or "",
             # Stop and target are not in the deal record, so they stay blank. Deriving them from the
             # exit price would put an invented number where a real one belongs, and the R-multiple

@@ -1315,3 +1315,48 @@ Under-reporting a fault is the more dangerous direction, which is why it is writ
 
 It reports and never repairs — a test asserts the frame it is given is unmodified. A silent repair to price
 history is worse than a known hole: the hole can be worked around, the repair cannot be seen. 17 tests.
+
+## 2026-09-26 — CORRECTION, the largest of the day: most of the account profit is the OWNER'S, not the system's
+
+Reported all day as this system's record: "+GBP 381.96 across 102 closed trades". The owner corrected it —
+*"that win is from manual trade win"* — and they were right.
+
+| | trades | net |
+|---|---|---|
+| **The owner's own manual trading** | **79** | **+GBP 328.68** |
+| **This system's trading** | **23** | **+GBP 53.28** |
+| of which the two named strategies (440401, 440603) | 6 | +116.09 |
+| **of which the AUTO-TRADE route (903110 at 0.01 BUY)** | 17 | **−62.81** |
+
+**The automatic trading is NEGATIVE.** The owner's July was +376.29 across 65 manual trades — that is the
+"+523 peak on 17 July" attributed to the system all day. They were selling gold short into the decline,
+which is precisely what this system cannot do: every strategy in it is long-only (RF model 543 long to 20
+short, SwingTrendPullback EA 151 long to 0 short).
+
+### Why it was possible, and why there is no excuse
+
+`magic 903110` is the DEFAULT parameter of `trading/mt5_service.py`, so a manual click from the dashboard
+lands on the same number as the auto trader. 96 of 102 trades carried it.
+
+**`src/performance_analytics.py` already documented this**, in a comment written days earlier, including:
+*"over the period 903110 shows 94 closed trades the system's own execution journal has no record of
+placing"*. The record held the answer and I built a fresh group-by-magic instead of reading it. Three
+checks each of which would have caught it, none of which was run: volume (system 0.01, owner 0.02–0.08),
+direction (system long-only, the winners were SELL), comment (every one carried only the broker's own
+`[tp …]` / `[sl …]` exit annotation, never a system comment).
+
+### The fix
+
+`attribute_trade` and `attribution_split` added to `performance_analytics` — extending the module that
+already knew rather than writing a third one. `/api/trades/closed` now serves `attribution` per trade and a
+split of the totals, so no caller can conflate them again. `scripts/excel_refresh.py` no longer maps 903110
+to "SmartEntry auto"; the journal labels those rows **"MANUAL (yours, not the system)"**, which it had been
+mislabelling since the dashboard was built.
+
+The 903110 split is a HEURISTIC and is labelled `probable`: 17 of the system's 23 and all 79 manual. It errs
+toward crediting the system, so it can only make the automatic trading look worse than it is, never better.
+10 tests.
+
+**Every account figure in earlier rows of this file that was not filtered by magic AND footprint overstates
+this system's performance.** The honest figure is +GBP 53.28 over three months, with the automatic route at
+−GBP 62.81.
