@@ -860,3 +860,61 @@ Of the three things measured on gold, **none clears the evidence bar**: the RF m
 (p = 0.36, −11.06 %), the live EA fails its holdout gate and loses to buy-and-hold, and the breakout's
 headline number is in-sample. The one positive out-of-sample result in the whole set is the breakout on
 **bitcoin**, at PF 1.232. Nothing live was changed by any of this.
+
+## 2026-09-26 — "AI-Powered Breakout" Pine indicator (danylosam, MPL-2.0), ported and measured
+
+Owner supplied the script. Ported to `src/breakout_finder.py` and run through the project's EXISTING
+event-driven simulator (`volatility_trend_breakout.backtest` with injected signals), so the exits, costs,
+slippage and sizing are identical to a strategy already running on this account. No second engine.
+
+### Two findings about the script itself
+
+**The "AI" is inert.** `breakoutSignal = ta.crossover(close, ta.highest(high, length)) and close >
+adaptiveMA`. `ta.highest(high, length)` includes the current bar, so it is always >= high >= close;
+`close > highest(high, length)` requires `close > high`, which cannot occur. Both `breakoutSignal` and
+`breakdownSignal` can never be true, and neither is referenced anywhere else in the script. `adaptiveMA` -
+the only thing the name could refer to - therefore affects no signal and no plot. What actually fires is
+pivot-cluster breakout detection, a known pattern. **It is an indicator, not a strategy**: no entries,
+stops or sizing, so exits had to be borrowed (stated assumption, recorded in `CONFIG_NOTE`).
+
+### Results, XAUUSD 4h broker bars, 16,000 bars 2007-09 → 2026-09
+
+Signals: **194 — 106 long, 88 short (45.4 % short)**. This is the first candidate in the whole system
+that is genuinely two-sided; the live EA is 151 long / 0 short and the RF model 543 / 20.
+
+| | positions | win | PF | net | R/position | maxDD |
+|---|---|---|---|---|---|---|
+| both directions | 172 | 64.6 % | 1.064 | **−1.92 %** | +0.043 | 19.3 % |
+| long only | 92 | 68.6 % | 1.333 | +9.01 % | +0.169 | 9.5 % |
+| **short only** | 80 | 59.6 % | **0.821** | **−10.02 %** | **−0.102** | 14.1 % |
+
+**The short side loses and cancels the long side out.** Era split, same pattern as everything else:
+2007-2023 PF 0.872 (−12.51 %); 2023-2026 PF 1.796 (+12.56 %), 44.4 % short.
+
+### BTCUSD 4h, 16,000 bars 2018-03 → 2026-09 — the market that actually has bear phases
+
+Signals 190 (113 long, 77 short).
+
+| | positions | win | PF | net | R/position | maxDD |
+|---|---|---|---|---|---|---|
+| both directions | 170 | 59.5 % | 0.983 | −4.18 % | −0.003 | 14.0 % |
+| long only | 102 | 63.1 % | 1.172 | +6.67 % | +0.103 | 4.9 % |
+| **short only** | 69 | 53.2 % | **0.720** | **−10.95 %** | **−0.175** | 14.2 % |
+
+### Verdict
+
+NOT PROVEN, and the interesting part fails. **Two independent markets agree that the breakdown side is
+negative** (gold −0.102 R over 80 positions, bitcoin −0.175 R over 69), which is the opposite of what was
+hoped: the reason to test this was that it can express "down", and the down side is what loses. The long
+side is mildly positive on both (+0.169 R gold, +0.103 R bitcoin) but on 92 and 102 positions, below the
+project's 100-trade minimum on gold, and gold is era-dependent again.
+
+**Caveat that cuts in the short side's favour, stated rather than buried:** the exits were designed by the
+owner for LONG gold breakouts - 1.5 ATR stop, 1.3R/2.8R targets, 2.2 ATR trail, 65-bar time exit. Applied
+mirrored to shorts they may simply be the wrong exits, so this measures "this signal with these exits",
+not the signal alone. A fair test of the short side would need exits declared for it in advance.
+
+Nothing live was changed. `tests/test_breakout_finder.py` (10 tests) pins the property that would
+otherwise invent an edge here: no signal may use a pivot before `index + prd`, because `ta.pivothigh(prd,
+prd)` needs bars on both sides and a port that forgets the confirmation lag backtests beautifully and
+cannot be traded.
