@@ -407,3 +407,70 @@ def test_the_sandbox_is_importable_but_this_repository_is_not(tmp_path):
 def test_the_app_builders_isolation_still_ignores_the_environment():
     """-E is what stops PYTHONPATH being used to smuggle a path in; losing it would undo the test above."""
     assert "-E" in ab.APP_ISOLATION and "-s" in ab.APP_ISOLATION
+
+
+# --- the interface check: files that do not agree -------------------------------------------------
+
+def test_a_declared_name_that_is_not_defined_is_found_without_running_anything():
+    """The first real build failed exactly here: app.py called book_counter.test() and book_counter.py
+    never defined `test`. Each file compiles on its own, so only an interface check can see it."""
+    code = "import os\n\n\ndef add(title):\n    return title\n\n\nclass Store:\n    pass\n\n\nVERSION = 1\n"
+    assert ab.missing_exports(code, ["add", "Store", "VERSION", "os"]) == []
+    assert ab.missing_exports(code, ["test", "count"]) == ["test", "count"]
+
+
+def test_a_name_defined_only_inside_a_function_does_not_count_as_exported():
+    code = "def outer():\n    def inner():\n        return 1\n    return inner\n"
+    assert ab.missing_exports(code, ["inner"]) == ["inner"]
+    assert ab.missing_exports(code, ["outer"]) == []
+
+
+def test_unparseable_code_reports_every_name_missing_and_does_not_raise():
+    assert ab.missing_exports("def broken(", ["a", "b"]) == ["a", "b"]
+
+
+def test_no_declared_exports_means_nothing_to_check():
+    assert ab.missing_exports("x = 1\n", []) == []
+
+
+def test_the_plan_carries_each_files_interface():
+    contract = ab.contract_for("cli")
+    plan = json.dumps([{"path": "app.py", "purpose": "entry", "exports": ["main"]},
+                       {"path": "store.py", "purpose": "titles", "exports": ["Store", "bad name", "x" * 80]}])
+    out = ab.parse_file_plan(plan, contract)
+    assert out["ok"] is True
+    store = [f for f in out["files"] if f["path"] == "store.py"][0]
+    assert store["exports"] == ["Store"], "an unsafe name must be dropped, not passed to a prompt"
+
+
+def test_a_missing_interface_is_a_different_verdict_message_from_a_syntax_error():
+    files = [{"path": "app.py", "compiles": True},
+             {"path": "store.py", "compiles": True, "missing_exports": ["count"]}]
+    out = ab.app_verdict(files, PASSED_TESTS, PASSED_SMOKE, True)
+    assert out["verdict"] == "failed"
+    assert "do not agree on their interface" in out["why"] and "count" in out["why"]
+
+
+def test_a_file_missing_its_declared_name_is_repaired_before_anything_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    plan = json.dumps([{"path": "app.py", "purpose": "entry", "exports": ["main"]},
+                       {"path": "store.py", "purpose": "titles", "exports": ["Store", "count_titles"]}])
+    # The first answer for store.py defines Store but not count_titles; the repair supplies both.
+    first = "class Store:\n    pass\n"
+    fixed = "class Store:\n    pass\n\n\ndef count_titles(titles):\n    return len(titles)\n"
+    out = ab.build_app("a reading list", title="t",
+                       completer=scripted(store_code=first, repair_code=fixed, plan=plan),
+                       allow_execution=False)
+    store = [f for f in out["files"] if f["path"] == "store.py"][0]
+    assert store["attempts"] > 1, "a missing declared name must trigger a repair"
+    assert store["missing_exports"] == [] and store["interface_ok"] is True
+
+
+def test_every_file_prompt_names_the_interface_that_file_owes():
+    plan = json.dumps([{"path": "app.py", "purpose": "entry", "exports": ["main"]},
+                       {"path": "store.py", "purpose": "titles", "exports": ["Store"]}])
+    complete = scripted(plan=plan)
+    ab.build_app("a reading list", title="t", completer=complete, allow_execution=False, record=False)
+    for row in complete.asked:
+        if row["task"] == "app_builder.file":
+            assert "THIS FILE MUST DEFINE" in row["prompt"]

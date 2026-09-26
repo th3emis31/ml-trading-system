@@ -71,6 +71,8 @@ APP_ISOLATION = ("-E", "-s")
 # A file name the model chose still has to be one we are willing to create.
 SAFE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}\.py$")
 SAFE_DIR = re.compile(r"^[a-z][a-z0-9_]{0,20}$")
+SAFE_EXPORT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,40}$")
+MAX_EXPORTS = 8
 
 
 @dataclass
@@ -116,8 +118,10 @@ HARD CONSTRAINTS
 - Every file is plain Python, lower_case_with_underscores.py, in the top folder or ONE subfolder.
 
 Output ONLY a JSON array, no prose, each item exactly:
-  {{"path": "name.py", "purpose": "one line on what this file owns"}}
-The first item must be {entry}."""
+  {{"path": "name.py", "purpose": "one line on what this file owns",
+   "exports": ["names other files may call"]}}
+The first item must be {entry}. `exports` is the file's whole public interface - every function or class
+another file is allowed to use. Name them here and they become a requirement on that file."""
 
 FILE_PROMPT = """Write one file of a Python application. Output ONLY the code in one ```python block.
 
@@ -134,7 +138,9 @@ HARD CONSTRAINTS
 - Standard library only.
 - The application is run as: {invocation}
 - It is judged by: {must_answer}
-- Import the other files by their module name ({modules}) - they sit beside this one.
+- Import the other files by their module name ({modules}) - they sit beside this one, and the plan
+  above lists exactly what each of them defines. Call only those names.
+- THIS FILE MUST DEFINE: {exports}
 - If this file is {entry}, it must work when run directly and must implement the invocation above."""
 
 REPAIR_PROMPT = """This file of the application does not work. Fix it and output ONLY the corrected full
@@ -152,6 +158,7 @@ THE RULES THE APPLICATION MUST SATISFY
 HARD CONSTRAINTS (unchanged)
 - Standard library only. Run as: {invocation}. Judged by: {must_answer}
 - The other files are: {modules}
+- THIS FILE MUST DEFINE: {exports}
 
 THE CURRENT CONTENT
 ```python
@@ -197,6 +204,9 @@ def parse_file_plan(text: str, contract: Contract, max_files: int = MAX_FILES) -
             continue
         path = str(item.get("path") or "").strip().replace("\\", "/")
         purpose = re.sub(r"\s+", " ", str(item.get("purpose") or "")).strip()[:160]
+        declared = item.get("exports")
+        exports = [str(n).strip() for n in declared][:MAX_EXPORTS] if isinstance(declared, list) else []
+        exports = [n for n in exports if SAFE_EXPORT.match(n)]
         if path.startswith("/") or ":" in path:
             return {"ok": False, "files": [], "why": f"{path!r} is an absolute path"}
         if path.startswith("./"):
@@ -215,18 +225,49 @@ def parse_file_plan(text: str, contract: Contract, max_files: int = MAX_FILES) -
         if path in seen:
             continue
         seen.add(path)
-        files.append({"path": path, "purpose": purpose})
+        files.append({"path": path, "purpose": purpose, "exports": exports})
 
     if not files:
         return {"ok": False, "files": [], "why": "no usable file in the plan"}
     if contract.entry not in seen:
         # Add it rather than fail: the entry point is OUR requirement, so supplying it is not a repair of
         # the model's work, it is us holding up our own end of the contract.
-        files.insert(0, {"path": contract.entry, "purpose": "the entry point a user runs"})
+        files.insert(0, {"path": contract.entry, "purpose": "the entry point a user runs",
+                         "exports": []})
         files = files[:max_files]
     # The entry point is written first, so every other file is written knowing what it must serve.
     files.sort(key=lambda f: 0 if f["path"] == contract.entry else 1)
     return {"ok": True, "files": files, "why": ""}
+
+
+def missing_exports(code: str, names: list) -> list:
+    """Which declared names this file does NOT define at the top level.
+
+    This is the check that would have caught the first real build: the local model wrote an `app.py` that
+    called `book_counter.test()` and a `book_counter.py` that never defined `test`, and the mismatch was
+    only discovered when the app crashed on launch. Compiling cannot see it - each file is valid Python on
+    its own. The plan already says what each file owes the others, so it can be checked by reading the
+    tree, before anything runs, and the repair can be told the exact missing name.
+    """
+    import ast
+
+    if not names:
+        return []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return list(names)                    # unparseable: the static check owns that message
+    defined = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.Assign):
+            defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined.add(node.target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            defined.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+    return [name for name in names if name not in defined]
 
 
 def free_port() -> int:
@@ -313,11 +354,18 @@ def app_verdict(files: list, tests: dict, smoke: dict, executed: bool) -> dict:
     clean it looks, because "it compiles" is not "it runs" - that gap is the entire reason this module has
     a smoke run in it.
     """
-    compiled = [f for f in files if f.get("compiles")]
-    if len(compiled) < len(files):
-        broken = [f["path"] for f in files if not f.get("compiles")]
+    broken = [f["path"] for f in files if not f.get("compiles")]
+    if broken:
         return {"verdict": "failed", "ok": False,
                 "why": f"{len(broken)} file(s) do not compile: {', '.join(broken)}"}
+    # Compiling is not agreeing. A file that is valid Python but does not define what the plan said it
+    # owes the others is the multi-file failure mode, and naming it as "does not compile" would send the
+    # next reader looking for a syntax error that is not there.
+    mismatched = [f"{f['path']} (missing {', '.join(f.get('missing_exports') or [])})"
+                  for f in files if f.get("missing_exports")]
+    if mismatched:
+        return {"verdict": "failed", "ok": False,
+                "why": "the files do not agree on their interface: " + "; ".join(mismatched)}
     if not executed:
         return {"verdict": "partial", "ok": False,
                 "why": "every file compiles, but nothing was run: pass --execute to prove it starts"}
@@ -422,6 +470,7 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
             answer = completer(FILE_PROMPT.format(path=path, purpose=purpose, plan=plan_text, rules=rules,
                                                  invocation=contract.invocation,
                                                  must_answer=contract.must_answer, modules=modules,
+                                                 exports=", ".join(item.get("exports") or []) or "nothing in particular",
                                                  entry=contract.entry), task="app_builder.file")
             code = code_from(answer.get("text") or "") if answer.get("ok") else ""
             if not code:
@@ -432,17 +481,27 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
             for attempt in range(max_repairs + 1):
                 written["attempts"] = attempt + 1
                 checked = static_check(code)
-                if checked["ok"]:
-                    written["compiles"] = True
+                written["compiles"] = bool(checked["ok"])
+                problem = "" if checked["ok"] else checked["error"]
+                if not problem:
+                    absent = missing_exports(code, item.get("exports") or [])
+                    written["missing_exports"] = absent
+                    written["interface_ok"] = not absent
+                    if absent:
+                        # Stated as the requirement it is, and named, so the repair has somewhere to go.
+                        problem = ("this file must define the names the plan gave it, because other files "
+                                   "call them, and these are missing: " + ", ".join(absent))
+                if not problem:
                     written["error"] = ""
                     break
-                written["error"] = checked["error"][:300]
+                written["error"] = problem[:300]
                 if attempt == max_repairs:
                     break
-                repaired = completer(REPAIR_PROMPT.format(path=path, error=checked["error"], rules=rules,
+                repaired = completer(REPAIR_PROMPT.format(path=path, error=problem, rules=rules,
                                                           invocation=contract.invocation,
                                                           must_answer=contract.must_answer,
-                                                          modules=modules, code=code),
+                                                          modules=modules, code=code,
+                                                          exports=", ".join(item.get("exports") or []) or "nothing in particular"),
                                      task="app_builder.repair")
                 if not repaired.get("ok"):
                     written["error"] = f"repair failed: {repaired.get('error')}"[:300]
