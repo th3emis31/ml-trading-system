@@ -1263,3 +1263,55 @@ legs carry no parseable timestamps.
 
 All prior BASELINE rows produced by this module overstate profit factor, win rate and expectancy. Their
 net and drawdown figures stand.
+
+## 2026-09-26 — the bar data audited for the first time (layer 1)
+
+`src/data_audit.py`. Every backtest in this project rests on these bars and none of it had ever been
+checked. `mtf_data` does call `drop_duplicates` and `dropna`, but silently, and it looks for neither
+missing bars nor impossible candles.
+
+### The good news, and it is genuine
+
+Across XAUUSD and BTCUSD at 15m, 1h and 4h — 96,000 bars in total:
+
+* **zero duplicated timestamps**
+* **zero impossible candles** — no high below its own low, no open or close outside its bar's range, no
+  non-positive price
+* **every series in correct time order**
+* **no frozen runs** — longest run of identical motionless bars is 1 everywhere
+
+So none of today's results are threatened by broken candles or double-counted bars.
+
+### Missing bars, after a correction to my own detector
+
+| dataset | missing bars | share | worst hole |
+|---|---|---|---|
+| XAUUSD 15m | 154 | ~1 % | |
+| XAUUSD 1h | 224 | 1.38 % | 27 bars after 2024-12-24 |
+| **XAUUSD 4h** | **46** | **0.29 %** | 1 bar |
+| BTCUSD 15m | 16 | 0.10 % | 12 bars |
+| BTCUSD 1h | 243 | 1.50 % | 24 bars |
+| **BTCUSD 4h** | **1,602** | **9.10 %** | 14 bars after 2020-12-24 |
+
+**The first version of this reported 20,017 missing bars on XAUUSD 4h — 55.6 % of the history — and that
+was my detector, not the data.** It excused gaps starting on a Friday as the weekend, but gold also closes
+for about an hour every day, so it flagged a hole every single session. Replaced with a session LEARNED
+from the data: for each slot in the week, how often does a bar appear there against how many times the
+slot came round? Only an absence from a slot the instrument demonstrably trades counts. XAUUSD 4h then
+reads 0.29 %.
+
+**The finding that stands: BTCUSD 4h is missing 9.10 % of its bars.** Bitcoin trades 24/7, so these are
+broker-side closures — 241 separate gaps averaging about 6.6 bars each, clustered on holidays (the worst
+after 24 December 2020). They are clustered rather than scattered, which is the less harmful shape: a
+missed holiday week costs signals and stop-outs in a block rather than corrupting the spacing everywhere.
+But it does mean the BTCUSD 4h record — the dataset called the strongest case all day, on Calmar 0.2463
+and the best cost headroom — has one bar in eleven absent, and its results should be read with that in
+mind.
+
+Known limitation, stated rather than hidden: inferring the session needs each slot to recur, so on a short
+history a slot whose only occurrence IS the missing bar looks like one the instrument never trades and the
+hole reads as a closure. The method under-reports on short series and is sound over thousands of bars.
+Under-reporting a fault is the more dangerous direction, which is why it is written down.
+
+It reports and never repairs — a test asserts the frame it is given is unmodified. A silent repair to price
+history is worse than a known hole: the hole can be worked around, the repair cannot be seen. 17 tests.
