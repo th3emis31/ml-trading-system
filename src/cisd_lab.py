@@ -162,31 +162,8 @@ def run(symbols=("XAUUSD", "BTCUSD"), timeframes=("1h", "4h")) -> dict:
 
 
 def print_report(report: dict) -> None:
-    print(f"CISD backtest - {report['n_trials_total']} trials, after spread and swap")
-    for key, market in report["markets"].items():
-        if market.get("error"):
-            print(f"\n{key}: {market['error']}")
-            continue
-        print(f"\n{key}   holdout passed: {market['passed_holdout'] or 'none'}")
-        rows = sorted(market["variants"], key=lambda r: -(r["holdout"].get("total_return_pct") or -999))
-        # buy-and-hold sits in this table on purpose: a strategy that makes money while the market made
-        # more is not an edge, it is a worse way of being long, and leaving the column out is how that
-        # gets missed.
-        hold_pct = (rows[0]["holdout"].get("buy_and_hold_pct") if rows else None)
-        print(f"  buy and hold over the same holdout: {hold_pct:.1f}%" if hold_pct is not None else "")
-        print(f"  {'variant':32} {'trades':>7} {'win%':>6} {'PF':>6} {'avg R':>7} "
-              f"{'net%':>8} {'maxDD%':>7} {'inv net%':>9}")
-        for record in rows[:8]:
-            hold = record["holdout"]
-            inverse = record["inverse_holdout"]
-            print(f"  {record['variant']:32} {hold.get('trades', 0):>7} "
-                  f"{(hold.get('win_rate_pct') or 0):>6.1f} {(hold.get('profit_factor') or 0):>6.2f} "
-                  f"{(hold.get('avg_r') or 0):>7.3f} "
-                  f"{(hold.get('total_return_pct') or 0):>8.2f} "
-                  f"{(hold.get('max_drawdown_pct') or 0):>7.2f} "
-                  f"{(inverse.get('net_pct') or 0):>9.2f}")
-        if market["positive_on_all_splits"]:
-            print(f"  positive on search, validation AND holdout: {market['positive_on_all_splits']}")
+    """The shared lab table; see strategy_lab.print_variant_table."""
+    lab.print_variant_table(report, title="CISD backtest", sort="net", limit=8)
 
 
 def main(argv=None) -> int:

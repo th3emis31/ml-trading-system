@@ -1562,3 +1562,56 @@ implementation uses **the previous confirmed swing high** as a single price. Tha
 thing, exactly as the rolling-maximum proxy was for the equal-highs drawing on 19 September. A zone-based
 POI is the refinement worth testing and is NOT covered by this row. **No live input, preset, demo strategy
 or EA changed.** 16 tests.
+
+---
+
+## 2026-09-26 — the SmartEntry 4H architecture card: the stack does not stack
+
+**The card's own instruction was followed literally.** It lists five combinations and says *"test each
+combination separately — LET THE DATA DECIDE"*, so each was built as its own variant rather than as one
+all-in strategy. 5 combinations × 3 reward ratios × 2 markets = **30 trials**, declared first.
+
+Components: **POC/VAH/VAL** from the new `src/volume_profile.py` (rolling 120-bar profile, volume spread
+across each bar's range, causal per bar); **liquidity sweep** and **structure** from `market_structure`;
+**CISD** from today's `src/cisd.py`; **FVG** a real three-candle imbalance (`features.detect_fvg` was NOT
+reused — it tests for consecutive rising closes, a different thing under the same name); **displacement**
+a body 1.5× the previous three. Stop at structural invalidation + 0.5 ATR, as the card specifies.
+
+### Adding stages made it worse and rarer, which is the finding
+
+| combination | gold signals | gold best net | bitcoin best net |
+|---|---|---|---|
+| 1. POC + Volume | 410 | −9.80% | −13.21% |
+| 2. POC + Liquidity Sweep | 403 | **+14.62%** | −14.17% |
+| 3. POC + CISD | 337 | −11.47% | −6.76% |
+| 4. POC + CISD + FVG | 222 | −14.20% | −30.85% |
+| 5. Full model | **42** | −1.65% | −11.11% |
+
+**29 of 30 variants lost.** Signals fell 410 → 42 as stages were added, and on gold the full model produced
+**four trades** in the holdout — too few to mean anything at all, which is itself the answer to whether
+stacking every confirmation raises probability.
+
+**POC + Volume is actively wrong-way on gold**: every reward ratio negative while its INVERSE is positive
+(+5.0 % to +9.5 %). Combination 4 is the same on bitcoin (inverse +32 %, +23 %).
+
+### The one positive result does not survive its own history
+
+`2_poc_sweep|rr3` on gold: holdout +14.62 % (38 trades, PF 1.41). But the splits are
+**search −53.14 % over 112 trades**, validation +19.86 %, holdout +14.62 %. It lost half the account in the
+largest window and only worked in the last two — a regime artefact, the same shape this file already
+recorded for the continuation rule on 19 September. The permutation agrees: p = 0.165 against random
+timing, deflated Sharpe 0.258 against the 0.95 bar.
+
+### Two honest limits on this reading
+
+1. **I tested "all stages recently true", not "the stages happened in this ORDER".** The card draws an
+   ordered sequence — sweep → CISD → POC reclaim → displacement → FVG retest — and this implementation
+   requires each stage within a 10-bar window of the POC cross rather than strictly one after another. A
+   strictly sequential version is a different test and is NOT covered by this row.
+2. **Gold volume is MetaTrader TICK volume**, the count of price changes, not contracts. The card asks for
+   futures volume on gold and this project has none, so every gold figure involving volume rests on a
+   proxy. Bitcoin's is real exchange volume, which is why the two markets are reported separately.
+
+**No live input, preset, demo strategy or EA changed.** New: `src/volume_profile.py` (16 tests) and
+`src/smart_entry_arch.py`. `print_variant_table` consolidated into `strategy_lab` — a second lab needed the
+same table, so there is one printer rather than two copies drifting apart.

@@ -802,6 +802,52 @@ def permutation_check(market: 'Market', spec: dict, *, split: str = "holdout", d
                      + (f"; random bars drawn from the same side of the EMA{trend_ema}" if trend_ema else ""))}
 
 
+def print_variant_table(report: dict, *, title: str, sort: str = "net", limit: int = 0,
+                        show_signals: bool = False) -> None:
+    """One printer for every lab's per-variant table.
+
+    Consolidated on 26 September 2026 when a second lab needed the same table. Both want the same
+    columns and the same two honest extras - buy-and-hold beside the result, because a strategy that
+    makes money while the market made more is a worse way of being long; and the inverse, because a
+    signal whose inverse also loses is carrying no direction at all. `sort` is "net" for a search where
+    the best variant is the question, and "variant" where the ORDER is the question - the SmartEntry card
+    asks for its five combinations tested in sequence, so shuffling them by return hides whether each
+    stage added anything.
+    """
+    print(f"{title} - {report.get('n_trials_total', '?')} trials, after spread and swap")
+    for key, market in report["markets"].items():
+        if market.get("error"):
+            print(f"\n{key}: {market['error']}")
+            continue
+        rows = list(market["variants"])
+        rows.sort(key=(lambda r: r["variant"]) if sort == "variant"
+                  else (lambda r: -(r["holdout"].get("total_return_pct") or -999)))
+        if limit:
+            rows = rows[:limit]
+        hold_pct = rows[0]["holdout"].get("buy_and_hold_pct") if rows else None
+        head = f"\n{key}"
+        if hold_pct is not None:
+            head += f"   buy and hold over the same holdout: {hold_pct:.1f}%"
+        print(head)
+        width = max([len(r["variant"]) for r in rows] + [7])
+        signals = f"{'sigs':>6}" if show_signals else ""
+        print(f"  {'variant':{width}} {signals}{'trades':>7} {'win%':>6} {'PF':>6} {'avg R':>7} "
+              f"{'net%':>8} {'maxDD%':>7} {'inv net%':>9}")
+        for record in rows:
+            hold = record["holdout"]
+            inverse = record.get("inverse_holdout") or {}
+            count = f"{record.get('signals', 0):>6}" if show_signals else ""
+            print(f"  {record['variant']:{width}} {count}{hold.get('trades', 0):>7} "
+                  f"{(hold.get('win_rate_pct') or 0):>6.1f} {(hold.get('profit_factor') or 0):>6.2f} "
+                  f"{(hold.get('avg_r') or 0):>7.3f} "
+                  f"{(hold.get('total_return_pct') or 0):>8.2f} "
+                  f"{(hold.get('max_drawdown_pct') or 0):>7.2f} "
+                  f"{(inverse.get('net_pct') or 0):>9.2f}")
+        if market.get("positive_on_all_splits"):
+            print(f"  positive on search, validation AND holdout: {market['positive_on_all_splits']}")
+        print(f"  passed the holdout bar: {market.get('passed_holdout') or 'none'}")
+
+
 def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional[dict]:
     holdout = record.get("holdout")
     if not holdout:
