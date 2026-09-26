@@ -918,3 +918,30 @@ Nothing live was changed. `tests/test_breakout_finder.py` (10 tests) pins the pr
 otherwise invent an edge here: no signal may use a pivot before `index + prd`, because `ta.pivothigh(prd,
 prd)` needs bars on both sides and a port that forgets the confirmation lag backtests beautifully and
 cannot be traded.
+
+### 2026-09-26 — the same indicator, LONG ONLY, permutation tested (owner asked to use it long if profitable)
+
+It IS profitable long-only. It does NOT beat chance, on either market.
+
+Same count of LONG entries, same ATR-derived stop/targets, same exits, costs, slippage and sizing; only
+the choice of bar differs. 300 draws, seed 20260926, decided on expectancy per position.
+
+| long only | positions | PF | net | R/position | random mean R | percentile | p | verdict |
+|---|---|---|---|---|---|---|---|---|
+| XAUUSD 4h | 92 | 1.333 | +9.01 % | **+0.1688** | +0.0617 | 79.7 | **0.2033** | does NOT beat chance |
+| BTCUSD 4h | 102 | 1.172 | +6.67 % | **+0.1027** | +0.0499 | 68.7 | **0.3133** | does NOT beat chance |
+
+Randomly timed long entries with the same exits achieve a similar expectancy in the same markets, so the
+profit is explained by being long while both markets rose plus the exit structure, not by the breakout
+condition selecting good moments. Drawdown is genuinely low (9.5 % gold, 4.9 % bitcoin) and nothing about
+it is harmful - it simply adds no timing edge over random entry.
+
+**Direct comparison with what the owner already runs.** The Volatility Trend Breakout's permutation on the
+same simulator returned expectancy percentile 99.5, p = 0.01 - it does show timing skill within its window.
+This candidate returns p = 0.20 and 0.31. So the owner already has a measurably better breakout strategy,
+and adopting this one would be a step down even on its good side.
+
+VERDICT: not adopted, nothing changed. Profitable is not the bar; the bar is profitable for a reason that
+survives a test. What would change this answer: a pre-declared parameter set tested on data chosen in
+advance, or the cluster condition tightened (mintest > 2, a narrower chwidth) and then re-tested - but any
+sweep would need its trial count deflating, which is why no sweep was run here.
