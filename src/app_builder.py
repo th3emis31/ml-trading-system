@@ -415,7 +415,7 @@ def smoke_cli(box: Path, contract: Contract, timeout: int = SMOKE_TIMEOUT) -> di
     # --selftest is appended AFTER vetting, not passed through it: `safe_command`'s allowlist refuses any
     # flag it does not know, and it was right to - the flag is ours, so it is added on this side of the gate.
     argv = vetted["argv"] + ["--selftest"]
-    result = run_checked(argv, box, timeout=timeout)
+    result = run_checked(argv, box, timeout=timeout, home=box)
     lines = [l.strip() for l in (result["output"] or "").splitlines() if l.strip()]
     answered = any(l.startswith("OK:") for l in lines)
     return {"ran": True, "passed": bool(result["ok"] and answered), "exit": result["exit"],
@@ -431,7 +431,7 @@ def smoke_web(box: Path, contract: Contract, timeout: int = SMOKE_TIMEOUT) -> di
         return {"ran": False, "passed": None, "status": None, "why": vetted["reason"], "output": ""}
     argv = vetted["argv"] + ["--port", str(port)]
     try:
-        proc = subprocess.Popen(argv, cwd=str(box), env=sandbox_env(), stdout=subprocess.PIPE,
+        proc = subprocess.Popen(argv, cwd=str(box), env=sandbox_env(box), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True)
     except (OSError, subprocess.SubprocessError) as exc:
         return {"ran": False, "passed": None, "why": f"{type(exc).__name__}: {exc}", "output": ""}
@@ -718,7 +718,7 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
                 test_file.write_text(test_code[:MAX_ARTEFACT_BYTES], encoding="utf-8")
                 vetted = safe_command(f"python -m pytest -q {test_file.name}", box, APP_ISOLATION)
                 if vetted["ok"]:
-                    result = run_checked(vetted["argv"], box, timeout=timeout)
+                    result = run_checked(vetted["argv"], box, timeout=timeout, home=box)
                     tests.update({"ran": True, "passed": bool(result["ok"]),
                                   "output": (result["output"] or "")[-1200:]})
                 else:

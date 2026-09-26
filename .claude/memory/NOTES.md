@@ -680,3 +680,22 @@ correctly; a 3B local model cannot yet hold a three-file contract, and after fou
 names it had not been promised. That is the honest state, and it is why `verified` has never been claimed.
 
 63 tests in the file; 1,169 in the suite.
+
+### The sandbox had no home directory, and that was the last real blocker
+
+The cloud build died on `RuntimeError: Could not determine home directory` inside a perfectly ordinary app
+that kept its data in `~/.books/books.json`. That was **this sandbox's fault, not the app's**: `USERPROFILE`
+is one of the variables `sandbox_env` strips, so `Path.home()` raises. `sandbox_env(home=...)` now points
+HOME, USERPROFILE, APPDATA and LOCALAPPDATA at the sandbox itself, which fixes the class of app AND tightens
+containment - an app that would have written into the owner's real home now writes into the box. The module
+builder passes no home, so nothing about it changes, and a test asserts that.
+
+**With that fixed, the cloud model built a working app:** two files, first attempt each, it starts and
+answers (`OK: added 2 titles to a temporary list, listed them in order and counted 2`), and **27 of its 28
+rule tests pass**. Verdict `partial`, and correctly so: rule R9 said `count_books` never raises and the
+implementation raises on `None`. One real disagreement between the spec and the code, found by a test
+written from the spec - which is exactly what the whole spec-first design is for.
+
+So the honest state of step 11: the machinery works and refuses correctly, a capable model produces a
+working application that falls one rule short of `verified`, and the local 3B model reaches a working app on
+its better runs. `verified` has never been claimed, because it has not been earned.

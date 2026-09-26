@@ -223,12 +223,18 @@ def safe_command(spec: str, sandbox: Path, isolation: tuple = ("-I",)) -> dict:
     return {"ok": True, "argv": [sys.executable, *isolation] + rest, "reason": ""}
 
 
-def sandbox_env() -> dict:
+def sandbox_env(home: Optional[Path] = None) -> dict:
     """A stripped environment: no inherited variables, and the repository NOT importable.
 
     PYTHONPATH is emptied and the interpreter is run with -I, so generated code cannot import this
     project and reach a broker connection. SYSTEMROOT stays because Windows needs it to start python
     at all, and TEMP because pytest writes there.
+
+    `home` points the home directory INSIDE the sandbox. Without it `Path.home()` raises
+    "Could not determine home directory", because USERPROFILE is one of the variables stripped - and a
+    real build hit exactly that: a perfectly ordinary app that kept its data in `~/.books/books.json`
+    could not start. Pointing home at the sandbox fixes that and tightens containment at the same time,
+    since an app that would have written into the owner's real home now writes into the box.
     """
     keep = {}
     for name in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "NUMBER_OF_PROCESSORS"):
@@ -237,13 +243,20 @@ def sandbox_env() -> dict:
     keep["PYTHONPATH"] = ""
     keep["PYTHONDONTWRITEBYTECODE"] = "1"
     keep["PATH"] = str(Path(sys.executable).parent)
+    if home is not None:
+        inside = str(Path(home).resolve())
+        keep["HOME"] = inside                      # POSIX, and what pathlib prefers
+        keep["USERPROFILE"] = inside               # Windows
+        keep["APPDATA"] = inside
+        keep["LOCALAPPDATA"] = inside
     return keep
 
 
-def run_checked(argv: list, sandbox: Path, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def run_checked(argv: list, sandbox: Path, timeout: int = DEFAULT_TIMEOUT,
+                home: Optional[Path] = None) -> dict:
     """Execute an already-vetted command in the sandbox. Never called with an unvetted argv."""
     try:
-        proc = subprocess.run(argv, cwd=str(sandbox), env=sandbox_env(), capture_output=True,
+        proc = subprocess.run(argv, cwd=str(sandbox), env=sandbox_env(home), capture_output=True,
                               text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {"ok": False, "exit": None, "output": f"timed out after {timeout}s"}

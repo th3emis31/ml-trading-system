@@ -744,3 +744,40 @@ def test_tests_that_stay_outside_the_contract_are_not_run_at_all(tmp_path, monke
     assert out["tests"]["contract_ok"] is False and out["tests"]["ran"] is False
     assert out["smoke"]["passed"] is True, "the app itself was fine"
     assert out["verdict"] == "partial" and "no test of its rules" in out["why"]
+
+
+# --- the sandbox needs a home directory, inside itself --------------------------------------------
+
+def test_an_app_that_stores_data_in_the_home_directory_can_start(tmp_path):
+    """A real cloud build died here, and it was this sandbox's fault, not the app's: USERPROFILE is one of
+    the stripped variables, so `Path.home()` raised "Could not determine home directory" in a perfectly
+    ordinary app that kept its data in ~/.books/books.json."""
+    (tmp_path / "app.py").write_text(
+        "from pathlib import Path\n"
+        "store = Path.home() / '.books'\n"
+        "store.mkdir(parents=True, exist_ok=True)\n"
+        "(store / 'books.json').write_text('[]', encoding='utf-8')\n"
+        "print('OK: stored under', store)\n",
+        encoding="utf-8")
+    out = ab.smoke_cli(tmp_path, ab.contract_for("cli"))
+    assert out["passed"] is True, out
+    assert (tmp_path / ".books" / "books.json").exists(), "the data must land INSIDE the sandbox"
+
+
+def test_the_home_the_app_sees_is_the_sandbox_and_not_the_owners(tmp_path):
+    """The fix tightens containment as well: an app that writes to ~ now writes into the box."""
+    from src.build_exec import sandbox_env
+
+    env = sandbox_env(tmp_path)
+    inside = str(tmp_path.resolve())
+    for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+        assert env[name] == inside, name
+
+
+def test_without_a_home_the_environment_is_unchanged():
+    """The module builder passes no home, and nothing about it may change."""
+    from src.build_exec import sandbox_env
+
+    env = sandbox_env()
+    for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+        assert name not in env
