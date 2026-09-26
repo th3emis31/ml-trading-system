@@ -644,3 +644,39 @@ app builds there would have inflated the module builder's verdict counts on the 
 PIDs 21300 and 11672), so a second `app.py` was sitting idle waiting to take port 5000 the moment the first
 died - which means a stale server can silently replace the live one. Both were restarted; the duplicate
 launcher is still there and is the owner's to remove.
+
+## 2026-09-26 - the app builder, measured against real models: four real defects it found in itself
+
+Running `app_builder` for real - once on the local 3B model, once on Claude - failed four times, and every
+failure was in MY prompts or checks rather than in the models. Each one is now a check rather than an
+instruction, which is the whole difference this system is built on:
+
+1. **Files that do not agree.** `app.py` called `book_counter.test()`; `book_counter.py` never defined it.
+   Both compile. The plan now declares each file's `exports`, `missing_exports` reads the tree, and the
+   repair is told the exact missing name.
+2. **Names nothing promised.** `from book_list_manager import read_input` where the plan promised neither
+   name. `unpromised_imports` checks the other direction, including `import counter` followed by
+   `counter.count_items(...)` - reaching a name through the module object is still reaching it.
+3. **A plan with no interface at all.** Claude's plan omitted `exports` entirely, silently switching both
+   checks off; the build then died on `book_store.InvalidTitleError`. A plan whose non-entry files declare
+   nothing is now rejected, with ONE retry that states what was wrong.
+4. **Rules stated but never enforced.** "Standard library only" and "do not import yourself" were prompt
+   text with nothing behind them. `import_faults` now refuses a self-import, a relative import, and
+   anything that is neither stdlib nor a file of this app - the last one matters because a build that
+   imports `requests` fails on the one machine this has to work on.
+
+Two more from the same runs: the TEST prompt was the only prompt that never received the contract, so the
+generated tests tried to DISCOVER how to call `main()` (the cloud run's test file contained a
+`_detect_call_style` helper that tried argv three ways and gave up) - it now gets the contract and is bound
+by it, and tests that reach unpromised names are repaired and, failing that, not run at all, because
+running them blames the app for the test file's mistake. And the CLI contract said "exercise its own main
+path", which was read as "embed a test suite": the cloud build's `--selftest` ran 29 internal tests and
+reported 22 errors. It now says plainly that this is a smoke check, not a suite.
+
+**Where it actually stands, measured:** the best local-model run produced a three-file app that STARTS and
+ANSWERS (`OK: Found 0 book titles.`, exit 0) - verdict `partial`, because its rule tests did not pass. Later
+runs failed at the interface and were caught before anything ran. So: the machinery works and refuses
+correctly; a 3B local model cannot yet hold a three-file contract, and after four repairs it still imported
+names it had not been promised. That is the honest state, and it is why `verified` has never been claimed.
+
+63 tests in the file; 1,169 in the suite.

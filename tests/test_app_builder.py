@@ -127,7 +127,10 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '''
 
-PLAN_JSON = '[{"path": "app.py", "purpose": "entry point"}, {"path": "store.py", "purpose": "the titles"}]'
+# The plan declares each file's interface, because the builder now checks it in both directions: a
+# file must define everything it promised, and may import nothing that was not promised to it.
+PLAN_JSON = json.dumps([{"path": "app.py", "purpose": "entry point", "exports": ["main"]},
+                        {"path": "store.py", "purpose": "the titles", "exports": ["Store"]}])
 
 
 def scripted(*, app_code: str = CLI_APP, store_code: str = STORE_FILE, tests: str = RULE_TESTS,
@@ -199,7 +202,8 @@ def test_a_path_outside_the_folder_is_refused():
 def test_one_subfolder_is_allowed_and_deeper_is_not():
     contract = ab.contract_for("cli")
     ok = ab.parse_file_plan(json.dumps([{"path": "app.py", "purpose": "e"},
-                                        {"path": "core/store.py", "purpose": "s"}]), contract)
+                                        {"path": "core/store.py", "purpose": "s",
+                                         "exports": ["Store"]}]), contract)
     assert ok["ok"] is True and len(ok["files"]) == 2
     deep = ab.parse_file_plan(json.dumps([{"path": "a/b/c.py", "purpose": "s"}]), contract)
     assert deep["ok"] is False
@@ -207,7 +211,8 @@ def test_one_subfolder_is_allowed_and_deeper_is_not():
 
 def test_the_entry_point_is_supplied_when_the_plan_forgets_it_and_is_written_first():
     contract = ab.contract_for("cli")
-    out = ab.parse_file_plan(json.dumps([{"path": "store.py", "purpose": "s"}]), contract)
+    out = ab.parse_file_plan(json.dumps([{"path": "store.py", "purpose": "s", "exports": ["Store"]}]),
+                             contract)
     assert out["ok"] is True
     assert out["files"][0]["path"] == contract.entry, "the entry point must be written first"
 
@@ -474,3 +479,268 @@ def test_every_file_prompt_names_the_interface_that_file_owes():
     for row in complete.asked:
         if row["task"] == "app_builder.file":
             assert "THIS FILE MUST DEFINE" in row["prompt"]
+
+
+# --- the contract reaches the TEST prompt too -----------------------------------------------------
+
+def test_the_test_prompt_states_the_interface_instead_of_leaving_it_to_be_guessed():
+    """The cloud build's generated tests contained a helper that tried argv three ways and then gave up,
+    because this was the one prompt that never received the contract."""
+    complete = scripted()
+    ab.build_app("a reading list", title="t", completer=complete, allow_execution=True, record=False)
+    asked = [r for r in complete.asked if r["task"] == "app_builder.tests"]
+    assert asked, "the test prompt must be sent when execution is allowed"
+    contract = ab.contract_for("cli")
+    assert contract.invocation in asked[0]["prompt"]
+    assert contract.entry in asked[0]["prompt"]
+    assert "do not probe for it" in asked[0]["prompt"]
+
+
+def test_the_cli_contract_asks_for_a_smoke_check_not_a_bundled_test_suite():
+    """The cloud build read 'exercise its own main path' as 'embed a suite' and reported 29 tests with
+    22 errors from inside --selftest, which is not an answer to anything."""
+    answer = ab.contract_for("cli").must_answer
+    assert "not a test suite" in answer and "pytest" in answer
+
+
+def test_the_plan_prompt_asks_for_as_few_files_as_possible():
+    complete = scripted()
+    ab.build_app("a reading list", title="t", completer=complete, allow_execution=False, record=False)
+    plan_prompt = [r for r in complete.asked if r["task"] == "app_builder.plan"][0]["prompt"]
+    assert "As FEW files as the job needs" in plan_prompt
+
+
+# --- imports: the rules that were stated but never checked ----------------------------------------
+
+def test_a_module_that_imports_itself_is_caught():
+    """The local model's second build wrote `from book_manager import BookManager` inside book_manager.py.
+    It compiles, defines every declared name, and dies the moment anything loads it."""
+    faults = ab.import_faults("from book_manager import BookManager\n", "book_manager.py",
+                              ["app.py", "book_manager.py"])
+    assert faults and "itself" in faults[0]
+
+
+def test_a_third_party_import_is_caught_because_this_must_run_offline():
+    """'Standard library only' was an instruction with nothing to enforce it. A build that imports requests
+    is a build that fails on a machine with no internet - the one machine this has to work on."""
+    for line in ("import requests\n", "from flask import Flask\n", "import numpy as np\n"):
+        faults = ab.import_faults(line, "app.py", ["app.py", "store.py"])
+        assert faults, f"{line.strip()!r} must be refused"
+        assert "standard library" in faults[0]
+
+
+def test_the_standard_library_and_the_apps_own_files_are_allowed():
+    code = ("import json\nimport os.path\nfrom pathlib import Path\nfrom store import Store\n"
+            "import argparse\n")
+    assert ab.import_faults(code, "app.py", ["app.py", "store.py"]) == []
+
+
+def test_a_relative_import_is_refused_because_these_files_are_not_a_package():
+    faults = ab.import_faults("from .store import Store\n", "app.py", ["app.py", "store.py"])
+    assert faults and "relative import" in faults[0]
+
+
+def test_an_import_fault_is_its_own_verdict_message():
+    files = [{"path": "app.py", "compiles": True},
+             {"path": "store.py", "compiles": True, "import_faults": ["'requests' is neither"]}]
+    out = ab.app_verdict(files, PASSED_TESTS, PASSED_SMOKE, True)
+    assert out["verdict"] == "failed" and "imports that are not allowed" in out["why"]
+
+
+def test_a_bad_import_is_repaired_before_anything_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    out = ab.build_app("a reading list", title="t",
+                       completer=scripted(store_code="import requests\n\n\nclass Store:\n    pass\n",
+                                          repair_code=STORE_FILE),
+                       allow_execution=False)
+    store = [f for f in out["files"] if f["path"] == "store.py"][0]
+    assert store["attempts"] > 1 and store["import_faults"] == []
+
+
+# --- the plan checked in the other direction ------------------------------------------------------
+
+PLAN_WITH_EXPORTS = [{"path": "app.py", "purpose": "entry", "exports": ["main"]},
+                     {"path": "store.py", "purpose": "titles", "exports": ["Store", "count_titles"]}]
+
+
+def test_importing_a_name_the_plan_never_promised_is_caught():
+    """The third real build died here: app.py did `from book_list_manager import read_input, count_books`
+    and the plan for that file promised neither, so the export check had nothing to compare."""
+    faults = ab.unpromised_imports("from store import Store, read_input\n", PLAN_WITH_EXPORTS)
+    assert len(faults) == 1
+    assert "read_input" in faults[0] and "Store" in faults[0], faults
+
+
+def test_importing_only_promised_names_is_clean():
+    assert ab.unpromised_imports("from store import Store, count_titles\nimport json\n",
+                                 PLAN_WITH_EXPORTS) == []
+
+
+def test_a_star_import_is_refused_because_it_hides_which_names_are_used():
+    faults = ab.unpromised_imports("from store import *\n", PLAN_WITH_EXPORTS)
+    assert faults and "hides which names" in faults[0]
+
+
+def test_a_stdlib_import_is_not_judged_against_the_plan():
+    assert ab.unpromised_imports("from pathlib import Path\nfrom json import dumps\n",
+                                 PLAN_WITH_EXPORTS) == []
+
+
+def test_an_unpromised_import_is_repaired_before_anything_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    plan = json.dumps([{"path": "app.py", "purpose": "entry", "exports": ["main"]},
+                       {"path": "store.py", "purpose": "titles", "exports": ["Store"]}])
+    broken_app = "from store import Store, read_input\n\n\ndef main():\n    return 0\n"
+    fixed_app = "from store import Store\n\n\ndef main():\n    return 0\n"
+    out = ab.build_app("a reading list", title="t",
+                       completer=scripted(app_code=broken_app, repair_code=fixed_app, plan=plan),
+                       allow_execution=False)
+    entry = [f for f in out["files"] if f["path"] == "app.py"][0]
+    assert entry["attempts"] > 1, "an unpromised import must trigger a repair"
+    assert entry["import_faults"] == []
+
+
+# --- a plan with no interface is not a plan -------------------------------------------------------
+
+def test_a_plan_that_declares_no_interface_is_rejected():
+    """The cloud model's plan omitted `exports` entirely, which silently switched off both agreement checks;
+    the build then died on a name nothing had promised. Refuse here, with the clear message."""
+    contract = ab.contract_for("cli")
+    plan = json.dumps([{"path": "app.py", "purpose": "entry"}, {"path": "store.py", "purpose": "titles"}])
+    out = ab.parse_file_plan(plan, contract)
+    assert out["ok"] is False and "store.py" in out["why"]
+
+
+def test_the_entry_point_alone_need_not_export_anything():
+    contract = ab.contract_for("cli")
+    out = ab.parse_file_plan(json.dumps([{"path": "app.py", "purpose": "entry"}]), contract)
+    assert out["ok"] is True
+
+
+def test_a_rejected_plan_is_retried_once_with_the_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    bad = json.dumps([{"path": "app.py", "purpose": "entry"}, {"path": "store.py", "purpose": "titles"}])
+    seen: list = []
+
+    base = scripted()
+
+    def complete(prompt, task="", **kwargs):
+        seen.append(task)
+        if task == "app_builder.plan":
+            return {"ok": True, "text": bad, "provider": "scripted"}
+        if task == "app_builder.plan_retry":
+            assert "REJECTED" in prompt and "store.py" in prompt, "the retry must say what was wrong"
+            return {"ok": True, "text": PLAN_JSON, "provider": "scripted"}
+        return base(prompt, task=task, **kwargs)
+
+    out = ab.build_app("a reading list", title="t", completer=complete, allow_execution=False)
+    assert "app_builder.plan_retry" in seen
+    assert out["files_planned"] == 2 and out["verdict"] == "partial", out.get("why")
+
+
+def test_the_retry_happens_only_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    calls: list = []
+
+    def always_bad(prompt, task="", **kwargs):
+        calls.append(task)
+        if task == "builder.spec":
+            return {"ok": True, "text": SPEC_TEXT, "provider": "scripted"}
+        return {"ok": True, "text": "not a plan at all", "provider": "scripted"}
+
+    out = ab.build_app("a reading list", title="t", completer=always_bad)
+    assert out["verdict"] == "no_plan"
+    assert calls.count("app_builder.plan_retry") == 1, calls
+
+
+# --- the tests get the same repair loop the app files get -----------------------------------------
+
+def test_a_test_file_that_does_not_compile_is_repaired(tmp_path, monkeypatch):
+    """The local model's first working build fell to `partial` for a reason that had nothing to do with the
+    app: its test file came back unfenced, did not compile, and had no repair - so the only check of the
+    RULES was thrown away."""
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    base = scripted()
+    state = {"first": True}
+
+    def complete(prompt, task="", **kwargs):
+        if task == "app_builder.tests":
+            return {"ok": True, "text": "Here are the tests:\ndef test_broken(:\n", "provider": "scripted"}
+        if task == "app_builder.test_repair":
+            state["first"] = False
+            return {"ok": True, "text": f"```python\n{RULE_TESTS}```", "provider": "scripted"}
+        return base(prompt, task=task, **kwargs)
+
+    out = ab.build_app("a reading list", title="t", completer=complete, allow_execution=True)
+    assert state["first"] is False, "a test file that does not compile must be repaired"
+    assert out["tests"]["compiles"] is True and out["tests"]["ran"] is True
+    assert out["verdict"] == "verified", out.get("why")
+
+
+def test_each_file_record_carries_the_interface_it_was_held_to(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    out = ab.build_app("a reading list", title="t", completer=scripted(), allow_execution=False)
+    store = [f for f in out["files"] if f["path"] == "store.py"][0]
+    assert store["exports"] == ["Store"], "the report must say what the file was required to define"
+
+
+# --- reaching a name through the module object ----------------------------------------------------
+
+def test_using_a_module_attribute_nothing_promised_is_caught():
+    """`import counter` then `counter.count_items(...)` reaches a name as surely as importing it, and that
+    is how the generated tests produced four failures that read as app bugs and were not."""
+    ok = ab.unpromised_imports("import store\n\n\ndef f():\n    return store.count_titles()\n",
+                               PLAN_WITH_EXPORTS)
+    assert ok == []
+    bad = ab.unpromised_imports("import store\n\n\ndef f():\n    return store.load_all()\n",
+                                PLAN_WITH_EXPORTS)
+    assert bad and "store.load_all" in bad[0]
+
+
+def test_an_aliased_import_is_followed():
+    bad = ab.unpromised_imports("import store as s\n\n\ndef f():\n    return s.load_all()\n",
+                                PLAN_WITH_EXPORTS)
+    assert bad and "store.load_all" in bad[0]
+
+
+def test_an_attribute_on_something_that_is_not_a_sibling_module_is_ignored():
+    code = "import json\nfrom store import Store\n\n\ndef f():\n    return Store().anything()\n"
+    assert ab.unpromised_imports(code, PLAN_WITH_EXPORTS) == []
+
+
+def test_generated_tests_that_reach_unpromised_names_are_repaired(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    base = scripted()
+    repaired = {"done": False}
+    reaching = "```python\nimport store\n\n\ndef test_x():\n    assert store.load_all() == []\n```"
+
+    def complete(prompt, task="", **kwargs):
+        if task == "app_builder.tests":
+            return {"ok": True, "text": reaching, "provider": "scripted"}
+        if task == "app_builder.test_repair":
+            assert "no file promised" in prompt, prompt[-300:]
+            repaired["done"] = True
+            return {"ok": True, "text": "```python\n" + RULE_TESTS + "```", "provider": "scripted"}
+        return base(prompt, task=task, **kwargs)
+
+    out = ab.build_app("a reading list", title="t", completer=complete, allow_execution=True)
+    assert repaired["done"] is True
+    assert out["tests"]["contract_ok"] is True and out["tests"]["passed"] is True
+    assert out["verdict"] == "verified", out.get("why")
+
+
+def test_tests_that_stay_outside_the_contract_are_not_run_at_all(tmp_path, monkeypatch):
+    """Running them would blame the app for the test file's mistake."""
+    monkeypatch.setattr(ab, "app_builds_path", lambda: tmp_path / "builds.jsonl")
+    base = scripted()
+    reaching = "```python\nimport store\n\n\ndef test_x():\n    assert store.load_all() == []\n```"
+
+    def complete(prompt, task="", **kwargs):
+        if task in ("app_builder.tests", "app_builder.test_repair"):
+            return {"ok": True, "text": reaching, "provider": "scripted"}
+        return base(prompt, task=task, **kwargs)
+
+    out = ab.build_app("a reading list", title="t", completer=complete, allow_execution=True)
+    assert out["tests"]["contract_ok"] is False and out["tests"]["ran"] is False
+    assert out["smoke"]["passed"] is True, "the app itself was fine"
+    assert out["verdict"] == "partial" and "no test of its rules" in out["why"]

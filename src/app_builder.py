@@ -97,8 +97,10 @@ def contract_for(kind: str, entry: str = "app.py") -> Contract:
         return Contract(
             kind="cli", entry=entry,
             invocation=f"python {entry} --selftest",
-            must_answer=("with --selftest it must print one line starting with OK: and exit 0, having "
-                         "exercised its own main path"))
+            must_answer=("with --selftest it must do its main job once on temporary data, print exactly "
+                         "ONE line starting with OK: and exit 0. It is a smoke check, not a test suite: "
+                         "do not embed pytest, unittest or a bundled suite, and do not print a pass/fail "
+                         "tally"))
     raise ValueError(f"unknown app kind {kind!r}; known kinds are cli and web")
 
 
@@ -114,14 +116,24 @@ HARD CONSTRAINTS
 - Standard library only. No pip, no third-party imports, no network access.
 - The user runs it as: {invocation}
 - Success is judged by: {must_answer}
-- At most {max_files} files, one of which MUST be {entry}.
+- As FEW files as the job needs - two or three is normal, {max_files} is the hard limit, and every extra
+  file is one more interface that two files can disagree about. One of them MUST be {entry}.
 - Every file is plain Python, lower_case_with_underscores.py, in the top folder or ONE subfolder.
 
 Output ONLY a JSON array, no prose, each item exactly:
   {{"path": "name.py", "purpose": "one line on what this file owns",
    "exports": ["names other files may call"]}}
-The first item must be {entry}. `exports` is the file's whole public interface - every function or class
-another file is allowed to use. Name them here and they become a requirement on that file."""
+The first item must be {entry}. `exports` is the file's whole public interface - every function, class or
+exception another file is allowed to use. Name them here and they become a requirement on that file: it
+must define them, and no other file may call anything else of it.
+
+REQUIRED: every file except {entry} must list at least one export. A plan that leaves them out will be
+rejected, because then nothing can check that the files agree."""
+
+PLAN_REJECTED = """
+
+YOUR PREVIOUS ANSWER WAS REJECTED: {why}
+Answer again, correcting exactly that. Output ONLY the JSON array."""
 
 FILE_PROMPT = """Write one file of a Python application. Output ONLY the code in one ```python block.
 
@@ -170,13 +182,20 @@ TEST_PROMPT = """Write pytest tests for this application, from its RULES and not
 THE RULES
 {rules}
 
-THE FILES
+THE FILES, AND EXACTLY WHAT EACH ONE DEFINES
 {plan}
+
+THE INTERFACE (this is fixed; do not probe for it)
+- The application is run as: {invocation}
+- It is judged by: {must_answer}
+- Entry point: {entry}. Call the names the plan lists above and no others.
 
 HARD CONSTRAINTS
 - Standard library and pytest only. The files sit beside the test file; import them by module name.
 - Test what the rules say the application must DO. Do not test private helpers.
 - No network, no sleeping for more than a second, no subprocesses.
+- Do NOT try to discover how to call a function by trying several ways. The plan above is the contract;
+  if something it names is missing, let the test fail on that plainly.
 
 Output ONLY the code in one ```python block."""
 
@@ -229,6 +248,14 @@ def parse_file_plan(text: str, contract: Contract, max_files: int = MAX_FILES) -
 
     if not files:
         return {"ok": False, "files": [], "why": "no usable file in the plan"}
+    # A plan with no declared interface silently disables both agreement checks, and the build then fails
+    # later with a confusing error instead of here with a clear one. The cloud model's plan omitted the
+    # field entirely and the app died on `book_store.InvalidTitleError`, which nothing had promised.
+    silent = [f["path"] for f in files if f["path"] != contract.entry and not f["exports"]]
+    if silent:
+        return {"ok": False, "files": [],
+                "why": ("every file but the entry point must declare what it defines, or nothing can check "
+                        "that the files agree; these declared nothing: " + ", ".join(silent))}
     if contract.entry not in seen:
         # Add it rather than fail: the entry point is OUR requirement, so supplying it is not a repair of
         # the model's work, it is us holding up our own end of the contract.
@@ -268,6 +295,109 @@ def missing_exports(code: str, names: list) -> list:
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             defined.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
     return [name for name in names if name not in defined]
+
+
+def import_faults(code: str, path: str, plan_paths: list) -> list:
+    """Imports this file must not make: itself, and anything that is not standard library or a plan file.
+
+    Both were stated in the prompts and neither was CHECKED, which is the difference this whole system is
+    built on. The local model's second build produced a `book_manager.py` containing
+    `from book_manager import BookManager` - a module importing itself, which compiles, defines every name
+    the plan asked for, and dies the moment anything loads it. And "standard library only" was an
+    instruction a model could simply not follow, with nothing to catch it: a build that imports `requests`
+    would be a build that fails on a machine with no internet, which is the one machine this must work on.
+    """
+    import ast
+    import sys
+
+    own = Path(path).stem
+    siblings = {Path(other).stem for other in plan_paths}
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []                              # the static check owns that message
+    faults = []
+    for node in ast.walk(tree):
+        names = []
+        if isinstance(node, ast.Import):
+            names = [alias.name.split(".")[0] for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:                     # a relative import has no package here
+                faults.append("a relative import, but these files are not a package")
+                continue
+            names = [(node.module or "").split(".")[0]]
+        for name in names:
+            if not name:
+                continue
+            if name == own:
+                faults.append(f"{name!r} is this file itself - a module cannot import itself")
+            elif name in siblings or name in sys.stdlib_module_names:
+                continue
+            else:
+                faults.append(f"{name!r} is neither the standard library nor one of this app's files")
+    seen, unique = set(), []
+    for fault in faults:
+        if fault not in seen:
+            seen.add(fault)
+            unique.append(fault)
+    return unique
+
+
+def unpromised_imports(code: str, plan: list) -> list:
+    """Names this file imports from a sibling that the sibling's plan entry never promised.
+
+    The mirror image of `missing_exports`, and the check the third build needed: `app.py` did
+    `from book_list_manager import read_input, count_books` while the plan for that file promised neither,
+    so there was nothing for the export check to compare against and the app died on its first import.
+
+    Checking both directions makes the plan the single contract: a file must define everything it promised,
+    and may call nothing that was not promised to it.
+    """
+    import ast
+
+    promised = {Path(item["path"]).stem: set(item.get("exports") or []) for item in plan}
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    faults = []
+    bound = {}                                 # local name -> sibling module, from `import X` / `import X as Y`
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                head = alias.name.split(".")[0]
+                if head in promised:
+                    bound[alias.asname or head] = head
+            continue
+        if not isinstance(node, ast.ImportFrom) or node.level:
+            continue
+        module = (node.module or "").split(".")[0]
+        if module not in promised:
+            continue                           # stdlib, or an unknown module: import_faults owns that
+        for alias in node.names:
+            if alias.name == "*":
+                faults.append(f"`from {module} import *` hides which names are used; import them by name")
+            elif alias.name not in promised[module]:
+                faults.append(f"{alias.name!r} is imported from {module} but that file does not promise it "
+                              f"(it promises: {', '.join(sorted(promised[module])) or 'nothing'})")
+
+    # `import counter` then `counter.count_items(...)` reaches a name just as surely as importing it, and
+    # that is how the generated TESTS reached names nothing had promised - four failures that read as app
+    # bugs and were not.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+            continue
+        module = bound.get(node.value.id)
+        if module and node.attr not in promised[module] and not node.attr.startswith("__"):
+            faults.append(f"{module}.{node.attr} is used but {module} does not promise it "
+                          f"(it promises: {', '.join(sorted(promised[module])) or 'nothing'})")
+
+    seen, unique = set(), []
+    for fault in faults:
+        if fault not in seen:
+            seen.add(fault)
+            unique.append(fault)
+    return unique
 
 
 def free_port() -> int:
@@ -366,6 +496,10 @@ def app_verdict(files: list, tests: dict, smoke: dict, executed: bool) -> dict:
     if mismatched:
         return {"verdict": "failed", "ok": False,
                 "why": "the files do not agree on their interface: " + "; ".join(mismatched)}
+    bad = [f"{f['path']}: {'; '.join(f.get('import_faults') or [])}" for f in files if f.get("import_faults")]
+    if bad:
+        return {"verdict": "failed", "ok": False,
+                "why": "imports that are not allowed here: " + " | ".join(bad)}
     if not executed:
         return {"verdict": "partial", "ok": False,
                 "why": "every file compiles, but nothing was run: pass --execute to prove it starts"}
@@ -453,8 +587,18 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
                         "why": answer.get("error") or "no plan came back"}, record)
     planned = parse_file_plan(answer.get("text") or "", contract, max_files)
     if not planned["ok"]:
-        return record_app_build({"at": stamp, "ok": False, "verdict": "no_plan", "request": request, "kind": kind,
-                        "title": title, "spec": spec.to_dict(), "why": planned["why"]}, record)
+        # One retry, told exactly what was wrong. A rejected plan is usually a missing field rather than a
+        # misunderstanding, and saying so is cheaper than failing the whole build over it.
+        retry = completer(PLAN_PROMPT.format(request=request, rules=rules, invocation=contract.invocation,
+                                            must_answer=contract.must_answer, max_files=max_files,
+                                            entry=contract.entry)
+                          + PLAN_REJECTED.format(why=planned["why"]),
+                          task="app_builder.plan_retry")
+        planned = parse_file_plan(retry.get("text") or "", contract, max_files) if retry.get("ok") else planned
+    if not planned["ok"]:
+        return record_app_build({"at": stamp, "ok": False, "verdict": "no_plan", "request": request,
+                        "kind": kind, "title": title, "spec": spec.to_dict(),
+                        "why": planned["why"]}, record)
 
     plan = planned["files"]
     plan_text = "\n".join(f"- {f['path']}: {f['purpose']}" for f in plan)
@@ -465,8 +609,8 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
     try:
         for item in plan:
             path, purpose = item["path"], item["purpose"]
-            written = {"path": path, "purpose": purpose, "compiles": False, "attempts": 0, "error": "",
-                       "lines": 0}
+            written = {"path": path, "purpose": purpose, "exports": list(item.get("exports") or []),
+                       "compiles": False, "attempts": 0, "error": "", "lines": 0}
             answer = completer(FILE_PROMPT.format(path=path, purpose=purpose, plan=plan_text, rules=rules,
                                                  invocation=contract.invocation,
                                                  must_answer=contract.must_answer, modules=modules,
@@ -491,6 +635,14 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
                         # Stated as the requirement it is, and named, so the repair has somewhere to go.
                         problem = ("this file must define the names the plan gave it, because other files "
                                    "call them, and these are missing: " + ", ".join(absent))
+                if not problem:
+                    bad_imports = import_faults(code, path, [f["path"] for f in plan])
+                    unpromised = unpromised_imports(code, plan)
+                    written["import_faults"] = bad_imports + unpromised
+                    if bad_imports:
+                        problem = "these imports are not allowed: " + "; ".join(bad_imports)
+                    elif unpromised:
+                        problem = "this file imports names no other file promised: " + "; ".join(unpromised)
                 if not problem:
                     written["error"] = ""
                     break
@@ -522,12 +674,46 @@ def build_app(request: str, *, title: str = "", kind: str = "cli",
         if allow_execution and all(f["compiles"] for f in files):
             smoke = smoke_run(box, contract, timeout=min(timeout, SMOKE_TIMEOUT))
 
-            answer = completer(TEST_PROMPT.format(rules=rules, plan=plan_text), task="app_builder.tests")
+            answer = completer(TEST_PROMPT.format(rules=rules, plan=plan_text,
+                                                 invocation=contract.invocation,
+                                                 must_answer=contract.must_answer, entry=contract.entry),
+                               task="app_builder.tests")
             test_code = code_from(answer.get("text") or "") if answer.get("ok") else ""
+            # The tests are bound by the SAME contract as the files, and for the same reason: left free,
+            # they called names the plan never promised and produced four failures that read as app bugs.
+            def test_problem_in(code: str) -> str:
+                checked = static_check(code)
+                if not checked["ok"]:
+                    return checked["error"]
+                reaching = unpromised_imports(code, plan)
+                if reaching:
+                    return ("the tests reach names no file promised: " + "; ".join(reaching)
+                            + ". Test only what the plan above says each file defines.")
+                return ""
+
+            test_problem = test_problem_in(test_code) if test_code else "no test code came back"
+            test_attempts = 1
+            while test_problem and test_attempts <= max_repairs and test_code:
+                repaired = completer(REPAIR_PROMPT.format(path="test_app_rules.py",
+                                                         error=test_problem, rules=rules,
+                                                         invocation=contract.invocation,
+                                                         must_answer=contract.must_answer,
+                                                         modules=modules, code=test_code,
+                                                         exports="nothing - this file only tests"),
+                                     task="app_builder.test_repair")
+                if not repaired.get("ok"):
+                    break
+                test_code = code_from(repaired.get("text") or "")
+                test_problem = test_problem_in(test_code) if test_code else "no test code came back"
+                test_attempts += 1
             test_static = static_check(test_code)
             tests = {"generated": bool(test_code), "compiles": test_static["ok"],
-                     "error": test_static["error"][:300], "ran": False, "passed": None}
-            if test_static["ok"]:
+                     "attempts": test_attempts, "contract_ok": not test_problem,
+                     "error": (test_problem or "")[:300], "ran": False, "passed": None}
+            # Run them only if they both compile AND stay inside the contract. Running tests that reach
+            # unpromised names would produce failures that read as app bugs, which is worse than saying
+            # plainly that no test of the rules was adjudicated.
+            if test_code and not test_problem:
                 test_file = box / "test_app_rules.py"
                 test_file.write_text(test_code[:MAX_ARTEFACT_BYTES], encoding="utf-8")
                 vetted = safe_command(f"python -m pytest -q {test_file.name}", box, APP_ISOLATION)
