@@ -523,3 +523,37 @@ different exits - so they use both slots on one idea. A future register should p
 
 15 tests, including one that fails if the 0.95 bar is ever lowered and one that re-derives why three slots
 would be too many.
+
+## 2026-09-26 - loop engineering wired: 14.3% -> 42.9%, and rising as each loop next runs
+
+A survey found 12 of the 14 known loops SILENT - all running on the scheduler and writing their own logs,
+but none reporting to `loop_ledger`. By the module's own rule ("a loop that cannot say what it measured is
+a script on a timer") 12 of 14 were scripts on timers. The ledger was an instrument with nothing plugged
+into it, which is the honest answer to why a day of work did not show up anywhere.
+
+Added `loop_ledger.run_main(loop, main)` so wiring a module is one line at its `__main__`, and wired ten:
+demo_volatility_breakout, demo_session_pullback (both via `closing_run` directly, so the cycle's own
+decision and `acted` are captured), plus demo_sweep_trader, demo_plan_trader, paper_trader, daily_report,
+ai_employee, obsidian_notes, crt_forward and strategy_lab via `run_main`.
+
+Coverage went 14.3% -> 42.9% immediately (6 of 14 reporting); the rest report on their next scheduled run.
+Still unwired: `i40_pilot` (no `main()`, needs its own edit) and `self_improvement` (on demand - its
+propose/settle path already records elsewhere).
+
+**The point of it, proven by today:** both demo trading tasks were killed at 11:03 and 12:03 with exit
+0xC000013A - a Ctrl+C - and left NOTHING behind, indistinguishable from an hour with nothing to do. A
+`^C` is a BaseException, and `closing_run` catches BaseException, so that now writes a closure with the
+error as its note. A test asserts KeyboardInterrupt specifically, because catching only `Exception` would
+have missed the exact case this exists for. Also set `RestartCount 2` / `RestartInterval PT1M` on those two
+tasks so a killed run retries instead of skipping the hour.
+
+**A bug I made and the test that pins it:** I inserted `run_main` BETWEEN `@contextmanager` and
+`def closing_run`, so the decorator landed on `run_main` and `closing_run` became a plain generator -
+`AttributeError: __enter__` on first use. A source-ORDER mistake no type checker catches. A test now
+asserts the decorator sits on `closing_run` and that `run_main` appears after it.
+
+**Honest limitation recorded in the helper:** `acted` cannot be inferred from an exit code, so `run_main`
+leaves it False with a note saying so. Those loops will read WATCHING or OPEN rather than CLOSED until each
+sets `acted` from its own outcome. Recording "it ran, and whether it changed anything is not measured" is
+the truth; claiming a closed loop would not be. The two demo strategies DO set it properly, from their
+cycle decision.

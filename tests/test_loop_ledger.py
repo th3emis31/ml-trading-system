@@ -6,6 +6,7 @@ wearing a loop's clothes. The learning task reached eleven consecutive runs repo
 model lost money on unseen bars without one threshold moving, and file-freshness monitoring could not
 see it, because the files were perfectly fresh.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -118,3 +119,107 @@ def test_the_learning_loop_closes_its_own_loop():
     source = Path(ll.__file__).parent.joinpath("daily_learning.py").read_text(encoding="utf-8")
     assert "record_closure(" in source and '"daily_learning"' in source
     assert "acted=promoted" in source, "promotion is the action; keeping the champion is not"
+
+
+# --- run_main, and the mistake made while adding it (26 Sep 2026) -------------------------------
+
+def test_the_contextmanager_decorator_sits_on_closing_run():
+    """The bug: run_main was inserted BETWEEN @contextmanager and def closing_run, so the decorator
+    landed on run_main and closing_run became a plain generator - `AttributeError: __enter__` at the
+    first use. A source-order mistake that no type checker would catch."""
+    import inspect
+    import re
+
+    from src import loop_ledger
+
+    source = inspect.getsource(loop_ledger)
+    match = re.search(r"@contextmanager\s*\ndef (\w+)", source)
+    assert match is not None, "the decorator must still be present"
+    assert match.group(1) == "closing_run", f"@contextmanager is on {match.group(1)}, not closing_run"
+    assert source.index("def run_main(") > source.index("def closing_run("), (
+        "run_main must sit AFTER closing_run, never between it and its decorator")
+
+
+def test_closing_run_is_actually_usable_as_a_context_manager():
+    """The direct consequence of the bug above, asserted separately so it cannot regress silently."""
+    from src.loop_ledger import closing_run
+
+    manager = closing_run("test_loop")
+    assert hasattr(manager, "__enter__") and hasattr(manager, "__exit__")
+
+
+def test_run_main_records_a_closure_and_returns_the_exit_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMARTENTRY_DATA_DIR", str(tmp_path))
+    from src.loop_ledger import ledger_path, run_main
+
+    assert run_main("paper_trader", lambda: 0) == 0
+    rows = ledger_path().read_text(encoding="utf-8").strip().splitlines()
+    assert len(rows) == 1
+    record = json.loads(rows[0])
+    assert record["loop"] == "paper_trader"
+    assert "exit 0" in record["decided"]
+
+
+def test_a_main_that_returns_nothing_is_treated_as_success():
+    from src.loop_ledger import run_main
+
+    assert run_main("paper_trader", lambda: None) == 0
+
+
+def test_run_main_leaves_acted_false_and_says_why_rather_than_claiming_a_closed_loop(tmp_path, monkeypatch):
+    """Whether these loops CHANGED anything is not inferable from an exit code. Recording "it ran, and
+    that is not measured" is the truth; claiming a closed loop would not be."""
+    monkeypatch.setenv("SMARTENTRY_DATA_DIR", str(tmp_path))
+    from src.loop_ledger import ledger_path, run_main
+
+    run_main("daily_report", lambda: 0)
+    record = json.loads(ledger_path().read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert record["acted"] is False
+    assert "not instrumented" in record["note"]
+
+
+def test_a_crashing_loop_still_leaves_a_record_and_the_error_is_re_raised(tmp_path, monkeypatch):
+    """The whole point: a killed or crashed loop that leaves no trace is indistinguishable from an hour
+    with nothing to do. On 26 Sep 2026 both demo tasks were killed and left exactly nothing."""
+    monkeypatch.setenv("SMARTENTRY_DATA_DIR", str(tmp_path))
+    from src.loop_ledger import ledger_path, run_main
+
+    def boom():
+        raise RuntimeError("killed mid-run")
+
+    with pytest.raises(RuntimeError):
+        run_main("demo_breakout", boom)
+    record = json.loads(ledger_path().read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert record["acted"] is False
+    assert "RuntimeError" in record["note"] and "killed mid-run" in record["note"]
+
+
+def test_even_a_keyboard_interrupt_is_recorded(tmp_path, monkeypatch):
+    """A Ctrl+C is what actually happened - exit 0xC000013A on both demo tasks. It is a BaseException,
+    not an Exception, so catching only Exception would have missed the very case this was built for."""
+    monkeypatch.setenv("SMARTENTRY_DATA_DIR", str(tmp_path))
+    from src.loop_ledger import ledger_path, run_main
+
+    def interrupted():
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_main("demo_pullback", interrupted)
+    record = json.loads(ledger_path().read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert "KeyboardInterrupt" in record["note"]
+
+
+def test_every_wired_module_calls_run_main_or_closing_run():
+    """The wiring itself, so a module cannot quietly lose it in a later edit."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    wired = {"demo_volatility_breakout", "demo_session_pullback", "demo_sweep_trader",
+             "demo_plan_trader", "paper_trader", "daily_report", "ai_employee",
+             "obsidian_notes", "crt_forward", "strategy_lab"}
+    missing = []
+    for name in sorted(wired):
+        text = (root / "src" / f"{name}.py").read_text(encoding="utf-8", errors="ignore")
+        if "run_main(" not in text and "closing_run(" not in text:
+            missing.append(name)
+    assert not missing, f"these loops lost their ledger wiring: {missing}"

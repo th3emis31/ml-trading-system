@@ -369,4 +369,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Wrapped so this loop cannot finish without a record - see loop_ledger.run_main.
+    from .loop_ledger import run_main
+
+    raise SystemExit(run_main("obsidian_notes", main))

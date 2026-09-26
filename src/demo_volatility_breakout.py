@@ -632,13 +632,31 @@ if __name__ == "__main__":
     if args.command == "status":
         print(json.dumps(breakout_status(), indent=1, default=str)[:4000])
         raise SystemExit(0)
-    cycle_request = urllib.request.Request(CYCLE_URL, data=b"{}", method="POST",
-                                           headers={"Content-Type": "application/json", SECRET_HEADER: load_or_create_secret()})
-    try:
-        with urllib.request.urlopen(cycle_request, timeout=300) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} cycle call failed: {exc}")
-        raise SystemExit(1)
-    print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} {body.get('decision')}: {body.get('reason')}")
+    # Wrapped in closing_run so this loop CANNOT finish without leaving a record - including when it
+    # is killed. On 26 September 2026 this task was terminated at 11:03 and 12:03 (exit 0xC000013A,
+    # a Ctrl+C) and left nothing behind at all: from the ledger's point of view it was indistinguishable
+    # from an hour with nothing to do. closing_run catches BaseException, so a KeyboardInterrupt now
+    # writes a closure marked not-acted with the error as its note, and then re-raises.
+    from .loop_ledger import closing_run
+
+    with closing_run("demo_breakout", kind="scheduled",
+                     observed="one scheduled cycle asked of the running app") as run:
+        cycle_request = urllib.request.Request(CYCLE_URL, data=b"{}", method="POST",
+                                               headers={"Content-Type": "application/json",
+                                                        SECRET_HEADER: load_or_create_secret()})
+        try:
+            with urllib.request.urlopen(cycle_request, timeout=300) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            run.decided = "could not reach the app to run a cycle"
+            run.note = f"{type(exc).__name__}: {exc}"[:200]
+            print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} cycle call failed: {exc}")
+            raise SystemExit(1)
+        decision = str(body.get("decision") or "")
+        run.decided = f"{decision}: {body.get('reason')}"[:200]
+        # `acted` is what separates a loop from a cadence: it is True only when the account changed.
+        run.acted = decision in ("entered", "opened", "managed", "closed", "scaled", "modified")
+        run.measured = {k: body.get(k) for k in ("decision", "symbol", "legs", "r_result", "net_money")
+                        if body.get(k) is not None}
+        print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} {decision}: {body.get('reason')}")
     raise SystemExit(0)

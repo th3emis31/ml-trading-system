@@ -352,4 +352,7 @@ def main(argv: Optional[list] = None) -> dict:
 
 
 if __name__ == "__main__":
-    main()
+    # Wrapped so this loop cannot finish without a record - see loop_ledger.run_main.
+    from .loop_ledger import run_main
+
+    run_main("paper_trader", main)

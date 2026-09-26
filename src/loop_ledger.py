@@ -135,6 +135,38 @@ def closing_run(loop: str, *, kind: str = "scheduled", observed: str = "",
                        seconds=time.monotonic() - started, path=path)
 
 
+def run_main(loop: str, main_fn, *, kind: str = "scheduled",
+             observed: str = "one scheduled run", argv=None) -> int:
+    """Wrap a module's ``main()`` so the loop cannot finish without a record. Returns its exit code.
+
+    Added 26 September 2026, when a survey found 12 of the 14 known loops SILENT - they all ran on the
+    scheduler and wrote their own logs, but none reported here, so by this module's own standard they were
+    scripts on a timer. The same day both demo trading tasks were killed mid-run (exit 0xC000013A) and left
+    no trace at all, which is exactly the case this exists to make visible.
+
+    One line per module::
+
+        if __name__ == "__main__":
+            from .loop_ledger import run_main
+            raise SystemExit(run_main("paper_trader", main))
+
+    HONEST LIMITATION: ``acted`` cannot be inferred from an exit code, so it is left False and the note
+    says so. That means these loops will read WATCHING or OPEN rather than CLOSED until each one sets
+    ``acted`` from its own outcome. Recording "it ran, and whether it changed anything is not yet
+    measured" is the truth; claiming a closed loop would not be.
+    """
+    with closing_run(loop, kind=kind, observed=observed) as run:
+        code = main_fn() if argv is None else main_fn(argv)
+        exit_code = int(code) if isinstance(code, int) else 0
+        run.decided = f"completed, exit {exit_code}"
+        run.acted = False
+        run.note = ("ran to completion; whether it CHANGED anything is not instrumented for this loop "
+                    "yet, so `acted` is False rather than assumed")
+        if isinstance(code, dict):
+            run.measured = {k: v for k, v in code.items() if not isinstance(v, (list, dict))}
+    return exit_code
+
+
 def read_ledger(path: Optional[Path] = None, limit: int = 4000) -> list:
     target = ledger_path(path)
     if not target.exists():
