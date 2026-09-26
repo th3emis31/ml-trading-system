@@ -1074,3 +1074,71 @@ is a hypothesis worth a pre-declared test on later data, not a rule to switch on
 
 By contrast the candidates fail this requirement outright: breakout finder long-only has 92 positions on
 gold and 102 on bitcoin, and the SwingTrendPullback holdout has 57.
+
+## 2026-09-26 — WHY THE STRATEGY LAB HAS NEVER PASSED ANYTHING: it is arithmetic, not bad luck
+
+395,134 candidates tried across 8 markets, 1,028 archived, 56 on the watchlist, **0 ever clearing the
+holdout bar**. This is the reason, and it is a design consequence rather than a verdict on the strategies.
+
+`deflated_sharpe` computes `sr0 = sqrt(sr_variance) * E[max of n_trials]` and then
+`DSR = Phi((sr - sr0) * sqrt(n-1) / sqrt(denom))`. Reaching DSR 0.95 needs z = 1.645, so
+
+    sr > sr0 + 1.645 / sqrt(n - 1)          and therefore     n > 1 + (1.645 / (sr - sr0))^2
+
+`sr_variance` is the lab's own 0.01 — confirmed from its own output, where the EA verdict reported
+`per_trade_sharpe_needed 0.052` at `n_trials 1`, and 0.052 / 0.520 = 0.1, so variance 0.01 exactly. So
+these are the lab's numbers, not an assumption.
+
+| n_trials | sr0 (the floor before any trade count helps) |
+|---|---|
+| 1 | 0.052 |
+| 1,000 | 0.326 |
+| 10,000 | 0.386 |
+| **50,000 (the lab, per market)** | **0.424** |
+| 395,134 (all markets) | 0.468 |
+
+**Measured per-trade Sharpe of real strategies here: 0.0777 (live EA, gold 4h holdout) and 0.0288
+(1h).** Both are far below the 0.424 floor, and anything below sr0 is impossible at ANY number of
+trades — the margin is negative, so no amount of evidence can rescue it.
+
+Holdout trades required, at the lab's own variance:
+
+| per-trade Sharpe | at 1 trial | at 1,000 trials | at 50,000 trials |
+|---|---|---|---|
+| 0.03 | impossible | impossible | impossible |
+| **0.0777 (the live EA)** | **4,090 trades** | impossible | impossible |
+| 0.10 | 1,174 | impossible | impossible |
+| 0.25 | 70 | impossible | impossible |
+| 0.40 | 23 | 489 | impossible |
+| 0.60 | 10 | 37 | 88 |
+
+`HOLDOUT_CRITERIA["min_trades"]` is 30 and real holdouts run 30-300 trades. So even a single
+pre-declared idea with the live EA's edge would need about 4,000 holdout trades, and after 50,000
+variants nothing can pass whatever its record.
+
+### The flaw is the search, not the bar
+
+The deflation is CORRECT statistics: try 50,000 things and the best one probably is luck. The design
+problem is that the lab searches 50,000 candidates per market per run **and then asks the winner to
+survive deflation for those 50,000 trials.** Every additional candidate raises the bar for all of them,
+so the harder the lab searches, the less any result can ever prove. It is self-defeating by construction,
+and it has been running 32 minutes an hour doing it.
+
+### What to change — and what NOT to
+
+**NOT the 0.95 bar.** That is a standing owner rule from 14 Sep, never to be lowered to let a near-miss
+through, and nothing here is an argument against it. The bar is fine; what feeds it is not.
+
+Three changes that respect the bar completely, for the owner to decide on:
+
+1. **Separate generating from testing.** Let the lab SEARCH freely — that is hypothesis generation and
+   needs no gate — then take a handful of survivors and test them on a LATER, untouched holdout with a
+   trial count of 1-10. At 1 trial the floor drops from 0.424 to 0.052, which real edges clear.
+2. **Get the trade counts up.** The binding constraint is `1.645/sqrt(n-1)`. The 15m markets are the only
+   ones that can produce thousands of trades, and their holdout currently starts 2026-04-14 — about five
+   months. Extending the 15m/5m holdout back over years is the single highest-leverage change available.
+3. **Report the requirement beside the result.** Every verdict should state the trades needed for that
+   candidate's own Sharpe, so "failed" is legible as "would need 4,090 trades, has 57" rather than
+   looking like a judgement on the strategy.
+
+Nothing was changed. This is a diagnosis and a proposal.
