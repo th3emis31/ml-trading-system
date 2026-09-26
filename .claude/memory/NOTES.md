@@ -557,3 +557,45 @@ leaves it False with a note saying so. Those loops will read WATCHING or OPEN ra
 sets `acted` from its own outcome. Recording "it ran, and whether it changed anything is not measured" is
 the truth; claiming a closed loop would not be. The two demo strategies DO set it properly, from their
 cycle decision.
+
+## 2026-09-26 - the last two loops, the context layer gets a caller, and the orchestration design prompt
+
+**Loops: all 14 wired, coverage 42.9% -> 85.7% as each runs.** `i40_pilot` had no `main()`, so its
+`__main__` body is now inside `closing_run` directly - which is better than `run_main` would have been,
+because the brief IS the measurement: it records signature rules, baseline rows, lessons, backlog, task
+count, skills and endpoints, sets `acted` True (it writes the brief) and passes acceptance only if the
+memory AND schedule sections were both readable. Argument parsing stays outside the wrapper so `--help`
+does not write a closure for a run that never started. `self_improvement` is wired with `kind="on demand"`
+to match its KNOWN_LOOPS entry, and `acted` is True only for `settle`/`open` - recording a status read as a
+turn of the loop would be exactly the flattery that module exists to catch.
+
+**Context engineering now has a live caller, and the numbers say why it was needed.** Measured: the AI
+employee's prompt is **24,177 tokens**. Claude answers in 180,000, so it has always fitted. The local
+Granite model answers in **8,192**, so on the provider the owner wants to fall back to, the daily review
+**could not run at all** - three times too big. `ai_employee.prompt_for_budget(context, budget)` now returns
+the JSON prompt unchanged when it fits and a `context_builder` brief when it does not: at 8,192 the same
+review assembles to **6,071 tokens** and reports what it left out (working kept 196 of 600, episodic 41 of
+173). `run_employee` takes `budget_tokens` defaulting to Claude's window, so the 07:15 task sends
+byte-identical bytes - pinned by a test that compares against `employee_prompt` exactly. A budget too small
+for the rules and the task is REFUSED and the runner is never called; a shortened prompt asks a different
+question than the caller believes it asked.
+
+The enabling trick is one fact per line (`system_health.system_doctor: ok`). A JSON dump can only be shrunk
+by cutting a whole branch and hoping it was not the one that mattered; flat lines let the budget keep some
+of everything, and every line names the field a finding can cite.
+
+**`src/orchestration.py` - the orchestration design prompt**, rendered from live state, not written down.
+`prompt` / `prompt --budget N` / `ask` / `facts`. It carries the measured facts (loop coverage and which
+loops are still silent, every provider and its window, which would answer right now, the review prompt's
+size and shape, the confirmation slots), the hard rules the design may not trade away, eight questions
+rather than a wish list, a nine-part output shape, and a DONE WHEN of seven separately checkable items.
+
+It is code and not a markdown file for a reason the same afternoon proved: loop coverage moved 14.3% ->
+42.9% -> 78.6% -> 85.7% while this was being built. A document would have handed a model the first of those
+and it would have designed, plausibly, for a system that no longer existed. A test fails the build if any
+measurement is typed into the code, and `facts()` caches its reads for 60 seconds so one render does not
+probe the network twice. It writes NO closure record: it is a tool, not a loop, and a record under a name
+`KNOWN_LOOPS` does not know would never be read - one more instrument with nothing plugged in.
+
+29 new tests (13 + 16). The honest state of the orchestration layer: the prompt exists and is answerable;
+nothing has yet been designed or built from it, and Task Scheduler is still the orchestrator.

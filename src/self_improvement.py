@@ -502,4 +502,29 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # `closing_run` rather than `run_main`, because this loop CAN say what it measured - the experiment
+    # ledger is the measurement - and because only some of its commands act. `kind="on demand"` matches
+    # its entry in KNOWN_LOOPS: it turns when an experiment is opened or settled, not on a timer, so a
+    # run that only reported must not be recorded as a turn of the loop.
+    from .loop_ledger import closing_run
+
+    _command = (sys.argv[1] if len(sys.argv) > 1 else "status").lower()
+    with closing_run("self_improvement", kind="on demand",
+                     observed=f"command {_command}") as _run:
+        _code = main()
+        _report = experiment_report()
+        _run.measured = {"open": _report["open"], "closed": _report["closed"],
+                         "confirmed": _report["counts"]["confirmed"],
+                         "refuted": _report["counts"]["refuted"],
+                         "inconclusive": _report["counts"]["inconclusive"],
+                         "stale": len(_report["stale"])}
+        _run.decided = f"{_command}, exit {_code}"
+        # Only `settle` and `open` change the experiment ledger; reporting on it is not a turn of the
+        # loop, and recording a read as an action is exactly the flattery this module exists to catch.
+        _run.acted = _command in ("settle", "open")
+        _run.acceptance_passed = bool(_report["honest"])
+        if not _report["honest"]:
+            _run.note = _report["honest_note"] or "confirm rate is suspicious"
+        elif _report["stale"]:
+            _run.note = f"{len(_report['stale'])} experiment(s) open too long"
+    raise SystemExit(_code)

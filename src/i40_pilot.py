@@ -616,25 +616,51 @@ if __name__ == "__main__":
     parser.add_argument("--no-http", action="store_true", help="skip the live reads through the running app")
     cli_args = parser.parse_args()
 
-    the_brief = build_brief(include_http=not cli_args.no_http)
-    written_to = save_brief(the_brief)
-    if cli_args.json:
-        print(json.dumps(the_brief, indent=1, default=str))
-    else:
-        who = the_brief["identity"]
-        print(f"{who['name']} - {who['branch']} @ {who['commit']} ({who['commit_subject']})")
-        print(f"  rules      {the_brief['rules']['count']} signature rules")
+    # Wrapped in `closing_run` rather than `run_main` because this loop can say what it MEASURED: the
+    # brief itself is the measurement. Argument parsing stays outside the wrapper, so `--help` exits
+    # without writing a closure for a run that never started.
+    from .loop_ledger import closing_run
+
+    with closing_run("i40_pilot", observed="one brief of the whole system") as pilot_run:
+        the_brief = build_brief(include_http=not cli_args.no_http)
+        written_to = save_brief(the_brief)
         mem = the_brief["memory"]
-        print(f"  memory     {mem.get('baseline_rows', 0)} recorded results, {mem.get('lesson_count', 0)} lessons, "
-              f"{mem.get('open_backlog_count', 0)} open backlog items" if mem.get("available")
-              else f"  memory     {mem.get('reason')}")
-        for strategy_key, strategy in (the_brief["context"].get("strategies") or {}).items():
-            state = ("sending orders" if strategy.get("sending_orders") else "dry run") if strategy.get("available")                 else strategy.get("reason")
-            print(f"  strategy   {strategy_key}: {state}")
         sched = the_brief["schedule"]
-        print(f"  schedule   {sched.get('count', 0)} tasks, missing: {', '.join(sched.get('missing') or []) or 'none'}"
-              if sched.get("available") else f"  schedule   {sched.get('reason')}")
-        print(f"  skills     {the_brief['skills'].get('count', 0)}")
-        print(f"  tools      {len(the_brief['tools']['commands'])} commands, "
-              f"{the_brief['tools']['api_endpoint_count']} endpoints")
-        print(f"  written    {written_to}")
+        pilot_run.measured = {
+            "signature_rules": the_brief["rules"]["count"],
+            "baseline_rows": mem.get("baseline_rows", 0),
+            "lessons": mem.get("lesson_count", 0),
+            "open_backlog": mem.get("open_backlog_count", 0),
+            "scheduled_tasks": sched.get("count", 0),
+            "schedule_missing": len(sched.get("missing") or []),
+            "skills": the_brief["skills"].get("count", 0),
+            "api_endpoints": the_brief["tools"]["api_endpoint_count"],
+        }
+        pilot_run.decided = f"brief written to {written_to.name}"
+        pilot_run.acted = True                     # it wrote the brief; that is this loop's whole action
+        # The two sections that can fail silently. Reporting a brief with a hole in it as a pass is the
+        # failure this guards: the schedule read needs Windows Task Scheduler, the memory read needs the
+        # files to be present, and either can come back unavailable while the brief still looks complete.
+        pilot_run.acceptance_passed = bool(mem.get("available")) and bool(sched.get("available"))
+        if not pilot_run.acceptance_passed:
+            pilot_run.note = (f"memory {'ok' if mem.get('available') else mem.get('reason')}; "
+                              f"schedule {'ok' if sched.get('available') else sched.get('reason')}")
+
+        if cli_args.json:
+            print(json.dumps(the_brief, indent=1, default=str))
+        else:
+            who = the_brief["identity"]
+            print(f"{who['name']} - {who['branch']} @ {who['commit']} ({who['commit_subject']})")
+            print(f"  rules      {the_brief['rules']['count']} signature rules")
+            print(f"  memory     {mem.get('baseline_rows', 0)} recorded results, {mem.get('lesson_count', 0)} lessons, "
+                  f"{mem.get('open_backlog_count', 0)} open backlog items" if mem.get("available")
+                  else f"  memory     {mem.get('reason')}")
+            for strategy_key, strategy in (the_brief["context"].get("strategies") or {}).items():
+                state = ("sending orders" if strategy.get("sending_orders") else "dry run") if strategy.get("available")                 else strategy.get("reason")
+                print(f"  strategy   {strategy_key}: {state}")
+            print(f"  schedule   {sched.get('count', 0)} tasks, missing: {', '.join(sched.get('missing') or []) or 'none'}"
+                  if sched.get("available") else f"  schedule   {sched.get('reason')}")
+            print(f"  skills     {the_brief['skills'].get('count', 0)}")
+            print(f"  tools      {len(the_brief['tools']['commands'])} commands, "
+                  f"{the_brief['tools']['api_endpoint_count']} endpoints")
+            print(f"  written    {written_to}")
