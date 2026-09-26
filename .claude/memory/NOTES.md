@@ -485,3 +485,41 @@ should be read with that spread in mind.
 Principle worth keeping: the tests are generated from the SPEC and never from the code, and the repair
 loop fixes the ARTEFACT and never the tests. Repairing a test to agree with the code is how a loop
 "fixes" a bug by deleting the evidence of it.
+
+## 2026-09-26 - strategy_confirm: make the evidence bar reachable without lowering it
+
+`src/strategy_confirm.py`, purely additive - `git status` shows no modified files, the lab and the book
+are untouched, and nothing trades.
+
+The bar stays at deflated Sharpe 0.95 (a standing owner rule; a test asserts it). What changes is the
+TRIAL COUNT it is applied against. The floor is `sqrt(0.01) * E[max of n_trials]`, so it is 0.052 at two
+trials and 0.424 at the lab's 50,000 per market - which is why 395,134 candidates produced zero passes.
+
+**The build corrected itself twice, and both corrections are the useful part.**
+
+1. I first set CONFIRM_SLOTS = 8. Measured: E[max] is 0.520 at one or two trials, 0.853 at three, 1.459
+   at eight. The live EA's per-trade Sharpe is 0.0777, so at THREE slots the floor already exceeds it and
+   nothing real could pass. **CONFIRM_SLOTS = 2** is the honest maximum, and it is free because
+   `deflated_sharpe` does `max(n_trials, 2)` so one and two give the identical floor.
+2. The window cannot be carved out of history. The lab's holdout already runs to the last closed bar, and
+   any slice held back now has already influenced which candidates survived. So confirmation is FORWARD
+   ONLY: registration records the data end at that moment and evidence counts only on later bars. That
+   cannot be gamed by re-running or re-picking.
+
+Also added `implied_sharpe`, which inverts the DSR the book already recorded to recover a candidate's
+per-trade Sharpe (the book stores DSR, n_trials and trade count but not the raw Sharpe). Round-trip tested
+against the real `deflated_sharpe`. It is an estimate - `denominator` carries skew and kurtosis and is
+taken as 1 - and it is used only to size the forward evidence needed, never quoted as a measured Sharpe.
+
+And `years_to_prove`, because trades alone hide the answer: 4,090 trades at 28 a year is 146 years, not
+patience. That number is what turns this into "find a stronger edge" rather than "wait longer".
+
+REGISTERED two candidates from the real watchlist: XAUUSD:4h Donchian 40-bar breakout with an EMA200
+filter, implied sr 0.4158, needing **22 forward trades** each, window opening at data end
+2026-09-21 09:00. Their book DSR was failing at 0.10-0.17 purely because n_trials was 16,789-28,609.
+
+Honest imperfection: the two registered candidates are near-duplicates - the same entry rule with
+different exits - so they use both slots on one idea. A future register should prefer distinct families.
+
+15 tests, including one that fails if the 0.95 bar is ever lowered and one that re-derives why three slots
+would be too many.
