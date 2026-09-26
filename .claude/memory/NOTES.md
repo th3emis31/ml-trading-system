@@ -699,3 +699,50 @@ written from the spec - which is exactly what the whole spec-first design is for
 So the honest state of step 11: the machinery works and refuses correctly, a capable model produces a
 working application that falls one rule short of `verified`, and the local 3B model reaches a working app on
 its better runs. `verified` has never been claimed, because it has not been earned.
+
+## 2026-09-26 - checked every page one by one, and four of them were dead in ways no test could see
+
+The owner reported three things from the dashboard: "is missing the trade", "why is not button for the
+build map", "is missing execution log". All three were real, and checking every page properly found two
+more that nobody had reported.
+
+**Two sweeps now exist as tools, not one-off scripts.** `scripts/check_page_scripts.py` fetches every HTML
+page and parses its inline JavaScript with `node --check`. That is the only way to see this class of
+failure: a syntax error does not fail a Python test, does not stop the page returning HTTP 200, and the
+HTML still contains every element - the browser simply abandons the block and a panel sits on its
+placeholder forever.
+
+**1. The Performance page was dead, and it was my own fault from this morning.** An unescaped apostrophe in
+`'- this system's own strategies only'` closed the string and killed the entire 185-line script block. The
+page had looked fine in review. Now written with backticks, and all 44 pages parse.
+
+**2. "0 open trades" while the account held ten.** The panel's broker fallback ran only when the platform
+selector said `mt5`, and the session platform is `both` - so it never ran. Showing them raw would have
+broken the other standing rule, because every one of those ten belongs to one of the owner's OTHER experts
+(magics 888888, 20250101, 20260903, 26070455, 202503; +GBP 128.64 unrealised, none of it this system's).
+So `/api/auto-trade/status` now attributes each open position server-side with the same magic + comment +
+footprint test the closed-trade split uses, and the row carries a "Placed by" column. The count reads
+"0 this system - 10 from your other experts".
+
+**3. "No trades yet" in the execution log** read as "this account has never traded" when it has 102 closed
+trades. That list only ever held THIS SESSION's executions. When it is empty it now shows the account's own
+recent closed trades, each labelled with who placed it, and says so in a caption.
+
+**4. The build map's nav bar rendered as raw overlapping links.** Every rule in `_MAIN_NAV_STYLE` is written
+`.nav .nav-group ...`, and this was the one page placing `{{ main_nav }}` with no `class='nav'` ancestor,
+so the markup arrived and none of the styling did. `tests/test_page_shell.py` now fails the build if any
+page does that again, and also if the nav links to a route that does not exist.
+
+**5. `/screenshot-learn` answered 500** - a dead link sitting in the main nav. Its template asks for
+`{{ control_secret|tojson }}` and the route passed only `theme_css`, so Jinja raised on the undefined.
+
+**6. `/api/jarvis/analyze` and `/api/jarvis/recommend` had never worked.** Both read `row['open']` off a raw
+`yf.download` frame, whose columns are capitalised (and a MultiIndex for a single ticker on recent
+yfinance), so every call raised `KeyError 'open'`. `src/data.py` has done that renaming correctly for
+months; these two copies never got it. Behind that sat a second bug: the liquidity-gap branch of
+`get_recommended_entry` sets an entry and no stop, so the R:R line read `entry - None` - a recommendation
+with a target and no stop is the one shape that must never be shown, so the stop is now derived and the
+reason says how.
+
+**Still open, measured not guessed:** `/api/strategy-lab` returns **966 KB in 40 seconds**. It is not an
+error - the page works - but it is the slowest thing in the app by a wide margin and wants pagination.

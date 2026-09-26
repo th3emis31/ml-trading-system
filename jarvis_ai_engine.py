@@ -181,7 +181,16 @@ class JARVISUserProfile:
             recs['confidence'] *= 1.10
         
         # Risk/Reward
-        if recs['suggested_entry']:
+        #
+        # The liquidity-gap branch above sets an entry and NO stop, so when it fired alone this line read
+        # `entry - None` and the whole endpoint answered
+        # "unsupported operand type(s) for -: 'float' and 'NoneType'". It had never worked in that case.
+        # The stop is derived by the same 0.5 % rule the consolidation branch uses rather than left out,
+        # because a recommendation with a target and no stop is the one shape that must never be shown.
+        if recs['suggested_entry'] and recs['stop_loss'] is None:
+            recs['stop_loss'] = current_price * 0.995
+            recs['reason'].append('Stop set 0.5% below price (no consolidation range to measure)')
+        if recs['suggested_entry'] and recs['stop_loss'] is not None:
             range_val = abs(recs['suggested_entry'] - recs['stop_loss'])
             target_rr = range_val * self.profile['target_rr_ratio']
             recs['take_profit'] = recs['suggested_entry'] + target_rr

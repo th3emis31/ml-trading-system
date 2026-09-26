@@ -13441,6 +13441,7 @@ AUTO_TRADER_TEMPLATE = """
           <div class='stat-box'>
             <div class='stat-label'>Open Trades</div>
             <div class='stat-value' id='at-open-trades-count'>0</div>
+            <div id='at-open-trades-split' class='muted' style='font-size:12px;margin-top:2px;'></div>
           </div>
           <div class='stat-box'>
             <div class='stat-label'>Total Unrealized P&L</div>
@@ -13463,15 +13464,17 @@ AUTO_TRADER_TEMPLATE = """
               <th>📅 Entry Time</th>
               <th>🎯 Symbol</th>
               <th>↕️ Side</th>
+              <th>📦 Lots</th>
               <th>📊 Entry Price</th>
               <th>💰 Current P&L</th>
               <th>📈 P&L %</th>
+              <th>👤 Placed by</th>
               <th>⏱️ Duration</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id='at-open-trades'>
-            <tr><td colspan='8' style='text-align:center;color:#94a3b8;'>No open trades. Start a session to begin trading.</td></tr>
+            <tr><td colspan='10' style='text-align:center;color:#94a3b8;'>Loading open positions from the broker...</td></tr>
           </tbody>
         </table>
       </div>
@@ -14197,7 +14200,10 @@ AUTO_TRADER_TEMPLATE = """
       const body = document.getElementById('at-trades');
       if (!body) return;
       if (!rows.length) {
-        body.innerHTML = "<tr><td colspan='8' style='text-align:center;color:#94a3b8;'>No trades yet.</td></tr>";
+        // "No trades yet" read as "this account has never traded", which is false - the account has 102
+        // closed trades. This list only ever held THIS SESSION's executions. When it is empty, show the
+        // account's own closed trades instead, each labelled with who placed it.
+        renderAccountClosedTrades(body);
         return;
       }
       body.innerHTML = rows.map(item => {
@@ -14215,6 +14221,71 @@ AUTO_TRADER_TEMPLATE = """
           <td class='${pnlClass}'><strong>${escapeHtml(pnl)}</strong></td>
           <td><span class='${statusClass}'>${escapeHtml(item.status || 'pending')}</span></td>
           <td><small title='${escapeHtml(noteText)}'>${escapeHtml(noteShort)}</small></td>
+        </tr>`;
+      }).join('');
+    }
+
+    // `time` on a closed trade is a Unix timestamp from the broker, not a string. Printing it raw showed
+    // 1790342735 in the Time column.
+    function closedAt(trade) {
+      const stamp = Number(trade.time || 0);
+      if (!stamp) return String(trade.opened_at || '');
+      return new Date(stamp * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    }
+
+    // The account's closed trades, used when this session has executed nothing. Fetched at most once a
+    // minute: the panel polls every three seconds and this list changes when a trade closes, not faster.
+    let accountClosedCache = { at: 0, rows: null, inFlight: null };
+
+    async function fetchAccountClosedTrades() {
+      const now = Date.now();
+      if (accountClosedCache.rows && now - accountClosedCache.at < 60000) return accountClosedCache.rows;
+      if (accountClosedCache.inFlight) return accountClosedCache.inFlight;
+      accountClosedCache.inFlight = (async () => {
+        const { ok, data } = await fetchJson('/api/trades/closed?limit=40');
+        const rows = ok && data && Array.isArray(data.trades) ? data.trades : [];
+        accountClosedCache = { at: Date.now(), rows, inFlight: null };
+        return rows;
+      })();
+      return accountClosedCache.inFlight;
+    }
+
+    async function renderAccountClosedTrades(body) {
+      body.innerHTML = "<tr><td colspan='8' style='text-align:center;color:#94a3b8;'>Reading the account's closed trades...</td></tr>";
+      let rows = [];
+      try {
+        rows = await fetchAccountClosedTrades();
+      } catch (e) {
+        body.innerHTML = `<tr><td colspan='8' style='text-align:center;color:#f87171;'>Could not read closed trades: ${escapeHtml(String(e && e.message || e))}</td></tr>`;
+        return;
+      }
+      if (!rows.length) {
+        body.innerHTML = "<tr><td colspan='8' style='text-align:center;color:#94a3b8;'>This session has executed nothing, and the account reports no closed trades.</td></tr>";
+        return;
+      }
+      const recent = rows.slice(-25).reverse();
+      const note = `<tr><td colspan='8' style='color:#94a3b8;font-size:12px;padding:6px 8px;'>` +
+        `This session has executed nothing. Showing the last ${recent.length} of ${rows.length} closed trades on the account, ` +
+        `each labelled with who placed it.</td></tr>`;
+      body.innerHTML = note + recent.map((t) => {
+        const who = (t.attribution && t.attribution.owner) || 'unknown';
+        const mine = who === 'system';
+        const ownerCell = mine
+          ? "<span class='ok'>SmartEntry</span>"
+          : `<span class='muted' title='${escapeHtml((t.attribution && t.attribution.why) || '')}'>${escapeHtml(who)}</span>`;
+        // `net` is after swap and commission; `profit` is the gross figure. Showing gross here would
+        // flatter every row, which is the exact defect corrected in the backtester this week.
+        const net = Number(t.net ?? t.profit ?? 0);
+        const netClass = net > 0 ? 'ok' : (net < 0 ? 'bad' : '');
+        return `<tr>
+          <td>${escapeHtml(closedAt(t))}</td>
+          <td><strong>${escapeHtml(t.symbol || '')}</strong></td>
+          <td><span class='${String(t.direction).toUpperCase() === 'BUY' ? 'ok' : 'bad'}'>${escapeHtml(t.direction || '')}</span></td>
+          <td>${Number(t.volume || 0).toFixed(2)} lots</td>
+          <td>${ownerCell}</td>
+          <td class='${netClass}'><strong>${net.toFixed(2)}</strong></td>
+          <td><span class='muted'>closed</span></td>
+          <td><small>${escapeHtml(String(t.comment || '').slice(0, 24))}</small></td>
         </tr>`;
       }).join('');
     }
@@ -14271,24 +14342,31 @@ AUTO_TRADER_TEMPLATE = """
       let pnlSource = 'Session Fallback';
       let pnlSourceClass = 'fallback';
 
-      // If no tracked local open trades are available, fall back to broker open positions for visibility.
-      if (!openTrades.length && selectedPlatform === 'mt5') {
-        const brokerOpen = payload?.mt5_account?.summary?.open_positions_detail;
-        if (Array.isArray(brokerOpen) && brokerOpen.length) {
-          openTrades = brokerOpen.map((pos) => ({
-            executed_at: pos.time ? new Date(Number(pos.time) * 1000).toISOString().replace('T', ' ').slice(0, 19) : '',
-            symbol: pos.symbol || 'XAUUSD',
-            side: String(pos.direction || '').toUpperCase() === 'BUY' ? 'BUY' : 'SELL',
-            entry: Number(pos.price_open || 0),
-            current_price: Number(pos.price_current || pos.price_open || 0),
-            pnl_pct: null,
-            status: 'open',
-            broker_position: true,
-            broker_profit: Number(pos.profit || 0),
-          }));
-          pnlSource = 'MT5 Real';
-          pnlSourceClass = 'mt5';
-        }
+      // If no tracked local open trades are available, show what the BROKER actually holds.
+      //
+      // This used to require selectedPlatform === 'mt5'. The session platform is 'both', so the
+      // condition was never true and the panel reported "0 open trades" while the account held ten -
+      // which is what the owner saw. The platform no longer gates it; the server decides who placed
+      // each position (magic + comment + footprint) and the row says so, because ten open positions
+      // that are NOT this system's must never be shown as if they were.
+      const attributed = payload?.open_positions;
+      if (!openTrades.length && attributed && attributed.available && Array.isArray(attributed.rows) && attributed.rows.length) {
+        openTrades = attributed.rows.map((pos) => ({
+          executed_at: pos.time ? new Date(Number(pos.time) * 1000).toISOString().replace('T', ' ').slice(0, 19) : '',
+          symbol: pos.symbol || '',
+          side: String(pos.direction || '').toUpperCase() === 'BUY' ? 'BUY' : 'SELL',
+          volume: Number(pos.volume || 0),
+          entry: Number(pos.price_open || 0),
+          current_price: Number(pos.price_current || pos.price_open || 0),
+          pnl_pct: null,
+          status: 'open',
+          broker_position: true,
+          broker_profit: Number(pos.profit || 0),
+          owner: pos.owner || 'other',
+          owner_why: pos.owner_why || '',
+        }));
+        pnlSource = 'MT5 Real';
+        pnlSourceClass = 'mt5';
       }
 
       if (openTrades.some(t => Number.isFinite(Number(t.broker_profit)))) {
@@ -14301,6 +14379,21 @@ AUTO_TRADER_TEMPLATE = """
       
       // Update open trades count
       setText('at-open-trades-count', openTrades.length);
+      const splitNode = document.getElementById('at-open-trades-split');
+      if (splitNode) {
+        const att = payload?.open_positions;
+        if (att && att.available) {
+          const mine = att.system || { count: 0, profit: 0 };
+          const theirs = att.other || { count: 0, profit: 0 };
+          splitNode.textContent = theirs.count
+            ? `${mine.count} this system - ${theirs.count} from your other experts`
+            : `${mine.count} this system`;
+        } else if (att && att.reason) {
+          splitNode.textContent = att.reason;
+        } else {
+          splitNode.textContent = '';
+        }
+      }
 
       // Calculate unrealized P&L
       let totalUnrealizedPnl = 0;
@@ -14362,7 +14455,7 @@ AUTO_TRADER_TEMPLATE = """
       if (!tbody) return;
 
       if (!openTrades.length) {
-        tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;color:#94a3b8;'>No open trades.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;color:#94a3b8;'>No open positions on the account right now.</td></tr>";
         return;
       }
 
@@ -14382,13 +14475,23 @@ AUTO_TRADER_TEMPLATE = """
         const pnlColor = unrealizedPnl >= 0 ? '#22c55e' : '#f87171';
         const sideClass = trade.side === 'BUY' ? 'ok' : 'bad';
 
+        const mine = trade.owner === 'system';
+        // The label is the whole point of the fix: an unlabelled row reads as this system's work, and
+        // every open position on this account right now belongs to one of the owner's other experts.
+        const ownerCell = trade.owner
+          ? (mine ? "<span class='ok'>SmartEntry</span>"
+                  : `<span class='muted' title='${escapeHtml(trade.owner_why || '')}'>another expert</span>`)
+          : "<span class='muted'>this session</span>";
+
         return `<tr>
           <td>${trade.executed_at || ''}</td>
           <td><strong>${trade.symbol || ''}</strong></td>
           <td><span class='${sideClass}'>${trade.side || ''}</span></td>
+          <td>${Number.isFinite(Number(trade.volume)) && Number(trade.volume) ? Number(trade.volume).toFixed(2) : '--'}</td>
           <td>${entry.toFixed(2)}</td>
           <td style='color:${pnlColor};font-weight:600;'>${unrealizedPnl.toFixed(2)}</td>
           <td style='color:${pnlColor};font-weight:600;'>${unrealizedPct.toFixed(2)}%</td>
+          <td>${ownerCell}</td>
           <td>${durationText}</td>
           <td>${trade.broker_position ? '<span class="muted">Broker position</span>' : `<button onclick='closeTrade("${trade.symbol}", "${trade.side}")' style='padding:6px 10px;background:#f87171;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;'>Close</button>`}</td>
         </tr>`;
@@ -16544,7 +16647,13 @@ def jarvis_auto_voice_page():
 
 @app.route('/screenshot-learn')
 def screenshot_learn_page():
-  return render_template_string(SCREENSHOT_LEARN_TEMPLATE, theme_css=THEME_CSS)
+  # The template asks for {{ control_secret|tojson }} and this route used to pass only theme_css, so
+  # Jinja raised on the undefined and the page answered 500 - a dead link sitting in the main nav.
+  # The secret reaches the page only for requests from this PC, exactly as /auto-trader does it.
+  from src import execution_guard
+  control_secret = execution_guard.load_or_create_secret() if request.remote_addr in {'127.0.0.1', '::1'} else ''
+  return render_template_string(SCREENSHOT_LEARN_TEMPLATE, theme_css=THEME_CSS,
+                                control_secret=control_secret)
 
 
 @app.route('/api/learn')
@@ -16656,6 +16765,37 @@ def auto_trade_status_api():
       compact.append(item)
     payload_trades = compact
   
+  # Who owns each OPEN position. The page showed "0 open trades" while the broker held ten, because its
+  # fallback only ran when the platform selector said 'mt5' and the session platform is 'both'. Showing
+  # them raw would have broken the other standing rule - every one of those ten belongs to another expert
+  # - so ownership is decided HERE, by the same magic/comment/footprint test the closed-trade split uses,
+  # and the page renders the label rather than guessing.
+  open_positions = {'available': False, 'reason': 'MT5 not connected', 'rows': [],
+                    'system': {'count': 0, 'profit': 0.0}, 'other': {'count': 0, 'profit': 0.0}}
+  try:
+    detail = ((mt5_account or {}).get('summary') or {}).get('open_positions_detail') or []
+    if mt5_status.get('connected'):
+      from src.performance_analytics import attribute_trade
+
+      rows, totals = [], {'system': [0, 0.0], 'other': [0, 0.0]}
+      for position in detail:
+        who = attribute_trade(position)
+        bucket = 'system' if who.get('owner') == 'system' else 'other'
+        profit = float(position.get('profit') or 0)
+        totals[bucket][0] += 1
+        totals[bucket][1] += profit
+        rows.append({**position, 'owner': bucket, 'owner_confidence': who.get('confidence'),
+                     'owner_why': who.get('why')})
+      open_positions = {
+        'available': True, 'reason': '', 'rows': rows,
+        'system': {'count': totals['system'][0], 'profit': round(totals['system'][1], 2)},
+        'other': {'count': totals['other'][0], 'profit': round(totals['other'][1], 2)},
+      }
+  except Exception as exc:
+    # Never invent a state for the panel whose whole job is saying what is open.
+    open_positions = {'available': False, 'reason': f'{type(exc).__name__}: {exc}', 'rows': [],
+                      'system': {'count': 0, 'profit': 0.0}, 'other': {'count': 0, 'profit': 0.0}}
+
   return jsonify({
     'session': state.get('session'),
     'trades': payload_trades,
@@ -16666,6 +16806,7 @@ def auto_trade_status_api():
     'mt4': mt4_status,
     'mt5_account': mt5_account,
     'mt4_account': mt4_account,
+    'open_positions': open_positions,
   })
 
 
@@ -22657,8 +22798,10 @@ PERFORMANCE_TEMPLATE = r"""
       const symbol = document.getElementById('symbol').value;
       const magic = document.getElementById('magic').value;
       const scope = document.getElementById('scope-note');
-      if (scope) scope.textContent = magic === 'system' ? '— this system's own strategies only'
-        : magic ? `— expert ${magic} only` : '— every expert on the account, including ones that are not this system's';
+      // Backticks, not single quotes: the apostrophes in "system's" closed the string and killed this
+      // whole 185-line script block, so nothing on the Performance page ran at all.
+      if (scope) scope.textContent = magic === 'system' ? `— this system's own strategies only`
+        : magic ? `— expert ${magic} only` : `— every expert on the account, including ones that are not this system's`;
       try {
         const response = await fetch(`/api/performance?symbol=${symbol}${magic ? `&magic=${magic}` : ''}${refresh ? '&refresh=1' : ''}`);
         state.data = await response.json();
@@ -23111,7 +23254,10 @@ I40_BUILD_MAP_TEMPLATE = """<!doctype html>
   code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;padding:1px 5px;border-radius:3px;
     background:rgba(127,127,127,.14)}
 </style></head><body>
-{{ main_nav }}
+<!-- The .nav wrapper is required, not decoration: every rule in _MAIN_NAV_STYLE is written as
+     `.nav .nav-group ...`, so without an ancestor carrying that class the whole bar renders as raw
+     overlapping links. This page was the only one placing the nav unwrapped. -->
+<div class='nav'>{{ main_nav }}</div>
 <div class="bm-wrap" id="bm">
   <div class="bm-card">Loading the build map from the running system...</div>
 </div>
@@ -29435,29 +29581,49 @@ def jarvis_log_trade():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
+def _jarvis_ohlc_candles(yahoo_symbol: str, period: str = "1mo", limit: int = 0) -> tuple:
+  """(candles, last_close) from Yahoo, with the column names normalised the way src/data.py does it.
+
+  yfinance returns `Open`/`High`/`Low`/`Close`/`Volume`, and for a single ticker recent versions return a
+  MultiIndex. Both JARVIS endpoints indexed `row['open']` and so raised KeyError on every single call -
+  they had never worked. Returning an empty list rather than inventing bars keeps the rule that a missing
+  feed is reported, never filled in.
+  """
+  frame = yf.download(yahoo_symbol, period=period, progress=False, auto_adjust=False)
+  if frame is None or getattr(frame, "empty", True):
+    return [], 0.0
+  if hasattr(frame.columns, "nlevels") and frame.columns.nlevels > 1:
+    frame = frame.droplevel(-1, axis=1)
+  frame = frame.rename(columns={"Open": "open", "High": "high", "Low": "low",
+                                "Close": "close", "Volume": "volume"})
+  needed = ("open", "high", "low", "close")
+  if any(column not in frame.columns for column in needed):
+    return [], 0.0
+  rows = frame.tail(limit) if limit else frame
+  candles = []
+  for _, row in rows.iterrows():
+    try:
+      candles.append({"open": float(row["open"]), "high": float(row["high"]),
+                      "low": float(row["low"]), "close": float(row["close"]),
+                      "volume": int(row["volume"]) if "volume" in frame.columns and row["volume"] == row["volume"] else 0})
+    except (TypeError, ValueError):
+      continue
+  last_close = float(frame["close"].iloc[-1]) if len(frame) else 0.0
+  return candles, last_close
+
+
 @app.route('/api/jarvis/recommend', methods=['GET'])
 def jarvis_get_recommendation():
     """Get AI trade recommendation based on learned patterns"""
     symbol = request.args.get('symbol', 'BTCUSD')
     
     try:
-        if symbol == 'XAUUSD':
-            price_data = yf.download('GC=F', period='1d', progress=False)
-        else:
-            price_data = yf.download('BTC-USD', period='1d', progress=False)
-        
-        current_price = float(price_data['close'].iloc[-1]) if not price_data.empty else 0
-        
-        candles_data = []
-        for i in range(max(0, len(price_data) - 20), len(price_data)):
-            row = price_data.iloc[i]
-            candles_data.append({
-                'open': float(row['open']),
-                'high': float(row['high']),
-                'low': float(row['low']),
-                'close': float(row['close']),
-                'volume': int(row['volume'])
-            })
+        yahoo_symbol = 'GC=F' if symbol == 'XAUUSD' else 'BTC-USD'
+        candles_data, current_price = _jarvis_ohlc_candles(yahoo_symbol, period='1mo', limit=20)
+        if not candles_data:
+            return jsonify({'error': f'no price data available for {symbol}', 'symbol': symbol,
+                            'current_price': 0, 'entry_price': 0, 'stop_loss': 0, 'take_profit': 0,
+                            'confidence': 0}), 503
         
         rec = get_ai_trade_recommendation(symbol, current_price, candles_data)
         
@@ -29492,21 +29658,11 @@ def jarvis_analyze_chart():
     symbol = request.args.get('symbol', 'BTCUSD')
     
     try:
-        if symbol == 'XAUUSD':
-            price_data = yf.download('GC=F', period='1mo', progress=False)
-        else:
-            price_data = yf.download('BTC-USD', period='1mo', progress=False)
-        
-        candles_data = []
-        for i in range(len(price_data)):
-            row = price_data.iloc[i]
-            candles_data.append({
-                'open': float(row['open']),
-                'high': float(row['high']),
-                'low': float(row['low']),
-                'close': float(row['close']),
-                'volume': int(row['volume'])
-            })
+        yahoo_symbol = 'GC=F' if symbol == 'XAUUSD' else 'BTC-USD'
+        candles_data, _last_close = _jarvis_ohlc_candles(yahoo_symbol, period='1mo')
+        if not candles_data:
+            return jsonify({'error': f'no price data available for {symbol}', 'symbol': symbol,
+                            'available': False}), 503
         
         consolidation = pattern_recognition.detect_consolidation(candles_data)
         liquidity_gaps = pattern_recognition.detect_liquidity_gap(candles_data)
