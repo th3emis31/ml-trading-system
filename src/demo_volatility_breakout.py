@@ -96,11 +96,33 @@ def _candles(frame: pd.DataFrame) -> list:
                        low=float(r.low), close=float(r.close), volume=float(r.volume)) for r in rows.itertuples(index=False)]
 
 
+# The slow EMA exists only to classify the regime, never to gate an entry. Adding it to the JOURNAL is
+# additive; adding it to the signal would be the naive filter the NEVER-BLOCK rule forbids.
+REGIME_SLOW_EMA = 200
+
+
 def indicator_values(candles: list) -> dict:
     """ATR, EMA and RSI of the last closed candle, with the same Pine-matching functions as the signal."""
     closes = [c.close for c in candles]
     return {"atr": vtb.atr(candles, RULES.atr_len)[-1], "ema": vtb.ema(closes, RULES.ema_len)[-1],
-            "rsi": vtb.rsi(closes, RULES.rsi_len)[-1]}
+            "rsi": vtb.rsi(closes, RULES.rsi_len)[-1],
+            "ema_slow": vtb.ema(closes, REGIME_SLOW_EMA)[-1] if len(closes) >= 2 else None}
+
+
+def regime_phase(ema_fast, ema_slow, atr_value) -> Optional[str]:
+    """"trending" or "ranging", by the rule declared on 26 September 2026 BEFORE the split was measured:
+    trending when the EMA50/EMA200 gap exceeds one ATR, ranging otherwise.
+
+    Recorded on every trade so the live account can eventually confirm or kill the backtest finding that
+    this breakout earns three to four times more per trade in ranging conditions (+0.309 vs +0.096 R on
+    gold, +0.384 vs +0.099 on bitcoin, two markets independently). That split was chosen on full history,
+    so it is a HYPOTHESIS; only forward trades carrying this label can settle it.
+
+    It changes no decision. The strategy takes exactly the trades it took before.
+    """
+    if ema_fast is None or ema_slow is None or not atr_value:
+        return None
+    return "trending" if abs(float(ema_fast) - float(ema_slow)) > float(atr_value) else "ranging"
 
 
 # ----------------------------------------------------------------------------------------------- open trade
@@ -316,7 +338,11 @@ def _breakout_cycle(engine, bars_fn, calendar_events, now, config, state, events
     context = {"session": shared.session_name(now.hour),
                "regime": {"trend": "above EMA50" if last.close > (ind["ema"] or 0) else "below EMA50",
                           "ema50": round(ind["ema"], 2) if ind["ema"] else None, "rsi14": round(ind["rsi"], 1) if ind["rsi"] else None,
-                          "atr14": round(signal.atr, 2)},
+                          "atr14": round(signal.atr, 2),
+                          # added 26 Sep 2026: the trending/ranging label the backtest finding needs
+                          "ema200": round(ind["ema_slow"], 2) if ind.get("ema_slow") else None,
+                          "phase": regime_phase(ind.get("ema"), ind.get("ema_slow"), signal.atr),
+                          "phase_rule": "trending when |EMA50 - EMA200| > 1 ATR, else ranging"},
                "next_event": next_event, "minutes_to_next_tier1_event": minutes_to_next}
     if window["entries_blocked"]:
         return decide("refused", "tier-1 event window: " + ", ".join(f"{e['event']} {e['time_utc']}" for e in window["blocking_events"]),

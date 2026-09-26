@@ -244,3 +244,57 @@ def test_a_dry_run_order_is_not_journalled_as_placed(monkeypatch):
                                          "symbols": ["XAUUSD"]})
     assert summary["decision"] == "dry_run_order"
     assert [m for m in _memory_rows() if m.get("event") == "opened"] == []
+
+
+# --- the regime label the forward evidence needs (added 26 Sep 2026) ----------------------------
+
+def test_the_regime_phase_rule_is_the_one_declared_before_the_split_was_measured():
+    """trending when |EMA50 - EMA200| exceeds one ATR, ranging otherwise. Strict >, so equality ranges."""
+    from src.demo_volatility_breakout import regime_phase
+
+    assert regime_phase(1050, 1000, 10) == "trending"
+    assert regime_phase(1005, 1000, 10) == "ranging"
+    assert regime_phase(1010, 1000, 10) == "ranging", "a gap exactly one ATR wide is not trending"
+    assert regime_phase(950, 1000, 10) == "trending", "the rule is on the absolute gap, either direction"
+
+
+def test_a_missing_input_gives_no_label_rather_than_a_guess():
+    from src.demo_volatility_breakout import regime_phase
+
+    assert regime_phase(None, 1000, 10) is None
+    assert regime_phase(1000, None, 10) is None
+    assert regime_phase(1050, 1000, None) is None
+    assert regime_phase(1050, 1000, 0) is None
+
+
+def test_the_slow_ema_cannot_reach_the_entry_decision():
+    """Adding EMA200 to the JOURNAL is additive; adding it to the signal would be the naive filter the
+    NEVER-BLOCK rule forbids.
+
+    The decisive check is not a string search over the caller - it is that the SIGNAL GENERATOR has no
+    access to it. Entries come from src.volatility_trend_breakout, whose Config drives every rule, so if
+    that module knows nothing of a 200 EMA then no entry can be conditioned on one.
+    """
+    import inspect
+
+    from src import volatility_trend_breakout as vtb
+    from src.demo_volatility_breakout import REGIME_SLOW_EMA
+
+    signal_source = inspect.getsource(vtb)
+    assert "REGIME_SLOW_EMA" not in signal_source, "the signal module must not know the regime EMA"
+    assert vtb.Config().ema_len == 50, "the entry filter is the 50 EMA and nothing else"
+    assert REGIME_SLOW_EMA == 200 and REGIME_SLOW_EMA != vtb.Config().ema_len
+    # And no field of the Config that drives entries mentions the slow length.
+    assert 200 not in [getattr(vtb.Config(), f) for f in
+                       ("ema_len", "donchian_len", "atr_len", "rsi_len", "vol_ma_len", "max_bars")]
+
+
+def test_indicator_values_now_carries_the_slow_ema():
+    from src.demo_volatility_breakout import indicator_values
+    from src.volatility_trend_breakout import Candle
+
+    candles = [Candle(ts=f"2026-01-01T{i:02d}:00", open=100 + i, high=101 + i, low=99 + i,
+                      close=100 + i, volume=10.0) for i in range(300)]
+    out = indicator_values(candles)
+    assert "ema_slow" in out and out["ema_slow"] is not None
+    assert out["ema_slow"] < out["ema"], "on a rising series the slow EMA lags below the fast one"
