@@ -945,3 +945,52 @@ VERDICT: not adopted, nothing changed. Profitable is not the bar; the bar is pro
 survives a test. What would change this answer: a pre-declared parameter set tested on data chosen in
 advance, or the cluster condition tightened (mintest > 2, a narrower chwidth) and then re-tested - but any
 sweep would need its trial count deflating, which is why no sweep was run here.
+
+## 2026-09-26 — Monte Carlo (the project's own, `strategy_book.monte_carlo`, 2,000 resamples, seed 7)
+
+Per-position returns reconstructed exactly from the simulator's own accounting: each position's pnl
+divided by the equity that existed at that moment, not by the initial capital, so later trades are not
+overstated by the risk-based sizing.
+
+Approved bars, unchanged: `mc_max_loss_probability 0.20`, `min_rolling_share 0.55`.
+
+### Volatility Trend Breakout — the strategy already running on the demo account
+
+| | positions | PF | net | MC loss prob | MC median | MC 5th pct | MC p95 DD | rolling 12m positive | worst 12m |
+|---|---|---|---|---|---|---|---|---|---|
+| XAUUSD 4h, 19 y | 284 | 1.269 | +21.36 % | **4.2 % PASS** | +31.78 % | **+1.08 %** | 18.34 % | **59 % PASS** | −7.41 % |
+| BTCUSD 4h, 8.5 y | 250 | 1.254 | +30.10 % | **3.4 % PASS** | +35.00 % | **+2.65 %** | 18.02 % | **77 % PASS** | −5.06 % |
+
+**Passes both approved gates on both markets, and the 5th-percentile outcome is POSITIVE on both** - even
+the unlucky 1-in-20 reshuffling of its own trades still makes money. This is over gold's FULL 19 years, not
+the 2023+ tuning window, so it is not the in-sample number that was corrected earlier today. Gold's rolling
+share (59 % against a 55 % bar) passes but not comfortably.
+
+### Breakout finder LONG ONLY (the candidate from the owner's Pine indicator) — fails a gate on each market
+
+| | positions | PF | net | MC loss prob | MC 5th pct | rolling 12m positive |
+|---|---|---|---|---|---|---|
+| XAUUSD 4h | 92 | 1.333 | +9.01 % | 11.6 % pass | **−3.89 %** | **~55 % FAIL** (marginally under the bar) |
+| BTCUSD 4h | 102 | 1.172 | +6.67 % | **22.4 % FAIL** | **−8.54 %** | 86 % pass |
+
+Fails one approved gate on each market, its 5th-percentile outcome is NEGATIVE on both, and it had already
+failed the permutation test at p = 0.20 / 0.31. Not adopted.
+
+### What Monte Carlo does and does not establish, stated so the pass is not over-read
+
+Bootstrapping the trade sequence answers ONE question: how much of the observed result depends on the
+ORDER the trades happened to arrive in. It resamples with replacement from the SAME set of trades, so:
+
+* it assumes trades are independent and identically distributed, which destroys any regime clustering -
+  where losses actually arrive in runs, it understates drawdown;
+* it inherits whatever era the trades came from. A favourable sample stays favourable under resampling;
+* it therefore says nothing about whether the strategy will work on data it has never seen. It is a test
+  of luck-in-ordering, not of edge.
+
+The edge question is answered elsewhere and already was: this strategy's permutation test returned
+p = 0.01 (entry timing beats random timing), which is the result Monte Carlo cannot provide. The two
+together - timing better than chance, and a positive outcome across 2,000 reorderings with a positive 5th
+percentile - are the strongest combined evidence any strategy in this system currently has.
+
+Still NOT a promotion to real money: the deflated Sharpe bar has not been computed for this module, and the
+path remains research -> paper -> demo -> owner decision. It is already on demo. Nothing was changed.
