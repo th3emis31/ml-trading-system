@@ -298,3 +298,99 @@ def test_indicator_values_now_carries_the_slow_ema():
     out = indicator_values(candles)
     assert "ema_slow" in out and out["ema_slow"] is not None
     assert out["ema_slow"] < out["ema"], "on a rising series the slow EMA lags below the fast one"
+
+
+# --- MAE / MFE / holding time (added 26 Sep 2026) ------------------------------------------------
+
+def _long_bars(pairs):
+    from src.volatility_trend_breakout import Candle
+
+    return [Candle(ts=f"2026-01-{i+1:02d} 00:00", open=100.0, high=h, low=l, close=100.0, volume=1.0)
+            for i, (h, l) in enumerate(pairs)]
+
+
+# The signal bar sits BEFORE every bar _long_bars generates, so all of them count as held bars.
+# (Originally this was 2026-01-01, the same as the first generated bar - which only passed because the
+# code was including the signal bar, the off-by-one fixed on 26 Sep 2026.)
+_TRADE = {"side": "BUY", "signal_bar": "2025-12-31 00:00", "entry": 100.0, "r_price": 2.0,
+          "r_result": 1.5, "opened_at": "2026-01-01 00:00:00", "closed_at": "2026-01-04 12:00:00"}
+
+
+def test_mae_and_mfe_are_measured_in_r_from_the_entry():
+    from src.demo_volatility_breakout import excursion
+
+    out = excursion(_long_bars([(100.5, 99.0), (101.0, 98.5), (104.0, 100.0), (106.0, 103.0)]), _TRADE)
+    assert out["mae_r"] == -0.75, "worst low 98.5 is 1.5 below a 100 entry, over an R of 2"
+    assert out["mfe_r"] == 3.0, "best high 106 is 6 above entry, over an R of 2"
+    assert out["mae_price"] == 98.5 and out["mfe_price"] == 106.0
+    assert out["bars_held"] == 4
+
+
+def test_mfe_capture_shows_how_much_of_the_move_the_exits_kept():
+    """The number that changes decisions: a low capture says the exits, not the entries, lose the money."""
+    from src.demo_volatility_breakout import excursion
+
+    out = excursion(_long_bars([(106.0, 98.5)]), _TRADE)
+    assert out["mfe_capture"] == 0.5, "took 1.5R of the 3.0R that was available"
+
+
+def test_holding_time_comes_from_the_stamps_not_from_a_bar_count():
+    from src.demo_volatility_breakout import excursion
+
+    out = excursion(_long_bars([(101.0, 99.0)]), _TRADE)
+    assert out["hours_held"] == 84.0
+
+
+def test_a_short_trade_is_refused_rather_than_silently_inverted():
+    """MAE off the lows and MFE off the highs is only right for a long. Inverting the meaning of both
+    numbers without saying so would be worse than not measuring them."""
+    from src.demo_volatility_breakout import excursion
+
+    out = excursion(_long_bars([(101.0, 99.0)]), {**_TRADE, "side": "SELL"})
+    assert "mae_r" not in out
+    assert "only correct for a long" in out["excursion_note"]
+
+
+def test_nothing_here_can_stop_a_trade_being_settled():
+    """A missing measurement is a gap in the record; an exception during settlement would leave a real
+    position untracked. Every bad input must come back empty, never raise."""
+    from src.demo_volatility_breakout import excursion
+
+    for candles, trade in (([], _TRADE),
+                           (_long_bars([(1.0, 1.0)]), {"side": "BUY"}),
+                           (_long_bars([(1.0, 1.0)]), {**_TRADE, "r_price": 0}),
+                           (_long_bars([(1.0, 1.0)]), {**_TRADE, "entry": 0}),
+                           (None, _TRADE),
+                           (_long_bars([(1.0, 1.0)]), {**_TRADE, "opened_at": "not a date"})):
+        out = excursion(candles, trade)
+        assert isinstance(out, dict)
+
+
+def test_an_unparseable_stamp_loses_only_the_holding_time():
+    from src.demo_volatility_breakout import excursion
+
+    out = excursion(_long_bars([(106.0, 98.5)]), {**_TRADE, "closed_at": "nonsense"})
+    assert "hours_held" not in out
+    assert out["mae_r"] == -0.75, "the excursions must survive a bad timestamp"
+
+
+def test_the_signal_bars_own_low_is_not_counted_against_the_trade():
+    """The off-by-one that produced an impossible number on a real trade.
+
+    The entry fills at the signal bar's CLOSE, so that bar's low happened before the position existed.
+    Measured on the real 18 Sep BTCUSD trade, including it gave MAE -1.95R on a trade whose stop sat at
+    -1.0R - which could not have happened without being stopped out, and that is what exposed it.
+    """
+    from src.demo_volatility_breakout import excursion
+    from src.volatility_trend_breakout import Candle
+
+    bars = [
+        # the signal bar: a huge range, low far below where the entry will fill
+        Candle(ts="2026-01-01 00:00", open=90.0, high=100.5, low=80.0, close=100.0, volume=1.0),
+        Candle(ts="2026-01-02 00:00", open=100.0, high=103.0, low=99.0, close=102.0, volume=1.0),
+    ]
+    trade = {"side": "BUY", "signal_bar": "2026-01-01 00:00", "entry": 100.0, "r_price": 2.0}
+    out = excursion(bars, trade)
+    assert out["mae_price"] == 99.0, "MAE must come from bars after the entry, not the signal bar's low"
+    assert out["mae_r"] == -0.5
+    assert out["bars_held"] == 1, "the signal bar is not a bar the position was held for"

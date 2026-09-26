@@ -109,6 +109,66 @@ def indicator_values(candles: list) -> dict:
             "ema_slow": vtb.ema(closes, REGIME_SLOW_EMA)[-1] if len(closes) >= 2 else None}
 
 
+def excursion(candles: list, trade: dict) -> dict:
+    """MAE, MFE, how long it was held, and how much of the available move the exits actually captured.
+
+    Added 26 September 2026. These are the fields every later analysis needs and none of them could be
+    reconstructed afterwards, because they depend on the bars BETWEEN entry and exit - once the trade is
+    closed and the journal written, that path is gone.
+
+    * MAE (maximum adverse excursion), in R: the worst the trade ever looked. It answers whether the stop
+      is wider than it needs to be - a book of winners with MAE never below -0.4R is paying for 1.5 ATR
+      of stop it does not use.
+    * MFE (maximum favourable excursion), in R: the best the trade ever looked.
+    * `mfe_capture`: the realised R as a share of MFE. This is the one that changes decisions - a capture
+      of 0.3 across many trades says the exits, not the entries, are where the money is going.
+
+    LONG ONLY, and it says so rather than assuming: this strategy only buys, so MAE reads the lows and
+    MFE the highs. If a short side is ever added this returns nothing rather than silently inverting the
+    meaning of both numbers.
+
+    Wrapped so that no failure here can stop a trade being settled and journalled. A missing measurement
+    is a gap in the record; a raised exception during settlement would be a position left untracked.
+    """
+    try:
+        if str(trade.get("side", "BUY")).upper() != "BUY":
+            return {"excursion_note": "not computed: this helper reads lows for MAE and highs for MFE, "
+                                      "which is only correct for a long trade"}
+        bar = trade.get("signal_bar") or (trade.get("setup") or {}).get("signal_bar")
+        entry, r_price = float(trade.get("entry") or 0), float(trade.get("r_price") or 0)
+        if not bar or r_price <= 0 or entry <= 0:
+            return {}
+        # STRICTLY AFTER the signal bar. The entry is filled at the signal bar's CLOSE
+        # (process_orders_on_close), so that bar's own low happened before the position existed and
+        # including it overstates MAE badly. Measured on the real 18 Sep BTCUSD trade it gave MAE -1.95R
+        # on a trade whose stop sat at -1.0R - an impossible number, which is what exposed the off-by-one.
+        # The simulator's own rule agrees: protective orders become active on the following bar.
+        since = [c for c in candles if c.ts > bar]
+        if not since:
+            return {}
+        worst, best = min(c.low for c in since), max(c.high for c in since)
+        mae_r, mfe_r = (worst - entry) / r_price, (best - entry) / r_price
+        out = {"mae_r": round(mae_r, 4), "mfe_r": round(mfe_r, 4),
+               "mae_price": round(worst, 2), "mfe_price": round(best, 2),
+               "bars_held": len(since),
+               "excursion_note": "MAE/MFE on closed candles AFTER the signal bar (entry fills at its close)"}
+        realised = trade.get("r_result")
+        if realised is not None and mfe_r > 0:
+            out["mfe_capture"] = round(float(realised) / mfe_r, 4)
+        opened, closed = trade.get("opened_at"), trade.get("closed_at")
+        if opened and closed:
+            fmt = "%Y-%m-%d %H:%M:%S"
+            try:
+                a = datetime.strptime(str(opened)[:19], fmt)
+                b = datetime.strptime(str(closed)[:19], fmt)
+                out["hours_held"] = round((b - a).total_seconds() / 3600.0, 2)
+            except ValueError:
+                pass
+        return out
+    except Exception as exc:                      # never block settlement
+        return {"excursion_note": f"not computed ({type(exc).__name__}: {exc})"}
+
+
 def regime_phase(ema_fast, ema_slow, atr_value) -> Optional[str]:
     """"trending" or "ranging", by the rule declared on 26 September 2026 BEFORE the split was measured:
     trending when the EMA50/EMA200 gap exceeds one ATR, ranging otherwise.
@@ -211,7 +271,10 @@ def manage_breakout_trade(engine, state: dict, trade: dict, candles: list, confi
             "mode": "demo_broker_fill", "trade_id": trade["id"], "side": "BUY", "opened_at": trade["opened_at"],
             "closed_at": trade["closed_at"], "setup": trade["setup"], "session": trade["session"], "regime": trade["regime"],
             "next_event": trade["next_event"], "minutes_to_next_tier1_event": trade["minutes_to_next_tier1_event"],
-            "legs": parts, "r_result": trade["r_result"], "net_money": trade["net_money"]})
+            "legs": parts, "r_result": trade["r_result"], "net_money": trade["net_money"],
+            # MAE/MFE/holding time: computed here because the bars between entry and exit are gone once
+            # the trade is closed, so this is the only moment they can be recorded.
+            **excursion(candles, trade)})
         events.append(shared.log("trade_closed", now, f"trade {trade['id']} closed at {r_total:+.2f}R ({money:+.2f})",
                                  sink=sink, trade_id=trade["id"], r_result=trade["r_result"], net_money=trade["net_money"]))
     return events
