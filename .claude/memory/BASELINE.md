@@ -994,3 +994,83 @@ percentile - are the strongest combined evidence any strategy in this system cur
 
 Still NOT a promotion to real money: the deflated Sharpe bar has not been computed for this module, and the
 path remains research -> paper -> demo -> owner decision. It is already on demo. Nothing was changed.
+
+## 2026-09-26 — the owner's three gold-backtest requirements, worked through
+
+### 1. Spread and slippage, including news widening — CANNOT BE MEASURED ON THIS FEED
+
+Pulled 40,000 M1 XAUUSD bars with MT5's own per-bar `spread` field and grouped by UTC hour, expecting
+the CPI/NFP (12:00-13:00) and FOMC (18:00-19:00) windows to blow out. They do not:
+
+| | median | p90 | p99 | max |
+|---|---|---|---|---|
+| all hours | 0.00479 % | 0.00490 % | 0.00602 % | 0.00652 % |
+| 12:00 and 13:00 UTC | 0.00479 % | 0.00489 % | 0.00492 % | 0.00568 % |
+| 18:00 and 19:00 UTC | 0.00479 % | 0.00489 % | 0.00492 % | 0.00493 % |
+
+Every hour is 1.00x the all-day median except 22:00 (1.16x, the rollover hour). The reason is in the raw
+values: **95.8 % of gold M1 bars report exactly 21 points, and only SIX distinct values exist in 40,000
+bars (21-28).** BTCUSD is the same shape — 86.9 % at exactly 1694 points, seven distinct values.
+
+That is a **fixed-spread feed**, not a variable one. So there is no news widening in this data to fit a
+multiplier to, and any "news-aware cost model" built from it would be invented rather than measured. The
+owner's point stands and is if anything stronger than stated: the backtests are **understating real
+news-time cost**, because the data cannot show it.
+
+**So the edge was stress-tested instead of fitted.** Volatility Trend Breakout, costs multiplied:
+
+| cost multiple | XAUUSD PF / net | BTCUSD PF / net |
+|---|---|---|
+| 1x (0.04 %/side) | 1.269 / **+21.36 %** | 1.254 / **+30.10 %** |
+| 2x | 1.135 / **−4.51 %** | 1.216 / +19.50 % |
+| 3x | 1.018 / −24.82 % | 1.180 / +9.76 % |
+| 5x | 0.826 / −53.33 % | 1.112 / −7.42 % |
+| 8x | 0.621 / −77.09 % | 1.020 / −28.28 % |
+
+**Gold's edge dies at just over 2x cost. Bitcoin survives to roughly 4x.** This is the single most
+important number in the whole exercise: if news widening touches a meaningful share of gold entries, the
+gold edge could be illusory, while bitcoin has real headroom. Gold's result should be read as conditional
+on costs staying near the quoted fixed spread — which a live variable-spread account would not honour.
+
+UNRESOLVED INCONSISTENCY, recorded rather than explained away: at 2x cost on gold, PF reads 1.135 (above
+one) while net is −4.51 %. If PF were gross dollar profit over gross dollar loss those two could not
+disagree in sign, so `metrics()` must compute PF on a different basis (R multiples or per-leg) than the
+compounded equity curve that produces `net_pct`. Worth resolving before either number is quoted alone.
+
+### 2. Continuous back-adjusted data — DOES NOT APPLY to the primary path, DOES apply to the fallback
+
+The broker feed is Vantage **XAUUSD spot CFD**, which has no contract months and therefore no rolls, so
+back-adjustment is not a concern for any result in this file that used injected broker bars. It IS a
+concern for the fallback: `run_walkforward_backtest` **defaults to Yahoo `GC=F`**, a front-month futures
+contract with roll gaps and a ~1.4 % basis against broker spot. Today's walk-forward avoided it by
+injecting broker bars explicitly, and every gold run in this file should do the same. The default is a
+trap worth closing.
+
+### 3. Sample size across regimes — MET for the live strategy, NOT met for the candidates
+
+Regime rule declared before looking: trending when |EMA50 − EMA200| exceeds 1 ATR at entry, ranging
+otherwise. One rule, no variants tried.
+
+| XAUUSD 4h | positions | win | R/position |
+|---|---|---|---|
+| trending | 231 | 48.9 % | +0.096 |
+| **ranging** | **53** | **60.4 %** | **+0.309** |
+| total | **284** | | MEETS the 100-200 bar |
+
+| BTCUSD 4h | positions | win | R/position |
+|---|---|---|---|
+| trending | 204 | 45.1 % | +0.099 |
+| **ranging** | **46** | **56.5 %** | **+0.384** |
+| total | **250** | | MEETS the 100-200 bar |
+
+**The breakout performs three to four times better per trade in RANGING conditions than trending, on both
+markets independently.** Counter-intuitive for a trend-breakout strategy, and it makes sense on
+reflection: breaking out OF a range is a regime change with follow-through, while a "breakout" inside an
+established trend is often continuation already in the price.
+
+DESCRIPTIVE, NOT A VALIDATED FILTER — the same caveat as the plan-journal rows of 17 Sep. The split was
+chosen on the full history, and ranging has only 53 and 46 positions, below the 100 minimum on its own. It
+is a hypothesis worth a pre-declared test on later data, not a rule to switch on.
+
+By contrast the candidates fail this requirement outright: breakout finder long-only has 92 positions on
+gold and 102 on bitcoin, and the SwingTrendPullback holdout has 57.
