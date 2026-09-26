@@ -734,3 +734,129 @@ a 3-bar-ahead direction on hourly bars, which may simply carry no learnable sign
 that is a question about the TARGET and is testable the same way.
 
 Full record: `data/lstm_feature_test.json`, ledger row `data/self_improvement.jsonl`.
+
+## 2026-09-26 — XAUUSD 1h walk-forward, and why it buys into a falling market
+
+Run at the owner's request after they identified the failure themselves: *"is been open 3, 4 trade for
+gold buy when the market was bearish"*. They were right, and here is the measurement.
+
+**THE INCIDENT, 23 September 2026.** Nine SmartEntry XAUUSD BUY trades opened between 11:22 and 11:30,
+all 0.01 lot, all losing, **−91.05 total**. Measured market context at that hour from broker bars: gold
+had fallen six consecutive hours, price 4309.52 was **39 points BELOW its EMA200 (4348.93)**, the prior
+24h was −12.24, and it fell a further −11.05 over the next 12h. Both guards are now in place and have
+held — `app.py:17233` counts existing positions on both magics before opening, and `app.py:6878` emits
+UNAVAILABLE rather than a signal from synthetic data. No stacking has occurred since (24 Sep: 1 trade,
+25 Sep: 2 trades).
+
+**WALK-FORWARD, out of sample, real broker bars (injected, not Yahoo).** XAUUSD 1h, 3 folds, test period
+2026-03-26 → 2026-09-25, 2,989 test bars, 425 trades, costs at the project's measured
+`round_trip_pct 0.000115`, `signal_mode="rf_proba"`, seed 42.
+
+| | |
+|---|---|
+| net return | **−11.06 %** |
+| win rate | **30.4 %** |
+| Sharpe | **−1.437** |
+| expectancy per trade | **−0.0262 %** |
+| longest losing streak | 13 |
+| max drawdown | 24.49 % (at the 0.52/0.48 threshold variant) |
+| **long / short split** | **543 long vs 20 short** |
+
+**The 543:20 split is the finding.** The model is structurally a buy-only model, which is the mechanism
+behind "it buys when the market is bearish" — it almost never says sell.
+
+**Inverse baseline** (the same signals traded backwards): −3.83 %, PF 0.965, expectancy −0.0079 %. So
+flipping it does not make money either; the signals carry little information and the losses are largely
+cost plus noise. It is slightly *worse* than its own inverse, i.e. a mild negative edge.
+
+**Permutation test, 200 draws** (each draw keeps the exact signal count and long/short mix, changing only
+which bars they land on, so direction bias cannot flatter it): return percentile 85.0, but **expectancy
+percentile 64.0, p = 0.3632, `beats_chance` = False**. Engine verdict: *"No timing skill shown… explained
+by its direction bias and the market's drift rather than by prediction."*
+
+**SUPPORTING MARKET FACT** (20,000 broker 1h bars, 2023-05 → 2026-09, no model involved). Forward net
+return after the same costs, by position relative to the EMA200:
+
+| hold | below EMA200 | above EMA200 |
+|---|---|---|
+| 4h | **−0.0031 %** | +0.0100 % |
+| 12h | +0.0094 % | +0.0562 % |
+| 24h | +0.0438 % | +0.1160 % |
+| 96h | +0.2781 % | +0.4595 % |
+
+And the exact 23-September shape — below EMA200 **and** lower than 6h ago, held 12h: **−0.0132 %**,
+win 51.1 %, n = 4,784. Negative after costs. Buying gold above its EMA200 paid roughly 2.5–3× more at
+every horizon tested.
+
+Caveat stated rather than buried: hourly bars with 12–24h holds overlap heavily, so n = 4,784 is not
+4,784 independent observations — effective independence is nearer 400. The direction and consistency of
+the gap across five horizons is the signal here, not the precision of any single number.
+
+**LIMITATION — this is the RF half only.** `signal_mode="live_engine"`, which is what the dashboard
+actually uses (RF + LSTM 50/50), **could not be run: the process is killed loading the LSTM** with
+~500 MB of RAM free on a 7.5 GB machine. RF-only completed in 21 s. So the live blend's out-of-sample
+record on these bars remains unmeasured, and that is a hardware limit, not a result.
+
+**WHAT THIS DOES NOT AUTHORISE.** Under the NEVER-BLOCK rule this is evidence for an improvement, not a
+licence to bolt a trend filter onto the signal path. Nothing live was changed. The next step, if the
+owner wants it, is to prove a trend-aware model on accumulated data and demonstrate it before it touches
+any live behaviour.
+
+## 2026-09-26 — strategy backtests on the two strategies the owner actually runs
+
+### SwingTrendPullback, the LIVE EA inputs (`strategy_lab ea --spec tradingview`)
+
+Locked search/validation/holdout split, broker bars, costs `spread+swap-v3-percent-rt0.0115`.
+
+| XAUUSD 4h | trades | PF | net | DD | win | verdict |
+|---|---|---|---|---|---|---|
+| search 2008-2022 | 151 | **0.679** | **−53.25 %** | 57.99 % | 31.8 % | losing |
+| validation 2022-2024 | 57 | 1.631 | +20.95 % | 4.88 % | 40.4 % | |
+| **holdout 2024-09→2026-09** | **57** | **1.207** | **+11.11 %** | 22.36 % | 43.9 % | **FAILED** |
+
+Holdout verdict detail: `deflated_sharpe 0.576` (per-trade Sharpe 0.0777 against 0.052 needed — passes that
+sub-check but the overall gate fails), `max_drawdown` check **false**, and **`beats_buy_and_hold` false** —
+buy-and-hold made **+70.67 %** over the same holdout while the strategy made +11.11 %. Profitable in only
+**0.5 of 10 years**.
+
+XAUUSD 1h: search 524 trades PF 0.976 (−5.44 %); validation 191 PF 1.313 (+16.82 %); **holdout 170 trades
+PF 1.078 (+5.59 %), FAILED** (`profit_factor` check false, deflated Sharpe 0.3802, short by 0.0232).
+Profitable in 0.625 of 8 years.
+
+**151 long / 0 short on 4h, 524 long / 0 short on 1h.** The live EA is long-only on gold, the same
+structural bias as the RF model. That is the mechanism behind buying into a falling market.
+
+### Volatility Trend Breakout — AND A CORRECTION TO GUARD AGAINST
+
+Ran `src/volatility_trend_breakout.py` on XAUUSD 4h broker bars (16,000, 2007-09 → 2026-09) with the
+owner's Config defaults, splitting 70/30 and calling the last 30 % a holdout.
+
+**That split is INVALID and the number must not be used.** The last 30 % is 2023-08 → 2026-09, which sits
+inside the 2023-01 → 2026-09 TradingView window the Pine script's parameters were chosen and viewed on.
+BASELINE rows of 17 and 18 September already recorded exactly this. What the run produced —
+96 positions, win 79.2 %, **PF 2.265**, net **+41.19 %**, DD 6.31 %, expectancy 0.478 R, and a permutation
+test at **expectancy percentile 99.5, p = 0.01, `beats_chance` True** — is therefore **in-sample** and
+reproduces the already-recorded PF ~2.0 for that window. It is not new evidence and it is not a pass.
+
+What the same run shows on data the parameters were NOT chosen on:
+
+| window | PF | read |
+|---|---|---|
+| train 70 %, 2007-09 → 2023-08 | **0.928** | losing |
+| the 2023+ tuning window | 2.265 | in-sample, already known |
+
+Consistent with the 17 Sep rows (2007-2022: PF 0.974–0.990, −8.8 %, ~0.00 R/position). The genuinely
+out-of-sample evidence for this strategy remains **BTCUSD**, which its settings were never fitted to:
+248 trades, PF 1.232, +26.68 %, win 64.0 %, 0.139 R, DD 12.72 % (row of 18 Sep). Positive, thin, and the
+celebrated PF ~2.0 belongs to gold's recent window only.
+
+One thing the permutation test does still establish, even in-sample: within that window the entry TIMING
+beat random timing at the same long/short mix and trade count, so the result is not purely "it was long
+while gold rose". That separates timing from direction bias; it does not make the window out-of-sample.
+
+### Net position after today
+
+Of the three things measured on gold, **none clears the evidence bar**: the RF model shows no timing skill
+(p = 0.36, −11.06 %), the live EA fails its holdout gate and loses to buy-and-hold, and the breakout's
+headline number is in-sample. The one positive out-of-sample result in the whole set is the breakout on
+**bitcoin**, at PF 1.232. Nothing live was changed by any of this.
