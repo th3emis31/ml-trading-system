@@ -1615,3 +1615,70 @@ timing, deflated Sharpe 0.258 against the 0.95 bar.
 **No live input, preset, demo strategy or EA changed.** New: `src/volume_profile.py` (16 tests) and
 `src/smart_entry_arch.py`. `print_variant_table` consolidated into `strategy_lab` — a second lab needed the
 same table, so there is one printer rather than two copies drifting apart.
+
+---
+
+## 2026-09-26 — the owner's six H1 manual winners: what the candles show, and why it is not an edge
+
+The owner marked six of their own winning XAUUSD H1 trades and asked what happens on the candles before
+each turn. `src/turn_anatomy.py` answers it: given a window, it finds the extreme bar and describes the
+lead-in candles against Parabolic SAR, RSI(12), three EMAs, the prior 20-bar extreme, body size and volume.
+**Both SAR and Wilder's RSI had to be written — this project had neither.**
+
+**The indicator setup was fitted rather than guessed.** The screenshots are from the mobile terminal, so
+nothing on this PC holds the template. Matching the three plotted lines against real H1 bars on two dates
+gives **EMA ≈ 10 / 21 / 50** — EMA50 matched the red line to within a few points on both.
+
+### What is actually common to the six turns
+
+| turn | kind | swept prior 20-bar extreme | RSI at turn | biggest body in the lead |
+|---|---|---|---|---|
+| 09-09 00:00 | low | **yes** (4341.29 < 4345.87) | 37.4 (from 25.9) | 1.80× |
+| 09-10 06:00 | high | **yes** (4434.76 > 4434.06) | 59.8 | 2.55× |
+| 09-14 13:00 | low | **yes** (4253.56 < 4265.89) | 29.0 | 2.30× |
+| 09-17 00:00 | low | no | 41.1 | **7.53×** (volume 2.02×) |
+| 09-22 19:00 | high | no | 62.9 | 1.57× |
+| 09-25 14:00 | low | **yes** (4254.60 < 4256.25) | 48.0 | 2.81× (volume 1.44×) |
+
+**Every one of the six has a displacement candle — body 1.5× to 7.5× its own 20-bar average — within
+three candles of the turn**, and five of six turn on volume at or above average. Four of six swept the
+prior 20-bar extreme. Lows turned from RSI 29–48, highs from 59–63.
+
+### And none of it predicts anything
+
+Measured over all 50,000 H1 gold bars: how often is a bar followed by a move of +1 ATR within 12 hours
+before −1 ATR?
+
+| | occurrences | hit rate |
+|---|---|---|
+| **any bar (base rate)** | 49,927 | **48.4%** |
+| displacement candle | 10,738 | 48.1% |
+| oversold RSI < 32 | 4,005 | 47.3% |
+| stretched > 1 ATR below EMA50 | 14,473 | 48.3% |
+| swept low + oversold + displacement | 1,116 | 49.1% |
+| **all six features together** | 948 | **47.8%** |
+
+Every combination lands within a point of the coin flip, including all six together. The features describe
+what a turn looks like; they occur just as often when no turn follows. **The six charts were selected by
+their outcome, which is the same selection that makes every strategy screenshot look convincing.**
+
+### The artefact I nearly reported instead
+
+The first pass used FIXED DOLLAR thresholds (+$25 within 12h before −$25) and produced
+**"stretched $30 below EMA50" at 38.8% against an 11.5% base rate** — a 3.4× edge, stable across three
+settings. It was entirely an artefact: the data spans gold 2,000 → 4,400, so a fixed $30 stretch and a
+fixed $25 target both select high-volatility moments, while the base rate is dragged down by quiet bars
+where neither threshold is reached in twelve hours. Normalising both to ATR collapses it to 48.3 % against
+48.4 %. **A fixed price threshold across a market that quadrupled is not a threshold, it is a volatility
+filter.**
+
+### What this does and does not say
+
+It does not say the owner's manual trading has no edge — their manual trades are the profitable part of
+this account. It says the edge is **not in these single-bar features**, so it lives in something this test
+cannot see: which of the ~950 yearly occurrences they choose to take, the context around them, or how they
+manage the exit. That is the thing worth extracting next, and it needs the trades themselves rather than
+the chart pictures.
+
+**No live input, preset, demo strategy or EA changed.** 13 tests. A real bug found by them: `find_turn`
+crashed on an already-tz-aware timestamp, which is what any caller passing a value from a frame would do.
