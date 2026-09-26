@@ -40,6 +40,9 @@ import numpy as np
 
 from . import strategy_lab as lab
 from .cisd import cisd_arrays
+# Promoted to strategy_lab on 26 Sep 2026 because it never depended on CISD: it reads whatever
+# the registered builder produced. Re-exported here so existing callers keep working.
+from .strategy_lab import permutation_check  # noqa: F401
 
 MIN_RUNS = (1, 2)
 SWEEP_LOOKBACKS = (10, 20)
@@ -156,73 +159,6 @@ def run(symbols=("XAUUSD", "BTCUSD"), timeframes=("1h", "4h")) -> dict:
                     encoding="utf-8")
     report["path"] = str(path)
     return report
-
-
-def permutation_check(market: lab.Market, spec: dict, *, split: str = "holdout", draws: int = 400,
-                      seed: int = 20260926) -> dict:
-    """Is this variant's profit skill, or would any trades of this shape and size have done as well?
-
-    Each draw fires the SAME NUMBER of trades, with the SAME long/short mix and the SAME risk distances,
-    at randomly chosen bars in the same period, through the same stops, targets, time exit, spread and
-    swap. Only WHEN the trade happens changes. So the p-value answers one question exactly: does the CISD
-    pattern pick moments, or is it just a way of being in this market with this stop?
-
-    A deflated Sharpe asks whether a result survives the number of things tried. This asks something the
-    deflation cannot: whether the timing carries any information at all. Simulates only; never trades.
-    """
-    side, stop, target = lab.strategy_orders(market.ind, spec)
-    rows = market.rows[split]
-    signal_rows = rows[side[rows] != 0]
-    if len(signal_rows) < 20:
-        return {"available": False, "reason": f"only {len(signal_rows)} signals in {split}; too few to permute"}
-
-    real = market.summary(split, market.simulate(spec, split))
-    real_net = float(real.get("total_return_pct") or 0.0)
-
-    close = market.ind.c
-    sides = side[signal_rows].astype(int)
-    # Risk in PRICE units for each real trade, reused so the draws are sized like the real ones.
-    risks = np.abs(close[signal_rows] - stop[signal_rows])
-    reward = float(spec["params"]["rr"])
-
-    atr = market.ind.atr(14)
-    eligible = rows[np.isfinite(atr[rows]) & (atr[rows] > 0)]
-    eligible = eligible[eligible < len(close) - 2]
-    if len(eligible) < len(signal_rows) * 3:
-        return {"available": False,
-                "reason": f"{len(eligible)} eligible bars for {len(signal_rows)} signals; too few to permute"}
-
-    rng = np.random.default_rng(seed)
-    beats = 0
-    nets = []
-    for _ in range(draws):
-        picked = rng.choice(eligible, size=len(signal_rows), replace=False)
-        order = rng.permutation(len(signal_rows))
-        fake_side = np.zeros_like(side)
-        fake_stop = np.full(len(close), np.nan)
-        fake_target = np.full(len(close), np.nan)
-        for slot, bar in enumerate(picked):
-            s = int(sides[order[slot]])
-            risk = float(risks[order[slot]])
-            if not np.isfinite(risk) or risk <= 0:
-                continue
-            fake_side[bar] = s
-            fake_stop[bar] = close[bar] - risk if s == 1 else close[bar] + risk
-            fake_target[bar] = close[bar] + reward * risk if s == 1 else close[bar] - reward * risk
-        trades = market.simulate(spec, split, orders=(fake_side, fake_stop, fake_target))
-        net = float(market.summary(split, trades).get("total_return_pct") or 0.0)
-        nets.append(net)
-        if net >= real_net:
-            beats += 1
-
-    nets_array = np.asarray(nets, dtype=float)
-    return {"available": True, "split": split, "draws": draws,
-            "real_net_pct": round(real_net, 3), "real_trades": int(real.get("trades") or 0),
-            "random_mean_pct": round(float(nets_array.mean()), 3),
-            "random_p95_pct": round(float(np.percentile(nets_array, 95)), 3),
-            "beaten_by": int(beats),
-            "p_value": round((beats + 1) / (draws + 1), 4),
-            "note": "same trade count, long/short mix, risk distances, exits and costs; only the bars differ"}
 
 
 def print_report(report: dict) -> None:

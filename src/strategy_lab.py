@@ -708,6 +708,100 @@ def near_misses(registry: Optional[dict] = None, limit: int = 12) -> list:
     return out[:limit]
 
 
+def permutation_check(market: 'Market', spec: dict, *, split: str = "holdout", draws: int = 400,
+                      seed: int = 20260926, match_filter: bool = True) -> dict:
+    """Is this variant's profit skill, or would any trades of this shape and size have done as well?
+
+    Each draw fires the SAME NUMBER of trades, with the SAME long/short mix and the SAME risk distances,
+    at randomly chosen bars in the same period, through the same stops, targets, time exit, spread and
+    swap. Only WHEN the trade happens changes. So the p-value answers one question exactly: does the CISD
+    pattern pick moments, or is it just a way of being in this market with this stop?
+
+    A deflated Sharpe asks whether a result survives the number of things tried. This asks something the
+    deflation cannot: whether the timing carries any information at all. Simulates only; never trades.
+
+    ``match_filter`` (default on) draws each random trade from only the bars where that trade's OWN
+    direction was permitted by the spec's trend filter. Without it the control is unfair in both
+    directions and was measurably misleading: on gold the EMA400 variants keep nearly every trade long,
+    so random timing inherited a long bias into a market that rose 71 %, and the "random" arm made
+    +7.3 % - which understates the pattern by charging it for a filter it is not being credited with.
+    With the filter matched, the question becomes the only one worth asking: does the CANDLE add anything
+    on top of "be long above the EMA"?
+    """
+    side, stop, target = strategy_orders(market.ind, spec)
+    rows = market.rows[split]
+    signal_rows = rows[side[rows] != 0]
+    if len(signal_rows) < 20:
+        return {"available": False, "reason": f"only {len(signal_rows)} signals in {split}; too few to permute"}
+
+    real = market.summary(split, market.simulate(spec, split))
+    real_net = float(real.get("total_return_pct") or 0.0)
+
+    close = market.ind.c
+    sides = side[signal_rows].astype(int)
+    # Risk in PRICE units for each real trade, reused so the draws are sized like the real ones.
+    risks = np.abs(close[signal_rows] - stop[signal_rows])
+    reward = float(spec["params"]["rr"])
+
+    atr = market.ind.atr(14)
+    usable = rows[np.isfinite(atr[rows]) & (atr[rows] > 0)]
+    usable = usable[usable < len(close) - 2]
+
+    # One pool per direction. With no trend filter both pools are the same bars.
+    pools = {1: usable, -1: usable}
+    trend_ema = int((spec.get("params") or {}).get("trend_ema") or 0) if match_filter else 0
+    if trend_ema:
+        ema = market.ind.ema(trend_ema)
+        with np.errstate(invalid="ignore"):
+            pools = {1: usable[close[usable] > ema[usable]], -1: usable[close[usable] < ema[usable]]}
+    for direction in (1, -1):
+        wanted = int(np.count_nonzero(sides == direction))
+        if wanted and len(pools[direction]) < wanted * 3:
+            return {"available": False,
+                    "reason": (f"{len(pools[direction])} eligible bars for {wanted} "
+                               f"{'long' if direction == 1 else 'short'} signals; too few to permute")}
+    eligible = usable
+
+    rng = np.random.default_rng(seed)
+    beats = 0
+    nets = []
+    for _ in range(draws):
+        order = rng.permutation(len(signal_rows))
+        # Draw each trade from the pool its own direction was allowed to trade in.
+        taken: dict = {}
+        for direction in (1, -1):
+            wanted = int(np.count_nonzero(sides == direction))
+            taken[direction] = list(rng.choice(pools[direction], size=wanted, replace=False)) if wanted else []
+        fake_side = np.zeros_like(side)
+        fake_stop = np.full(len(close), np.nan)
+        fake_target = np.full(len(close), np.nan)
+        for slot in range(len(signal_rows)):
+            s = int(sides[order[slot]])
+            bar = int(taken[s].pop())
+            risk = float(risks[order[slot]])
+            if not np.isfinite(risk) or risk <= 0:
+                continue
+            fake_side[bar] = s
+            fake_stop[bar] = close[bar] - risk if s == 1 else close[bar] + risk
+            fake_target[bar] = close[bar] + reward * risk if s == 1 else close[bar] - reward * risk
+        trades = market.simulate(spec, split, orders=(fake_side, fake_stop, fake_target))
+        net = float(market.summary(split, trades).get("total_return_pct") or 0.0)
+        nets.append(net)
+        if net >= real_net:
+            beats += 1
+
+    nets_array = np.asarray(nets, dtype=float)
+    return {"available": True, "split": split, "draws": draws,
+            "real_net_pct": round(real_net, 3), "real_trades": int(real.get("trades") or 0),
+            "random_mean_pct": round(float(nets_array.mean()), 3),
+            "random_p95_pct": round(float(np.percentile(nets_array, 95)), 3),
+            "beaten_by": int(beats),
+            "p_value": round((beats + 1) / (draws + 1), 4),
+            "match_filter": bool(trend_ema),
+            "note": ("same trade count, long/short mix, risk distances, exits and costs; only the bars differ"
+                     + (f"; random bars drawn from the same side of the EMA{trend_ema}" if trend_ema else ""))}
+
+
 def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional[dict]:
     holdout = record.get("holdout")
     if not holdout:

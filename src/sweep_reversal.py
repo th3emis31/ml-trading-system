@@ -28,6 +28,16 @@ REWARD_RATIOS = (1.0, 2.0, 3.0)
 BODY_FILTERS = (True, False)
 MAX_BARS = 30          # a reversal that has not worked within five days is not the trade that was drawn
 MODES = ("reject", "continue")
+# The owner's refinement, 26 September 2026: "manipulate lower than previous low and close above the
+# previous high for buy, and the same opposite for sell". Neither existing mode is this. `reject` sweeps
+# the high and closes back BELOW that same high; `continue` sweeps the high and closes ABOVE that same
+# high. This one uses BOTH extremes in OPPOSITE directions on one candle: take out the low, then close
+# above the high. It is a far stricter bar - a full engulf on top of a sweep - so it fires much less often.
+RECLAIM_MODE = "reclaim"
+# How many previous candles form the levels. 1 is the owner's words read literally ("the previous low",
+# "the previous high"); 2 and 3 are mild generalisations tested beside it rather than instead of it.
+RECLAIM_REFS = (1, 2, 3)
+RECLAIM_TREND_EMAS = (0, 400)
 STOP_BUFFER = 0.02     # of ATR, so the stop sits just beyond the wick rather than exactly on it
 
 
@@ -63,7 +73,25 @@ def sweep_orders(ind: lab.Indicators, spec: dict):
     #   "continue" - the candle CLOSES BEYOND the level: trade with it. This is the owner's own
     #                wording, "if the close above the previous high buy, if the close below sell",
     #                and it is the case the first version explicitly threw away.
-    if str(p.get("mode", "reject")) == "continue":
+    if str(p.get("mode", "reject")) == RECLAIM_MODE:
+        # The owner's 26 September rule. `ref` candles back, using shift(1) so the manipulation candle
+        # never sets the level it is judged against.
+        ref = int(p.get("ref") or 1)
+        ref_high = ind.highest(ref, shift=1)
+        ref_low = ind.lowest(ref, shift=1)
+        with np.errstate(invalid="ignore"):
+            long = (ind.l < ref_low) & (ind.c > ref_high) & np.isfinite(ref_low) & np.isfinite(ref_high)
+            short = (ind.h > ref_high) & (ind.c < ref_low) & np.isfinite(ref_low) & np.isfinite(ref_high)
+        trend_ema = int(p.get("trend_ema") or 0)
+        if trend_ema:
+            # The record is explicit about why this is tested both ways: without a trend filter the
+            # continuation reading made +40 % on gold's 2024-26 run and lost 50 % over the fifteen ranging
+            # years before it, which is a regime result rather than an edge.
+            ema = ind.ema(trend_ema)
+            with np.errstate(invalid="ignore"):
+                long = long & (ind.c > ema)
+                short = short & (ind.c < ema)
+    elif str(p.get("mode", "reject")) == "continue":
         short = swept_low & (ind.c < prior_low) & (bearish_body if require_body else True)
         long = swept_high & (ind.c > prior_high) & (bullish_body if require_body else True)
         # A close beyond the range is a breakout, and a breakout needs a trend to continue into.
@@ -86,7 +114,9 @@ def sweep_orders(ind: lab.Indicators, spec: dict):
     for index in np.flatnonzero(short | long):
         if not np.isfinite(atr[index]) or atr[index] <= 0:
             continue
-        continuation = str(p.get("mode", "reject")) == "continue"
+        # A reclaim is stopped at the candle's own far side for the same reason a continuation is:
+        # the sweep wick IS the invalidation, so the stop belongs beyond it.
+        continuation = str(p.get("mode", "reject")) in ("continue", RECLAIM_MODE)
         if short[index]:
             # fading: risk is the sweep wick above. continuing: risk is the candle's own high.
             entry_ref, stop_price = ind.c[index], ind.h[index] + buffer[index]
@@ -131,6 +161,30 @@ FORWARD_CANDIDATE = {
                     "candle's own far side, target 2 R, gold 4H (the owner's manipulation-candle rule)"),
     "variant": FORWARD_VARIANT,
 }
+
+
+def reclaim_variants(symbol: str, timeframe: str) -> list:
+    """The owner's 26 September rule: 18 per market - 3 reference windows x 3 reward ratios x 2 trend filters.
+
+    Declared as its own grid rather than folded into `sweep_variants`, so the trial count charged against
+    it is the number of things actually tried for THIS rule and not the whole family's history.
+    """
+    out = []
+    for ref, rr, trend_ema in product(RECLAIM_REFS, REWARD_RATIOS, RECLAIM_TREND_EMAS):
+        name = f"reclaim|ref{ref}|rr{rr:.0f}|{'ema' + str(trend_ema) if trend_ema else 'notrend'}"
+        out.append({
+            "family": "sweep_reversal",
+            "params": {"symbol": symbol, "timeframe": timeframe, "ref": ref, "rr": rr,
+                       "mode": RECLAIM_MODE, "trend_ema": trend_ema, "lookback": ref,
+                       "require_body": False},
+            "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
+                      "max_bars": MAX_BARS, "swing_lookback": 0},
+            "description": (f"4H candle takes out the low of the previous {ref} candle(s) AND closes above "
+                            f"their high (mirrored for sells), stop beyond its own swept extreme, {rr:.0f}R"
+                            + (f", only with the EMA{trend_ema}" if trend_ema else "")),
+            "variant": name,
+        })
+    return out
 
 
 def sweep_variants(symbol: str, timeframe: str) -> list:

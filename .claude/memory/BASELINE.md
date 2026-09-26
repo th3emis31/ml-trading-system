@@ -1431,3 +1431,75 @@ Nothing here justifies changing a live input; the standing rule stands.
 **Also fixed while measuring:** `_deflation_note` described a candidate ABOVE sr₀ as "short by −0.03",
 which reads as a shortfall when it is a surplus — the difference between "no edge" and "a real but unproven
 edge". 15 + 8 tests.
+
+---
+
+## 2026-09-26 — the owner's refined manipulation candle: sweep the LOW, close above the HIGH
+
+**The rule, in the owner's words:** *"4H wait for manipulation. To manipulate lower than previous low and
+to close above the previous high for buy, and the same opposite for sell."*
+
+This is a THIRD reading of the manipulation candle and neither earlier one is it. `reject` sweeps the high
+and closes back **below** that same high. `continue` sweeps the high and closes **above** that same high.
+This one uses **both extremes in opposite directions on one candle**: take out the low, then close above
+the high — a full engulf on top of a sweep. Added as mode `reclaim` in `src/sweep_reversal.py` (extending
+the module that already owns this family, not a new one). `ref=1` is the owner's words read literally;
+`ref` 2 and 3 are mild generalisations tested beside it. **Grid declared first: 3 refs × 3 reward ratios ×
+2 trend filters × 2 markets = 36 trials.**
+
+### The numbers, which are the best this family has produced
+
+| market | variant | search | validation | holdout | PF | maxDD | inverse |
+|---|---|---|---|---|---|---|---|
+| XAUUSD 4h | `ref1 rr3 ema400` | +26.21% (271) | +10.57% (112) | **+24.98% (100)** | 1.43 | 7.90% | −15.12% |
+| XAUUSD 4h | `ref1 rr2 ema400` | +14.59% (290) | +17.55% (128) | **+21.94% (106)** | 1.40 | 8.25% | −19.02% |
+| BTCUSD 4h | `ref1 rr3 notrend` | **−16.18%** (352) | +12.04% (128) | +36.13% (122) | 1.31 | 20.27% | −31.49% |
+
+12 of 18 gold variants and 13 of 18 bitcoin variants profitable after costs. **5 gold variants are positive
+on all three splits**, all of them trend-filtered. `ref1` — the literal reading — is the best setting on
+both markets, which is worth saying plainly: the owner's exact words beat both of my generalisations.
+
+**For the first time in this family a variant clears the 100-trade holdout minimum** (100 and 106 trades),
+and `ref1 rr3 ema400` passes **4 of the 5 holdout checks**: profit factor, trades, drawdown and positive
+return. Only the deflated Sharpe fails, at **0.555** against the 0.95 bar (per-trade Sharpe 0.14, which is
+*above* the 0.1271 where deflation begins to clear).
+
+### The control that decided it, and it is not the flattering one
+
+A permutation drew the same number of trades, same long/short mix, same risk distances and same exits at
+random bars. First run, drawing from ALL bars: p = 0.110, random mean +7.3%. **That control was unfair and
+I nearly reported it as the answer.** The EMA400 filter keeps nearly every trade long, so the random arm
+inherited a long bias into a market that rose 71% — it was being judged partly on the filter.
+
+`permutation_check` now takes `match_filter` (default on): each random trade is drawn only from bars where
+its own direction was permitted by the spec's trend filter. That asks the one question worth asking — does
+the CANDLE add anything on top of "be long above the EMA400"?
+
+| variant | real | random (filter matched) | p |
+|---|---|---|---|
+| XAUUSD `reclaim ref1 rr3 ema400` | +24.98% | **+15.46%** | **0.257** |
+| XAUUSD `reclaim ref1 rr2 ema400` | +21.94% | +11.67% | 0.227 |
+| XAUUSD `continue lb40 rr2 ema400` (the live forward candidate) | +26.32% | +15.65% | **0.232** |
+| BTCUSD `reclaim ref1 rr3 notrend` (no filter to match) | +36.13% | **−15.88%** | **0.032** |
+
+**On gold the money is the EMA400, not the candle.** Firing the same trades at random bars on the right
+side of the EMA made +15.5% on average against the pattern's +25.0%, and the random 95th percentile is
++41.1%. The candle's contribution sits inside the noise.
+
+**This also qualifies the live forward test** `sweep_continue_xau_4h` (BASELINE 2026-09-19): its +26.69%
+holdout is the same story, p = 0.232 filter-matched. Its 0 forward trades in a week cost nothing, so it
+keeps running — but it should not be expected to prove the candle.
+
+**On bitcoin the candle timing IS informative** — random timing loses 15.9% where the pattern makes 36.1%,
+p = 0.032 — but that variant is **negative in the search window (−16.18% over 352 trades)**, so it is not
+consistent across history and cannot be trusted either.
+
+### Verdict
+
+Nothing passed. Best deflated Sharpe 0.555 against the 0.95 bar. The owner's rule produces the best-looking
+numbers this family has had and the first 100-trade holdout, but the filter-matched permutation says the
+gold result is carried by the trend filter, and the bitcoin result that *is* carried by the pattern fails
+its search window. **No live input, preset, demo strategy or EA changed.**
+
+The strongest *timing* evidence measured today remains the CISD row above — gold 4h, p = 0.015, where the
+random arm LOSES money and no trend filter is involved to muddy it. 14 + 11 tests.
