@@ -783,8 +783,19 @@ def _deflation_note(achieved: Optional[float], target: Optional[float], dsr: Opt
         return "too few holdout trades to measure a per-trade Sharpe"
     if dsr is not None and dsr >= HOLDOUT_CRITERIA["min_deflated_sharpe"]:
         return f"per-trade Sharpe {achieved} clears the {target} needed against this many trials"
-    return (f"per-trade Sharpe {achieved} against the {target} needed at this trial count; "
-            f"short by {round(target - achieved, 4)}")
+    gap = round(target - achieved, 4)
+    if gap > 0:
+        return (f"per-trade Sharpe {achieved} against the {target} needed at this trial count; "
+                f"short by {gap}")
+    # sr0 is where confidence in the edge reaches 50 %, not where it reaches 95 %. A candidate ABOVE it
+    # has started clearing the deflation and still fails the bar, and the old wording called that
+    # "short by -0.03", which reads as a shortfall when it is a surplus. Saying so plainly matters: this
+    # is the difference between "no edge at all" and "a real but unproven edge", and they are not the
+    # same message to act on.
+    return (f"per-trade Sharpe {achieved} is {abs(gap)} ABOVE the {target} where deflation starts to "
+            f"clear, so confidence is {dsr if dsr is not None else 'unmeasured'} - short of the "
+            f"{HOLDOUT_CRITERIA['min_deflated_sharpe']} bar, which needs either a stronger edge or more "
+            "trades at this one")
 
 
 def evaluate_candidate(market: Market, spec: dict, with_holdout: bool = False) -> dict:

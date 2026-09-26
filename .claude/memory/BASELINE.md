@@ -1360,3 +1360,74 @@ toward crediting the system, so it can only make the automatic trading look wors
 **Every account figure in earlier rows of this file that was not filtered by magic AND footprint overstates
 this system's performance.** The honest figure is +GBP 53.28 over three months, with the automatic route at
 −GBP 62.81.
+
+---
+
+## 2026-09-26 — CISD (Change In State Of Delivery), the owner's card, backtested
+
+**Source.** The owner's own card: *bullish = a candle closing ABOVE the series of down-close candles that
+swept lows; bearish = the mirror; "a CISD is essentially an Orderblock."* `src/cisd.py` implements exactly
+that and nothing else. Four things the card leaves open had to be fixed to measure it, each stated in the
+module and each with a test: the line sits at the **open of the first candle of the run** (what makes it an
+orderblock), "swept" means the run's extreme **took out the prior 10/20-bar extreme**, only the **first**
+closure through the line fires, and the level **expires** after `max_wait` bars.
+
+**Method.** `src/cisd_lab.py` through the Strategy Lab's own engine, so the cost model, the swap, the
+search/validation/holdout split and the deflated Sharpe are the same ones every other row in this file used.
+Entry at the NEXT bar's open. Stop beyond the swept extreme + 0.25 ATR; target at `rr` × that risk; 48-bar
+time exit. **Grid declared before any result was seen:** 2 run lengths × 2 sweep lookbacks × 2 wait windows
+× 2 reward ratios × 2 markets × 2 timeframes = **64 trials**, all counted in the deflation.
+
+### Result: 23 of 64 variants profitable after costs on the holdout
+
+| market | best variant | holdout trades | net | PF | maxDD | Sharpe | buy & hold |
+|---|---|---|---|---|---|---|---|
+| XAUUSD 4h | `run2 sweep10 wait3 rr1` | 42 | **+20.72%** | 1.81 | 6.17% | 1.16 | +71.2% |
+| XAUUSD 4h | `run1 sweep10 wait3 rr2` | 63 | **+25.61%** | 1.48 | 12.85% | 0.90 | +71.2% |
+| BTCUSD 4h | `run2 sweep10 wait5 rr2` | 48 | **+16.15%** | 1.26 | 19.86% | 0.58 | +0.6% |
+| XAUUSD 1h | best of 16 | 156 | +0.82% | 1.03 | 15.47% | — | +61.8% |
+| BTCUSD 1h | best of 16 | 171 | −15.78% | 0.87 | 24.28% | — | −29.0% |
+
+### The controls, which is where this gets interesting
+
+**Permutation test (400 draws, same trade count, same long/short mix, same risk distances, same exits and
+costs — only WHEN the trade fires changes):**
+
+| variant | real | random mean | random 95th | p |
+|---|---|---|---|---|
+| XAUUSD 4h `run2 sweep10 wait3 rr1` | +20.72% | **−5.89%** | +11.66% | **0.015** |
+| XAUUSD 4h `run1 sweep10 wait3 rr2` | +25.61% | **−2.61%** | +23.20% | **0.042** |
+| BTCUSD 4h `run2 sweep10 wait5 rr2` | +16.15% | −9.15% | +35.16% | 0.157 |
+
+Random timing with the same trades **loses money** on gold 4h while CISD timing makes 20–26%. **The
+pattern's timing carries information on gold 4h.** On bitcoin it does not: p = 0.157, so that +16% is inside
+what luck produces.
+
+**Inverse control:** on gold 4h every profitable variant's inverse is strongly negative (−18% to −36%), so
+the direction carries information too, not just the exits.
+
+**Three splits:** `run2 sweep10 wait3 rr1` is positive on all three — search +6.02% (131 trades),
+validation +2.95% (39), holdout +20.72% (42). 212 trades in total, all three positive. The higher-return
+`run1 … rr2` is **negative on validation (−7.33%, PF 0.81)**, so its bigger holdout number is the weaker
+result, not the stronger one.
+
+### Verdict: a real but unproven edge, and it does not get money
+
+**Nothing passed the 0.95 deflated Sharpe bar.** Best DSR **0.47** (gold 4h, 64 trials): per-trade Sharpe
+0.1627 against the 0.1716 where deflation begins to clear. At 42–63 holdout trades there is not enough
+evidence yet, which is a statement about the sample size as much as the edge.
+
+Three further honest marks against it:
+1. **It lost to buy-and-hold on gold** (+20.7% vs +71.2%) in a window where gold rallied hard — though at
+   6.2% max drawdown against a far larger one for holding, and in the market a fraction of the time.
+2. **1h is a losing timeframe on both markets.** The pattern needs 4h; reading the card as timeframe-free
+   would be wrong.
+3. **Below the 100-trade holdout minimum** (42 and 63), so by this file's own rule it is *insufficient
+   evidence*, not a pass.
+
+**What would settle it:** the gold 4h variant accumulating holdout trades at the same per-trade Sharpe.
+Nothing here justifies changing a live input; the standing rule stands.
+
+**Also fixed while measuring:** `_deflation_note` described a candidate ABOVE sr₀ as "short by −0.03",
+which reads as a shortfall when it is a surplus — the difference between "no edge" and "a real but unproven
+edge". 15 + 8 tests.
