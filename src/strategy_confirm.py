@@ -151,6 +151,62 @@ def years_to_prove(per_trade_sharpe: float, trades_per_year: float,
     return round(need / trades_per_year, 1)
 
 
+def assess(returns, trades_per_year: float = 0.0, n_trials: int = CONFIRM_SLOTS,
+           label: str = "") -> dict:
+    """PROVABILITY: not "did it make money" but "can this ever be proven, and how fast".
+
+    This is the measure that was missing. Every result today answered profitability and left provability
+    implicit, which is how a strategy needing 146 years of evidence looked comparable to one needing three
+    months. The ranking it produces is different from a ranking by return, and it is the one that decides
+    what is worth waiting for.
+
+    `per_trade_sharpe` is mean over standard deviation of PER-POSITION percentage returns - the same
+    quantity `deflated_sharpe` consumes, so the numbers join up rather than being a parallel invention.
+    """
+    values = [float(r) for r in (returns or [])]
+    if len(values) < 10:
+        return {"label": label, "trades": len(values), "measurable": False,
+                "why": f"only {len(values)} trades; fewer than 10 cannot support a Sharpe estimate"}
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+    sd = math.sqrt(variance)
+    if sd <= 0:
+        return {"label": label, "trades": len(values), "measurable": False,
+                "why": "zero variance in the returns"}
+    sr = mean / sd
+    need = trades_needed(sr, n_trials)
+    years = years_to_prove(sr, trades_per_year, n_trials) if trades_per_year else None
+    if need is None:
+        verdict = "CANNOT PASS at this trial count - the edge is below the floor, so no evidence helps"
+    elif years is None:
+        verdict = f"provable in {need:,} trades (trade rate unknown, so no timescale)"
+    elif years <= 1:
+        verdict = f"provable in {need:,} trades, about {years} year - worth registering"
+    elif years <= 5:
+        verdict = f"provable in {need:,} trades, about {years} years - slow but reachable"
+    else:
+        verdict = f"needs {need:,} trades, about {years} years - too slow to be useful"
+    return {"label": label, "trades": len(values), "measurable": True,
+            "mean_pct": round(mean, 4), "sd_pct": round(sd, 4),
+            "per_trade_sharpe": round(sr, 5), "floor": round(floor_for(n_trials), 4),
+            "n_trials": n_trials, "trades_needed": need,
+            "years_to_prove": years, "trades_per_year": trades_per_year or None,
+            "verdict": verdict}
+
+
+def rank(assessments: list) -> list:
+    """Best first, by how SOON a thing can be proven - unprovable ideas last whatever they returned.
+
+    Sorting by return would put a 146-year candidate above a three-month one. This sorts by the question
+    that actually governs whether money can ever follow.
+    """
+    def key(a):
+        if not a.get("measurable") or a.get("trades_needed") is None:
+            return (2, 0.0)
+        return (0, a.get("years_to_prove") if a.get("years_to_prove") is not None else 9e9)
+    return sorted(assessments, key=key)
+
+
 def read_confirmations(base: Optional[Path] = None) -> list:
     path = confirm_ledger(base)
     if not path.exists():

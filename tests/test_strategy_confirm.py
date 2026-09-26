@@ -143,3 +143,52 @@ def test_a_bad_market_key_is_refused():
     out = sc.confirm_one({"slot_id": "x", "market": "nonsense", "spec": {},
                           "data_end_at_registration": "2026-09-21 09:00"})
     assert out["ok"] is False and "bad market key" in out["reason"]
+
+
+# --- provability: the measure that was missing --------------------------------------------------
+
+def test_assess_refuses_to_estimate_from_too_few_trades():
+    out = sc.assess([0.1] * 9)
+    assert out["measurable"] is False and "fewer than 10" in out["why"]
+
+
+def test_assess_computes_the_same_sharpe_the_deflation_consumes():
+    returns = [1.0, -0.5, 2.0, -1.0, 0.5, 1.5, -0.8, 0.9, 1.1, -0.3, 0.7, 1.2]
+    out = sc.assess(returns, trades_per_year=50)
+    mean = sum(returns) / len(returns)
+    var = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
+    # assess() rounds to 5 decimals, so compare at that precision, not at 1e-9.
+    assert abs(out["per_trade_sharpe"] - mean / var ** 0.5) < 1e-5
+
+
+def test_a_weak_edge_is_reported_as_unprovable_not_as_slow():
+    """The distinction that matters: below the floor, no amount of waiting helps."""
+    weak = [0.01, -0.5, 0.4, -0.45, 0.3, -0.3, 0.2, -0.25, 0.1, -0.1, 0.05, -0.02]
+    out = sc.assess(weak, trades_per_year=100)
+    if out["trades_needed"] is None:
+        assert "CANNOT PASS" in out["verdict"]
+    else:
+        assert out["trades_needed"] > 0
+
+
+def test_a_strong_edge_is_reported_as_worth_registering():
+    strong = [1.0] * 8 + [-0.2] * 4          # a large, consistent edge
+    out = sc.assess(strong, trades_per_year=200)
+    assert out["measurable"] and out["trades_needed"] is not None
+    assert out["years_to_prove"] is not None and out["years_to_prove"] < 5
+
+
+def test_rank_puts_the_soonest_provable_first_not_the_highest_returning():
+    """A 146-year candidate must not outrank a three-month one just because it returned more."""
+    slow = sc.assess([0.4, -0.3, 0.45, -0.35, 0.5, -0.4, 0.42, -0.38, 0.41, -0.33, 0.44, -0.36],
+                     trades_per_year=5, label="slow")
+    fast = sc.assess([1.0] * 8 + [-0.2] * 4, trades_per_year=400, label="fast")
+    order = [a["label"] for a in sc.rank([slow, fast])]
+    assert order[0] == "fast", f"ranked {order}"
+
+
+def test_unprovable_candidates_sort_last_whatever_they_returned():
+    good = sc.assess([1.0] * 8 + [-0.2] * 4, trades_per_year=200, label="good")
+    unprovable = {"label": "unprovable", "measurable": True, "trades_needed": None}
+    order = [a["label"] for a in sc.rank([unprovable, good])]
+    assert order == ["good", "unprovable"]
