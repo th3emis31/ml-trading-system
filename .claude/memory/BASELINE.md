@@ -1682,3 +1682,56 @@ the chart pictures.
 
 **No live input, preset, demo strategy or EA changed.** 13 tests. A real bug found by them: `find_turn`
 crashed on an already-tz-aware timestamp, which is what any caller passing a value from a frame would do.
+
+---
+
+## 2026-09-27 — the owner's real trades, at last: they short gold, and the system buys it
+
+**The correction that produced this.** The owner sent six H1 charts of their winning trades and asked what
+the candles before each turn showed. I answered from the PICTURES — eyeballing date windows, describing
+those, and concluding "no edge". They replied: *"you still not checking what I have ask you, you still
+working with wrong tools."* The account holds every one of those trades with an exact entry timestamp,
+already split from the system's by `attribute_trade`. `src/manual_edge.py` reads them.
+
+### What the real trades say, on XAUUSD H1
+
+| | trades | BUY | SELL |
+|---|---|---|---|
+| **this system** | 17 | **15 (−£76.79)** | 2 (+£68.18) |
+| **the owner** | 54 | 3 (−£52.89) | **51 (+£494.95)** |
+
+The owner's gold trading is **94 % short**, wins **70.6 %** of those, and made **+£494.95**. The system's
+gold trading is **88 % long** and its longs **lost £76.79**.
+
+**And it is not direction luck.** Over the window those trades span (28 June → 12 August 2026) gold ROSE
+**+8.98 %**, from 4,062.77 to 4,427.59. Selling a market that rose nine per cent and winning seven times
+in ten is the opposite of riding a trend — it is timing.
+
+### Winners against losers, which the screenshots could never show
+
+36 winners (+£819.95) against 18 losers (−£377.89). The gaps at entry:
+
+| feature (known BEFORE entry) | winners | losers |
+|---|---|---|
+| SAR had just flipped | 33.3 % | 22.2 % |
+| fast EMA aligned with the trade | 44.4 % | 55.6 % |
+| swept the prior 20-bar extreme | 19.4 % | 11.1 % |
+| entry hour (UTC, mean) | 14.1 | 10.9 |
+
+By session: **18:00–23:00 UTC — 12 trades, 12 winners, +£351.80.** 13:00–17:00 — 22 trades, 54.5 %,
++£141.37. 08:00–12:00 — 10 trades, 70 % win but **−£72.87** net, so the losses there are bigger than the
+wins.
+
+**One trap named rather than used:** winners were held 2.75 h and losers 3.69 h. That is an OUTCOME, not a
+predictor — a winner ends when it reaches target — and it cannot be used to choose a trade.
+
+### What this means for the system
+
+The system's strategies are long-biased on gold by construction (the RF model 543 long to 20 short, the
+SwingTrendPullback EA 151 long to 0 short), which is the direction the owner does NOT make money in. Every
+strategy backtested this week was symmetric or long-biased. **The thing that earns on this account is
+short-side gold timing, and the system cannot do it.**
+
+**Honest limits:** 3 buys is far too few to say buys lose; 12 of 12 in the late session is twelve trades;
+all 54 sit inside about six weeks of one regime. This is a direction to test, not a proven edge, and it
+needs a holdout like anything else. **No live input, preset, demo strategy or EA changed.** 9 tests.
