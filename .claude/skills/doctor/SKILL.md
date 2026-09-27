@@ -1,6 +1,6 @@
 ---
 name: doctor
-family: software
+family: core
 description: Check whether this project is safe to work in — wrong working directory, hooks that silently never run, memory that has stopped being written, disabled schedules, empty or corrupt data files, credentials in tracked files, and a server exposed to the network. Run at the start of a session and before trusting any result.
 ---
 
@@ -49,16 +49,11 @@ than not having one.
 
 ## Acceptance
 
-A doctor that reports its own health is worth nothing, so nothing here is adjudicated by the model.
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
 
 ```acceptance
 run: python scripts/doctor.py --quiet
 file: .claude/hook-log
-ask: does the session banner say the wiring loaded, and is the working directory the project root?
+ask: does every FAIL have either a fix applied or a reason recorded, rather than being noted and passed over?
 ```
-
-`scripts/doctor.py --quiet` prints only problems, so its exit code is the verdict. `.claude/hook-log`
-is the independent evidence for the one claim the doctor cannot make about itself: hooks that silently
-never run leave no log, and a doctor inside a session with no hooks would report a clean bill anyway.
-The owner answers the last one because the working directory is the one fault that makes every other
-check read the wrong files.

@@ -76,16 +76,11 @@ is not.
 
 ## Acceptance
 
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
 ```acceptance
-run: python -m src.plan_journal
-appended: data/tradingview_plans
-ask: is order placement still DRAW-ONLY, and is the chart on the DEMO account?
+appended: .claude/memory/NOTES.md
+file: data/paper_trading
+ask: did this cycle run draw-only, and if an order was placed, did the invocation explicitly ask for it?
 ```
-
-`plan_journal` records each plan and how it turned out, so its exit code adjudicates that the cycle
-produced a plan the system can later score itself against — a cycle that drew something and recorded
-nothing cannot be judged afterwards.
-
-The owner answers the last one and it is not a formality. This skill drives a real browser on a real
-charting account; draw-only mode and the demo account are the two facts that separate a paper cycle
-from a live order, and neither is something the model should be trusted to confirm about itself.

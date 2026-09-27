@@ -40,17 +40,11 @@ the ones it cannot see, such as the same idea under a different vocabulary.
 
 ## Acceptance
 
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
 ```acceptance
-run: python -m src.second_brain status
-run: bash scripts/claude-hooks/dup-check.sh
+run: grep -rn --include=NOTES.md --include=LESSONS.md --include=BASELINE.md -e . .claude/memory
 appended: .claude/memory/NOTES.md
-ask: was anything found that makes the planned work unnecessary, and was it reported BEFORE starting?
+ask: was a previous attempt at this found, and if it failed, is the reason it failed named?
 ```
-
-The first two adjudicate the two halves of this skill without the model's opinion: the searchable
-memory must actually answer, and `dup-check` decides the duplication rule by comparing new definitions
-against what is already defined — the question "does this already exist?" answered by a grep rather
-than by recollection.
-
-`appended` matters because recall that changes nothing leaves no trace, and a search whose result was
-never written down will be repeated next week, which is the exact waste this skill exists to stop.

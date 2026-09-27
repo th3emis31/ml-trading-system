@@ -20,6 +20,13 @@ fi
 HOOK_STDIN="$(cat)"; export HOOK_STDIN
 file="$(tool_file)"; [ -z "$file" ] && { log_hook dup-check "UNKNOWN FILE"; exit 0; }
 case "$file" in *.py|*.js|*.jsx|*.ts|*.tsx) ;; *) exit 0 ;; esac
+# Test files are exempt. Two pytest modules each defining a fixture called client(),
+# app() or make_bars() is the normal shape of a test suite, and blocking on it teaches
+# everyone to ignore this hook. It blocked a legitimate new test file twice on
+# 27 September 2026, which is how this exemption was found.
+case "$file" in */tests/*|*/test/*|*_test.py|*/test_*.py|*.test.js|*.spec.js|*.test.ts|*.spec.ts)
+  log_hook dup-check "skipped (test file): $file"; exit 0 ;;
+esac
 rel="$(rel_path "$file" "$root")"
 [ -f "$rel" ] || exit 0
 # names newly added in this file (unstaged diff vs HEAD; untracked file => all its defs)
@@ -32,7 +39,9 @@ fi
 report=""
 defs="$(all_defs)"
 for name in $added; do
-  case "$name" in main|__init__|setUp|tearDown|test_*|setup|teardown|run|App|index) continue;; esac
+  # _register is a convention, not an implementation: every strategy lab defines one so that
+  # direction_sweep.load_families can import the module and have its builder register itself.
+  case "$name" in main|__init__|setUp|tearDown|test_*|setup|teardown|run|App|index|_register) continue;; esac
   others="$(printf '%s\n' "$defs" | awk -F'\t' -v n="$name" -v f="$rel" '$1==n && index($2, f":")!=1 {print $2}')"
   [ -n "$others" ] && report="$report
   $name  is newly added in $rel but already defined at:$(printf '%s\n' "$others" | sed 's/^/ /' | tr '\n' ' ')"

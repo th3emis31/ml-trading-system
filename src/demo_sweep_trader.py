@@ -235,6 +235,28 @@ def sweep_cycle(engine, bars_fn: Callable, now=None, config: Optional[dict] = No
         save_sweep_state(state)
 
 
+def owner_resume(now=None) -> dict:
+    """Clear this strategy's halt, the way the pullback and the breakout already could.
+
+    Added 27 September 2026. Every demo strategy can halt itself on an MT5 error and every one says
+    "Trading halted until the owner resumes on /demo-trading" - but this one had no way to be resumed.
+    There was no resume function, no endpoint and no button, so once it halted it stayed halted and the
+    only route back was editing its state file by hand. It halted at 13:09 that day and stayed down while
+    the other two were resumed with a click.
+
+    Deliberately the same shape as `demo_session_pullback.owner_resume`: clear the flag, journal WHAT was
+    cleared so the halt is not lost from the record, then write.
+    """
+    now = shared.utc_timestamp(now)
+    state = load_sweep_state()
+    previous = state.get("halted")
+    state["halted"] = None
+    event = shared.log("resumed", now, "Owner resumed the sweep trader.",
+                       sink=_sweep_sink(), magic=MAGIC, previous_halt=previous)
+    save_sweep_state(state)
+    return event
+
+
 def sweep_status() -> dict:
     config = demo_executor.load_config(sweep_paths()["config"], DEFAULT_CONFIG)
     state = load_sweep_state()

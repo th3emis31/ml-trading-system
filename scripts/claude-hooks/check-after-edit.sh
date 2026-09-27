@@ -14,34 +14,30 @@ case "$file" in
     # perfect Python. So say what was actually checked, and run the fast tests
     # when the project has them.
     msg="[kit] ${file##*/}: SYNTAX ONLY — not verified"
-    # This used to run the WHOLE suite with `--timeout=60`, and two things were wrong with it.
-    #
-    # pytest-timeout is not installed, so pytest rejected the argument and exited non-zero, and the
-    # hook reported "TESTS FAILED" on every single Python edit while running no test at all. A gate
-    # that always says fail is read as noise within a day, exactly like one that always says pass.
-    #
-    # And the whole suite is not affordable per edit: tests/conftest.py copies data/ and models/
-    # (~4.4 GB) into a temp sandbox on EVERY pytest invocation and the full run takes 11 minutes on
-    # this 7.4 GB machine. A post-edit hook that costs that much gets disabled, and a killed one
-    # leaves its sandbox behind.
-    #
-    # So it runs the ONE test file that covers the edited module, and when there is no such file it
-    # says so plainly rather than implying coverage. KIT_RUN_TESTS=full opts back into the whole
-    # suite for anyone who wants it.
+    # --timeout comes from pytest-timeout, which is NOT installed everywhere. Passing it blindly
+    # makes pytest exit on a usage error, which this hook then reported as "TESTS FAILED" - a
+    # guard accusing the code of something the guard did. Added only when the plugin is present.
+    tmo=""; $(py) -c "import pytest_timeout" >/dev/null 2>&1 && tmo="--timeout=60"
+    # And the WHOLE suite is not affordable per edit: tests/conftest.py copies data/ and models/
+    # (~4.4 GB) into a temp sandbox on EVERY pytest invocation and the full run takes 11 minutes on a
+    # 7.4 GB machine. A post-edit hook that costs that much gets disabled, and a killed run leaves its
+    # sandbox behind - three of them left 30.9 GB on 27 September 2026. So it runs the ONE test file
+    # covering the edited module, and says so plainly when there is none rather than implying coverage.
+    # KIT_RUN_TESTS=full opts back into the whole suite.
     base="${file##*/}"; base="${base%.py}"
     target="tests/test_${base}.py"
     case "$file" in *"/tests/test_"*|tests/test_*) target="${file#"$root/"}" ;; esac
     if [ ! -d tests ]; then
       msg="$msg; no tests/ directory, so nothing ran"
     elif [ "${KIT_RUN_TESTS:-}" = "full" ]; then
-      if out="$($(py) -m pytest -q -x -p no:cacheprovider 2>&1)"; then
+      if out="$($(py) -m pytest -q -x -p no:cacheprovider $tmo 2>&1)"; then
         msg="$msg; FULL suite passes"
       else
         echo "TESTS FAILED after editing $file:" >&2; echo "$out" | tail -25 >&2
         log_hook check-after-edit "tests failed: $file"; exit 2
       fi
     elif [ -f "$target" ]; then
-      if out="$($(py) -m pytest -q -x -p no:cacheprovider "$target" 2>&1)"; then
+      if out="$($(py) -m pytest -q -x -p no:cacheprovider $tmo "$target" 2>&1)"; then
         msg="$msg; $target passes"
       else
         echo "TESTS FAILED in $target after editing $file:" >&2; echo "$out" | tail -25 >&2

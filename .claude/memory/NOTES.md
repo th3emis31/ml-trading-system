@@ -789,3 +789,202 @@ kill and must be ended by hand afterwards.
 The ledger entry row's `ts` is the SIGNAL bar's timestamp while its `price` is now the FILL bar's price, and
 the simulator's own `entry_time` is the fill bar. The owner asked that entry timestamps not change, so `ts`
 was left alone and the fill time recorded beside it. Aligning them is a separate decision, not yet taken.
+
+
+## 2026-09-27 — write authentication: loopback bind + nine secret-guarded endpoints
+
+Owner decision: tunnel-level auth. Flask now binds `127.0.0.1` (was `0.0.0.0`), phone access goes through
+the Cloudflare tunnel with Cloudflare Access in front, and nine named endpoints require `X-Control-Secret`
+rather than a blanket rule over all 103 write endpoints. `SMARTENTRY_BIND=0.0.0.0` restores the old bind
+without editing code. No trading logic touched.
+
+Three of the nine already enforced the secret (`/api/quality-retrain`, `/api/screenshot-learn`,
+`/api/auto-trade/execute` — the last keeps its own inner check and its rejection logging, so it was left
+undecorated). The `require_control_secret` decorator was added to the other six.
+
+Two callers would have returned 403 on click and were fixed with the guard: `fetchJson` in
+AUTO_TRADER_TEMPLATE attached the header only to paths starting `/api/auto-trade/execute`, which would have
+broken three Approve buttons; and the Strategy Lab Run button sent no header at all, so
+STRATEGY_LAB_TEMPLATE now receives `control_secret` (rendering it with only `theme_css` is what made
+`/screenshot-learn` answer 500 once before).
+
+`tests/test_write_auth.py` pins all of it: each of the nine refuses a missing and a wrong secret, the
+approved list matches the guarded set, the bind is loopback, and every dashboard caller of a guarded
+endpoint sends the header — reading the `fetchJson` helper's own GUARDED list rather than restating it.
+
+**Found while restarting, and fixed:** two independent `start_trading.bat` loops were running (PIDs 21300
+and 11672, started 79 s apart on 26 Sep), each keeping its own `app.py` alive and both listening on
+`0.0.0.0:5000` — the duplicate-server hazard CLAUDE.md warns about. The duplicate loop was stopped; one
+loop and one server remain.
+
+Verified after restart: single listener on `127.0.0.1:5000` (PID 6392); `/`, `/strategy-lab`,
+`/auto-trader`, `/screenshot-learn`, `/performance` all 200; all nine endpoints 403 without the header; the
+header admitted a request (404 from the body, nothing changed); the LAN address 192.168.1.65:5000 refuses;
+45 pages parse with 0 JavaScript syntax errors.
+
+## 2026-09-27 — autostart: the duplicate-server race, closed
+
+Two launchers fired at every login: the scheduled task **SmartEntry Autostart**
+(`scripts/start_everything.ps1`, which starts five MetaTrader terminals, waits 45 s, then launches
+`start_trading.bat`) and the Startup-folder shortcut **SmartEntryProAI.lnk**, which launched
+`start_trading.bat` directly. `start_trading.bat` already had a guard against becoming a second server,
+but it only looked for a socket already LISTENING, and app.py takes about 30 s to bind. On 26 September
+the logon task started the app at 14:25:15 and the shortcut started a second one at 14:25:44 — inside
+that window — so two servers shared port 5000 until they were stopped on 27 September. The deep System
+Doctor failed the following morning on exactly that: `App server`, pids 22972 and 4528.
+
+Two changes, both additive:
+
+1. `start_trading.bat` now also checks for a running **app.py process**, which exists from second zero.
+   It fails safe on purpose: only the literal token `APPRUNNING` on stdout refuses, so a missing or
+   broken PowerShell starts the app rather than blocking boot. Never convert it to an exit-code test.
+   All three launch paths come through this file — the logon task, the doctor's `restart_dead_app`
+   (`src/system_doctor.py:962`), and a manual run — so one guard covers them all.
+2. **SmartEntryProAI.lnk** moved out of the Startup folder to `scripts/disabled_autostart/` (kept, not
+   deleted, with a README saying how to restore it). The process check narrows the window to under a
+   second rather than eliminating it, so the second launcher is removed as well. Redundancy is not lost:
+   **SmartEntry System Doctor** runs every 30 minutes and restarts a dead app.
+
+Verified: the guard refuses when an app.py process exists and falls through when none does (both
+directions tested on neutralised copies that could not launch anything); running the real
+`start_trading.bat` against the live app left one listener on `127.0.0.1:5000` (PID 6392); the Startup
+folder now holds only `Ollama.lnk`; `SmartEntry Autostart` and `SmartEntry System Doctor` are both Ready
+with last result 0; the moved shortcut still resolves to `start_trading.bat`.
+
+**Also checked, all 24 SmartEntry tasks:** every one runs from `ml_trading_system`, none from the
+`C:\Users\th_em\` fallback. Every task's last result was 0 except **SmartEntry System Doctor Daily**
+(result 1), whose failure was the duplicate server above. **SmartEntry TV Chart Worker** is Disabled,
+last run 22 September, result 1 — left alone. Tomorrow's 06:30 deep doctor will still fail until the
+skills `doctor`, `measure`, `recall` and `tv-plan` declare an independent check and a family, which is
+what `tests/test_skill_acceptance.py` requires (2 failures in an otherwise green 1304-test suite).
+
+## 2026-09-27 (later) — the duplicate server was start_everything.ps1, and it had four defects
+
+A cloud session pointed at `scripts/start_everything.ps1` rather than the duplicate Startup entry. It was
+right that the script was the problem and wrong about which defect. Measuring it turned up four, all now
+fixed, all additive:
+
+1. **The health probe could never succeed.** It asked `GET /api/signals` with `-TimeoutSec 8` to decide
+   whether the app was already up. **Corrected figure:** that endpoint measures **5.0-5.5 s warm and 11 s
+   cold or under load**, not the "over 60 seconds" first written here - the single 60 s reading was taken
+   while four copies of this script were hammering the machine, and repeating it five times gave 11.1,
+   5.3, 5.0, 5.5, 5.2 s. The conclusion stands and the fix stands: an 8 s timeout against a 5-11 s
+   endpoint is a coin flip that loses exactly when the machine is busiest, which is at boot, and every
+   loss made the script conclude the app was down and launch `start_trading.bat`. Replaced with a TCP
+   connect to 127.0.0.1:5000, which is the only question being asked and costs 255 ms.
+2. **`Test-Running` was always false** - the forward-slash/backslash trap `CLAUDE.md` documents.
+   `machine.json` stores `C:/Users/...` and Windows reports `ExecutablePath` as `C:\Users\...`, compared
+   with `-eq`. Five running terminals all reported not-running, so every boot "started" five terminals
+   (no-ops: MetaTrader refuses a second instance of the same install, which is why no duplicate terminal
+   ever appeared) and then slept the full 45 s. That sleep is the window a second launcher races in. Both
+   sides are now slash-normalised and compared case-insensitively. Run time on a healthy machine: **65 s
+   -> 3 s**.
+3. **No single-instance guard.** Added a **named mutex** (`Global\SmartEntryAutostart`), not a lock file
+   under `data\`: a stale lock file left by a crash or hard reboot would block every later boot, and a
+   script whose job is to bring the trading system up must never be able to lock itself out. Windows
+   releases a mutex when the owner dies. Fails safe both ways - if the mutex cannot be created the script
+   continues, and an abandoned mutex counts as acquired.
+4. **The log silently dropped concurrent runs.** `Add-Content` fails while another process holds the file
+   and `$ErrorActionPreference='SilentlyContinue'` hid it. Four parallel copies produced **one** log entry.
+   Writers now serialise on `Global\SmartEntryAutostartLog` with a bounded retry as backstop.
+
+**A correction to the earlier note in this file.** It said the script "ran exactly once" on 26 September,
+on the strength of a single log header. Defect 4 makes that unsound: the log loses the lines of every
+concurrent run, so it cannot establish how many copies ran. Either two launchers (logon task + Startup
+shortcut) or two copies of the script would produce what was observed, and the log cannot tell them apart.
+It no longer matters for prevention - the probe, the guard, the mutex and `start_trading.bat`'s process
+check each independently stop it.
+
+**Tested:** four copies launched in parallel -> 1 proceeded, 3 refused by the mutex, all 4 recorded in the
+log, and afterwards one listener on `127.0.0.1:5000` (PID 6392), five terminals, one relaunch loop
+(PID 21300, still the app's parent). A real run with everything up now logs "already" for all five
+terminals and "already trading app", launching nothing, in 3 s.
+
+**The Startup shortcut: the cloud note's claim was wrong.** `SmartEntryProAI.lnk` is a valid 1106-byte
+shortcut targeting `start_trading.bat` with the correct working directory - verified before and after
+moving it. `WScript.Shell.CreateShortcut()` on a path that does **not exist** returns an object with an
+empty `TargetPath` and raises no error, which is what an empty target actually indicates: it was read from
+the Startup folder after the file had already been moved out. It stays in `scripts/disabled_autostart/`,
+since the logon task starts the terminals first and the shortcut does not, but it is now harmless either
+way and can be restored by moving the file back.
+
+## 2026-09-27 (health check) — the whole trading side was down, and the cause was one cached flag
+
+Asked for a full health check. The deep System Doctor came back **0 fail, 20 OK, 1 info, 3 warn**, 102 files
+compiling and 361 tests passing - and its `App server` check now reads "One app server on port 5000", the
+check that failed this morning on the duplicate. But one warning was new since 06:30 and chasing it found
+the trading side stopped.
+
+**Symptom.** `GET /api/demo-model/status` returned `open_positions: null`. Not a timeout - it answered in
+8 ms. `/api/mt5/symbol-check?symbol=XAUUSD` said **"Symbol not found on broker"**, and so did GOLD,
+XAUUSD.r, XAUUSDm and every other spelling tried. `/api/mt5/account` returned `account: null` with an
+all-zero summary. Meanwhile `/api/mt5/status` said **connected: true**, and so did the System Doctor.
+
+**Cause.** `MT5Service.status()` was `connected = self._connected or self.connect()`. Once that flag was
+True, `connect()` was never called again, so a link that had died stayed "connected" forever while every
+real call failed. There is no reconnect endpoint. The terminal for account 11581419 was healthy the whole
+time - its own log shows it authorised on VantageMarkets-Demo at 07:12:56, ran **LiveUpdate at 13:30**,
+exited, came back as build 6230 and re-synchronised with 1230 symbols and 10 positions. The app, started
+12:46, simply never had a usable link and could not tell.
+
+**What it cost.** Three of the four demo strategies halted on their own kill switches, correctly:
+
+| strategy | halted at | reason |
+|---|---|---|
+| Demo Pullback (dry run) | 13:01:18 | MT5 error: account details unreadable |
+| Demo Breakout (**sends orders**) | 13:03:05 | MT5 error: account details unreadable |
+| Demo Sweep | 13:09:05 | MT5 error: no broker bars (yahoo:1h+resample:4h) |
+| Demo Plan | - | running |
+
+The demo model executor also refused every signal with "could not read open MT5 positions"
+(`src/demo_executor.py:170`), and the paper trader logged "broker candles unavailable". **Every one of
+those is the safe direction** - nothing traded on unreadable state - but the whole automatic side was
+stopped and the doctor was reporting MT5 as connected.
+
+**Fix.** `MT5Service._link_alive()` probes `terminal_info()` and `account_info()` (local IPC, well under a
+millisecond, so affordable on every `status()` call); `status()` now drops a stale handle and reconnects
+when the probe fails, and reports **disconnected** if the reconnect fails rather than claiming a link that
+cannot answer. `tests/test_mt5_stale_link.py` covers four cases with a fake MetaTrader5 module, and the
+regression case was checked against the old behaviour to confirm it actually fails there.
+
+**Verified after restarting the app (PID 28496, one listener, one loop):** `XAUUSD` valid; demo model
+positions readable (0 of its own, correctly filtered by magic 440401 out of 9 on the account, the rest
+belonging to other experts); account 11581419 on VantageMarkets-Demo readable. The doctor's
+`Demo execution` check went from warn to **OK**, and `Scheduled tasks` now reads "All 17 exist, last ran OK
+and run from the live folder" - the stale `System Doctor Daily (1)` cleared once that task was re-run.
+
+**Left for the owner, deliberately.** The three halts say "Trading halted until the owner resumes on
+/demo-trading", and one of them sends real orders, so they are not resumed here. Also standing: automatic
+execution is ARMED for XAUUSD, BTCUSD, NAS100 and AAPL; and free RAM was **453 MB** (msedge 1252 MB,
+claude 1196 MB, python 1090 MB) - the terminal's own startup line recorded "0 / 7 Gb memory", which is a
+plausible contributor to the link failing to establish at 12:46 and is worth watching rather than blaming.
+
+## 2026-09-27 (calculation audit) — the short swap was a credit, not a cost
+
+Full findings and tables in BASELINE.md under the same date. What changed in code:
+
+* `trading/mt5_service.py` — `check_symbol` now also returns `swap_long`, `swap_short`, `swap_mode`,
+  `swap_rollover3days`, `trade_contract_size`, `point` and `digits`, with `_maybe_float` / `_maybe_int`
+  helpers that return None rather than inventing a zero (a 0.0 standing in for an absent swap_short would
+  look like a measurement and silently remove a real cost). Nothing in this system had ever read the
+  broker's own financing rates, which is why the cost table said "assumed".
+* `src/strategy_lab.py` — `HOLDING_COSTS` short rates measured instead of assumed: gold
+  `short_pct_per_night` **-0.0080** (a CREDIT, negative because `simulate_orders` computes
+  `gross - cost_pct - swap_frac`), bitcoin **0.0**. Long rates unchanged. `COST_MODEL` v3 -> **v4**.
+* `src/direction_sweep.py` — a grid label is not an engine family: the builder now falls back to the family
+  the specs themselves declare, so `sweep_reclaim` runs instead of reporting "no registered builder".
+* `tests/test_cost_model_invalidation.py` — the version assertion updated deliberately with the history it
+  guards, plus a new test that the short rate is measured and not copied from the long one (gold negative,
+  bitcoin zero, and "assumed equal to long" gone from both sources).
+
+Tests: 35 pass across `test_cost_model_invalidation`, `test_engine_truth` and `test_strategy_lab`; the 13
+engine known-answer tests still pass after the cost change.
+
+**Consequence to expect:** 49,912 stored results are tagged `spread+swap-v3` and 9,871 `spread+swap-v2`, so
+the hourly Strategy Lab job will progressively re-score them against v4. Short candidates will improve and
+the strategy book's rankings will shift over the coming hours. That is the designed safety net working, and
+it is why the tag had to move.
+
+**Not done, deliberately:** the three halted demo strategies are still halted (owner's switch), and the
+reclaim rule's two best long variants sit at 93 and 99 trades - under the 100-trade bar - so nothing was
+promoted to the strategy book from this work.

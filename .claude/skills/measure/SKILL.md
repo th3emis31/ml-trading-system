@@ -29,6 +29,17 @@ a table is written, not after someone objects to it.
 5. **Provenance.** Where did the data come from, what dates does it span, and is
    any pasted transcript or screenshot actually current? Check the timestamp.
 
+6. **Parameter units.** Every ratio-valued parameter states its unit: `_pct` is 0 to 100,
+   `_frac` is 0 to 1, `_bps` is basis points. Assert the range where it is consumed
+   (`assert 0 <= cost_frac < 0.01`). Report the round-trip cost in basis points beside the
+   result and check it against the broker's real spread. A cost argument named percent that
+   is really a fraction charges a hundred times too much, and the symptom — everything
+   loses — is identical to the wrong tick size, so the diagnosis goes to the wrong place.
+7. **Stationarity.** State the minimum and maximum price in the sample. If the ratio exceeds
+   1.5, no threshold may be an absolute price or a dollar amount: express it in ATR, percent
+   or basis points. Report the metric split across at least three equal sub-periods. A result
+   that exists in only one sub-period is a regime artefact, not an edge.
+
 ## The sample rule
 
 Under 100 closed trades the row is labelled **insufficient evidence**, whatever
@@ -61,19 +72,12 @@ or live demo fills.
 
 ## Acceptance
 
-The instrument is proved before the number is reported, on answers known in advance.
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
 
 ```acceptance
-run: python -m pytest -q tests/test_engine_truth.py
-number: closed_trades >= 100
-ask: did the inverse control actually TRADE and LOSE?
+appended: .claude/memory/BASELINE.md
+number: trades >= 100
+run: python scripts/doctor.py --quiet --skip-secrets
+ask: was the pre-flight printed BEFORE the numbers, and does the row name its tick size, its cost unit and its ambiguous-exit count?
 ```
-
-`tests/test_engine_truth.py` is this skill's pre-flight expressed as code: a planted edge the engine
-must find, a planted loss it must not flatter, a coin-flip market it must not turn negative, cost
-charged once per trade, and entry at the next bar's open. If it fails, no number below it means
-anything — including a negative one.
-
-The last check is asked, not automated, because the failure it catches looks like a pass: an inverse
-that takes **zero** trades is not a control, it is a free pass, and only someone reading the control's
-trade count can say so.

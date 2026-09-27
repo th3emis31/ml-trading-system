@@ -35,8 +35,38 @@ def test_the_cost_model_tag_names_the_round_trip_it_used():
     assert "0.009" in cheap.info["cost_model"] and "0.04" in dear.info["cost_model"]
 
 
-def test_the_version_was_bumped_when_the_spreads_were_corrected():
-    assert lab.COST_MODEL == "spread+swap-v3"
+def test_the_version_was_bumped_when_a_cost_was_corrected():
+    """This assertion exists to make a cost change deliberate, so it must be edited on purpose.
+
+    The history it guards:
+      v2 -> v3  19 Sep 2026: the round-trip spread was corrected (6x too harsh on gold).
+      v3 -> v4  27 Sep 2026: the SHORT overnight rate was measured from the broker rather than assumed
+                equal to the long one. It is a CREDIT on gold (+34.41 points a night) and nothing at all
+                on bitcoin, where the table had been charging both sides the long rate. Every stored short
+                result was priced too harshly; on XAUUSD:4h the correction moved six measured variants by
+                0.35 to 1.32 percentage points and one of them from -1.93 % to +2.46 %.
+
+    Changing a cost without moving this tag is the failure the rest of this file describes: rescore_market
+    compares a stored result's cost_model against its market's, so results priced under the old model
+    become indistinguishable from corrected ones and are never queued.
+    """
+    assert lab.COST_MODEL == "spread+swap-v4"
+
+
+def test_the_short_overnight_rate_is_measured_and_not_copied_from_the_long_one():
+    """The specific defect: short == long was an assumption, and it was wrong in sign on gold.
+
+    Gold shorts earn financing and bitcoin shorts pay none. If a future edit sets the short rate equal to
+    the long rate again, every short backtest silently goes back to being over-charged.
+    """
+    gold = lab.HOLDING_COSTS["XAUUSD"]
+    bitcoin = lab.HOLDING_COSTS["BTCUSD"]
+    assert gold["short_pct_per_night"] != gold["long_pct_per_night"], "gold short must not copy the long rate"
+    assert gold["short_pct_per_night"] < 0, "gold shorts are CREDITED financing, so the rate is negative"
+    assert bitcoin["short_pct_per_night"] == 0.0, "bitcoin shorts are not financed at all"
+    for name in ("XAUUSD", "BTCUSD"):
+        assert "MEASURED" in lab.HOLDING_COSTS[name]["source"], f"{name} must say where the short rate came from"
+        assert "assumed equal to long" not in lab.HOLDING_COSTS[name]["source"]
 
 
 def test_a_candidate_priced_under_the_old_cost_is_queued_for_a_rescore():
