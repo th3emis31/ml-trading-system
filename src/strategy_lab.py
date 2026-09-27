@@ -145,16 +145,42 @@ EA_SPECS = {"as_coded": SWING_TREND_PULLBACK_SPEC, "tradingview": SWING_TREND_PU
 #   "percent" (default): the same share of price per night as today (0.8276 on a 4,348 price = 0.0190%), so a
 #                        2008 trade at 800 pays proportionally, not five times today's rate.
 #   "price":            the fixed price amount every night, exactly like the MT5 Strategy Tester (for matching it).
+# SHORT RATES MEASURED 27 September 2026, and they are not what was assumed. Every short result before that
+# date was over-charged, because the short rate had been set equal to the long one with the note "short side
+# assumed equal to long" - the long side was measured from Strategy Tester deals and the short side was a
+# guess. Read from the broker itself through MT5 symbol_info (now returned by MT5Service.check_symbol):
+#
+#   XAUUSD  swap_mode 1 (POINTS), point 0.01:  swap_long -79.48 pts = 0.7948 COST/night
+#                                              swap_short +34.41 pts = 0.3441 CREDIT/night
+#   BTCUSD  swap_mode 5 (annual interest %):   swap_long -20.0 %/yr = 0.0548 %/night COST
+#                                              swap_short   0.0 %/yr = pays NOTHING
+#
+# So gold shorts EARN financing and bitcoin shorts pay none, while this table charged both the long rate. At
+# gold 4,286 that over-charged a short 0.0190 % (charged) + 0.0080 % (should have been credited) = 0.0270 %
+# of price for every night held; on bitcoin the whole 0.0560 % per night was wrong. Measured effect on
+# XAUUSD:4h short strategies before this correction: 0.82 to 3.07 percentage points, enough to move one of
+# six variants from -1.93 % to +1.14 %.
+#
+# Only the SHORT side is changed. The long rates stay as they were, because those were measured from real
+# deals (54 overnight bitcoin trades, and gold tester deals) which is better evidence than a published rate,
+# and today's gold reading of 0.0185 % agrees with the stored 0.0190 % anyway.
+#
+# A NEGATIVE rate is a credit: simulate_orders computes `gross - cost_pct - swap_frac`, so a negative
+# swap_frac adds to the result. That is why the gold short rate is written negative rather than zeroed.
 HOLDING_COSTS = {
-    "XAUUSD": {"long_per_night": 0.8276, "short_per_night": 0.8276, "unit": "price per unit per night",
-               "long_pct_per_night": 0.0190, "short_pct_per_night": 0.0190, "calendar": "forex",
-               "source": "MT5 Strategy Tester deals, Vantage demo, 2026-09-13 (gold 4,348); short side assumed equal to long"},
-    # Vantage charges bitcoin a share of the price every calendar night (the per-lot amount moved with the price while the
-    # percentage stayed at 0.0552-0.0564% in 2025 and 2026). 51.76 USD per 1 BTC per night is the median at 2025-26 prices.
-    "BTCUSD": {"long_per_night": 51.76, "short_per_night": 51.76, "unit": "price per unit per night",
-               "long_pct_per_night": 0.0560, "short_pct_per_night": 0.0560, "calendar": "crypto",
-               "source": "MT5 Strategy Tester deals, Vantage demo BTCUSD H4 2025-01..2026-09 (54 overnight trades, 1 BTC per lot), "
-                         "2026-09-14; short side assumed equal to long"},
+    "XAUUSD": {"long_per_night": 0.8276, "short_per_night": -0.3441, "unit": "price per unit per night",
+               "long_pct_per_night": 0.0190, "short_pct_per_night": -0.0080, "calendar": "forex",
+               "source": "long: MT5 Strategy Tester deals, Vantage demo, 2026-09-13 (gold 4,348). "
+                         "short: MEASURED from broker symbol_info 2026-09-27, swap_mode POINTS, "
+                         "swap_short +34.41 pts = 0.3441 price CREDIT per night at gold 4,286"},
+    # Vantage charges bitcoin LONGS a share of the price every calendar night (the per-lot amount moved with the
+    # price while the percentage stayed at 0.0552-0.0564% in 2025 and 2026). 51.76 USD per 1 BTC per night is the
+    # median at 2025-26 prices. SHORTS pay nothing at all: swap_short is 0.0 on an annual-interest symbol.
+    "BTCUSD": {"long_per_night": 51.76, "short_per_night": 0.0, "unit": "price per unit per night",
+               "long_pct_per_night": 0.0560, "short_pct_per_night": 0.0, "calendar": "crypto",
+               "source": "long: MT5 Strategy Tester deals, Vantage demo BTCUSD H4 2025-01..2026-09 (54 overnight "
+                         "trades, 1 BTC per lot), 2026-09-14. short: MEASURED from broker symbol_info 2026-09-27, "
+                         "swap_mode INTEREST_CURRENT, swap_short 0.0 %/yr - bitcoin shorts are not financed"},
 }
 SWAP_MODES = ("percent", "price")
 ROLLOVER_WEIGHTS = (1, 1, 3, 1, 1, 0, 0)  # rollovers Monday..Sunday; Wednesday's carries the weekend
@@ -165,7 +191,11 @@ ROLLOVER_CALENDARS = {"forex": ROLLOVER_WEIGHTS, "crypto": (1, 1, 1, 1, 1, 1, 1)
 # changing the constant while leaving the tag at "v2" left 9,880 of 9,884 stored results priced under the old
 # model, indistinguishable from corrected ones and not queued for a re-score. Deriving the tag from the number
 # means a future change to a cost can no longer fail to invalidate the results that used the old one.
-COST_MODEL = "spread+swap-v3"
+# v4 from 27 Sep 2026: the SHORT overnight rate was measured from the broker instead of assumed equal to the
+# long one, and it turned out to be a credit on gold and nothing at all on bitcoin. Every stored short result
+# was priced under the old, too-harsh model, so the tag has to move or rescore_market cannot tell them apart -
+# which is exactly the trap the v3 note below describes.
+COST_MODEL = "spread+swap-v4"
 
 
 def rollover_counts(times, weekday_weights=ROLLOVER_WEIGHTS) -> np.ndarray:
