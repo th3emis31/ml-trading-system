@@ -104,14 +104,25 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
     except Exception as exc:                     # noqa: BLE001 - too few bars, usually
         return [{"family": family, "market": key, "error": f"{type(exc).__name__}: {exc}"[:120]}]
 
-    original = lab.ORDER_BUILDERS.get(family)
-    if original is None:
-        return [{"family": family, "market": key, "error": "no registered builder"}]
-
     try:
         specs = variants_for(symbol, timeframe)
     except Exception as exc:                     # noqa: BLE001
         return [{"family": family, "market": key, "error": f"variants failed: {exc}"[:120]}]
+
+    # A registry key is a label for a GRID, not necessarily the name of an engine family. `sweep_reclaim` is
+    # the owner's 26 September reclaim rule: its own specs declare family "sweep_reversal", because that is
+    # the builder that runs them, and it is listed separately only so the trial count charged against it is
+    # the number of things tried for THAT rule rather than the whole family's history.
+    #
+    # Looking the builder up by the registry key alone therefore found nothing, and the survey reported
+    # "no registered builder" and moved on - so from the day it was added, every sweep that claimed to test
+    # every strategy silently skipped it, and the rule has never been measured. Fall back to the family the
+    # specs themselves name.
+    engine_family = str((specs[0].get("family") if specs else "") or family)
+    original = lab.ORDER_BUILDERS.get(family) or lab.ORDER_BUILDERS.get(engine_family)
+    if original is None:
+        return [{"family": family, "market": key,
+                 "error": f"no registered builder for {family!r} or {engine_family!r}"}]
 
     lab.ORDER_BUILDERS[family] = one_side_builder(original, side_wanted)
     out = []
