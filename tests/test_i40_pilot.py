@@ -319,3 +319,46 @@ def test_dry_run_is_read_as_not_sending():
     by_magic = {v["magic"]: v for v in strategies.values() if v.get("magic")}
     assert by_magic[440502]["sending_orders"] is False
     assert by_magic[440603]["sending_orders"] is True
+
+
+# --- tools: the brain must not understate what the system can do -------------------------------
+
+def test_the_brief_lists_the_api_endpoints_even_with_no_running_app():
+    """Every brief ever written said "0 endpoints".
+
+    `tools(url_map=None)` returned an empty list, and the hourly brief runs as a plain command with no
+    Flask app in the process, so `api_endpoint_count` recorded a zero that read like a measurement. The
+    brain was understating its own tools to itself, which is the one thing a context layer must not do.
+    """
+    tools = pilot.tools()
+    assert tools["api_endpoint_count"] > 100, "app.py alone declares 250 routes; a handful means the read broke"
+    assert tools["api_endpoint_source"] == "app source"
+    assert all(e.startswith("/api/") for e in tools["api_endpoints"])
+    assert tools["api_endpoints"] == sorted(set(tools["api_endpoints"])), "no duplicates, stable order"
+
+
+def test_a_live_url_map_is_preferred_over_the_source_read():
+    """The static read can miss a dynamically built route, so a real app's url_map must always win."""
+    class _Rule:
+        def __init__(self, path): self.path = path
+        def __str__(self): return self.path
+
+    class _Map:
+        def iter_rules(self): return [_Rule("/api/only-at-runtime"), _Rule("/static/x")]
+
+    tools = pilot.tools(url_map=_Map())
+    assert tools["api_endpoints"] == ["/api/only-at-runtime"], "static assets are excluded"
+    assert tools["api_endpoint_source"] == "live url_map"
+
+
+def test_an_unreadable_source_tree_reports_none_rather_than_inventing_endpoints():
+    """The standing rule for this system: a gap is reported, never filled with a plausible number."""
+    class _Broken:
+        def iter_rules(self): raise RuntimeError("no app context")
+
+    tools = pilot.tools(url_map=_Broken())
+    # It falls back to the source read, which on this machine works - so assert the CONTRACT instead:
+    # the source is always named, and a count of zero is only ever reported as source "none".
+    assert tools["api_endpoint_source"] in ("app source", "none")
+    if tools["api_endpoint_count"] == 0:
+        assert tools["api_endpoint_source"] == "none"

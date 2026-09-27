@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -215,6 +216,29 @@ def discovered_commands() -> list[dict]:
     return found
 
 
+def http_endpoints_from_source() -> list[str]:
+    """The system's /api/ endpoints read from the SOURCE, for when no live url_map is available.
+
+    The hourly brief runs as a plain command, with no Flask app in the process, so `tools(url_map=None)`
+    reported **0 endpoints** in every brief ever written — the brain understating its own tools while
+    `pilot_run.measured["api_endpoints"]` recorded a zero that looked like a measurement.
+
+    Reading the route decorators is the fix, NOT importing `app`: that module is ~31k lines, wires route
+    packs and starts background work at import, and a read-only brain must never be able to do that as a
+    side effect of describing itself. A static read can miss a route built dynamically, which is why the
+    live `url_map` is still preferred whenever the caller has one.
+    """
+    pattern = re.compile(r"""@[A-Za-z_][A-Za-z0-9_]*\.route\(\s*['"](/api/[^'"]+)['"]""")
+    found: set[str] = set()
+    root = Path(__file__).resolve().parents[1]
+    for source in [root / "app.py", *sorted(root.glob("jarvis_*.py")), *sorted((root / "src").glob("*_routes.py"))]:
+        try:
+            found.update(pattern.findall(source.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue                       # a file that cannot be read is skipped, never guessed at
+    return sorted(found)
+
+
 def tools(url_map=None) -> dict:
     """What the system can be asked to do: its command-line entry points and its HTTP endpoints."""
     commands = [
@@ -232,14 +256,19 @@ def tools(url_map=None) -> dict:
     ]
     described = {c["command"] for c in commands}
     commands += [c for c in discovered_commands() if c["command"] not in described]
-    endpoints = []
+    endpoints, endpoint_source = [], "none"
     if url_map is not None:
         try:
             endpoints = sorted({str(rule) for rule in url_map.iter_rules()
                                 if str(rule).startswith("/api/") and "static" not in str(rule)})
-        except Exception:
+            endpoint_source = "live url_map"
+        except Exception:                  # noqa: BLE001
             endpoints = []
+    if not endpoints:
+        endpoints = http_endpoints_from_source()
+        endpoint_source = "app source" if endpoints else "none"
     return {"commands": commands, "api_endpoints": endpoints, "api_endpoint_count": len(endpoints),
+            "api_endpoint_source": endpoint_source,
             "note": "Listed so work uses the system's own entry points instead of new one-off code."}
 
 

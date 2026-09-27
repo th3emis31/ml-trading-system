@@ -1,5 +1,6 @@
 ---
 name: recall
+family: core
 description: Search what this project already knows before doing new work — prior results, decisions, lessons, failed approaches and existing code. Use at the start of any task, and whenever tempted to build, test or measure something that might already exist.
 ---
 
@@ -36,3 +37,20 @@ time. "Trying again" is not a reason.
 If a function, module or strategy already exists, extend it. Do not create a second one
 with a different name. The dup-check hook blocks the obvious cases; this skill catches
 the ones it cannot see, such as the same idea under a different vocabulary.
+
+## Acceptance
+
+```acceptance
+run: python -m src.second_brain status
+run: bash scripts/claude-hooks/dup-check.sh
+appended: .claude/memory/NOTES.md
+ask: was anything found that makes the planned work unnecessary, and was it reported BEFORE starting?
+```
+
+The first two adjudicate the two halves of this skill without the model's opinion: the searchable
+memory must actually answer, and `dup-check` decides the duplication rule by comparing new definitions
+against what is already defined — the question "does this already exist?" answered by a grep rather
+than by recollection.
+
+`appended` matters because recall that changes nothing leaves no trace, and a search whose result was
+never written down will be repeated next week, which is the exact waste this skill exists to stop.

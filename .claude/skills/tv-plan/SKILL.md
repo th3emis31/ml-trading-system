@@ -1,5 +1,6 @@
 ---
 name: tv-plan
+family: trading
 description: One cycle of the TradingView daily plan — read the system's plan, redraw it on the 4H chart in Chrome, and manage a PAPER TRADING position only. Designed to repeat with /loop (e.g. "/loop 3h58m /tv-plan"). Requires Claude Code started with --chrome and TradingView logged in.
 ---
 
@@ -72,3 +73,19 @@ is not.
    each symbol's chart.
 7. **Report** a table per symbol: bias, entry, SL, TP1–3, R:R, action taken, paper P&L,
    and any contradiction between chart and plan. Then stop; the loop calls you again.
+
+## Acceptance
+
+```acceptance
+run: python -m src.plan_journal
+appended: data/tradingview_plans
+ask: is order placement still DRAW-ONLY, and is the chart on the DEMO account?
+```
+
+`plan_journal` records each plan and how it turned out, so its exit code adjudicates that the cycle
+produced a plan the system can later score itself against — a cycle that drew something and recorded
+nothing cannot be judged afterwards.
+
+The owner answers the last one and it is not a formality. This skill drives a real browser on a real
+charting account; draw-only mode and the demo account are the two facts that separate a paper cycle
+from a live order, and neither is something the model should be trusted to confirm about itself.

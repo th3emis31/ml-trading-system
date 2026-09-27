@@ -1,5 +1,6 @@
 ---
 name: measure
+family: core
 description: The contract for producing a number anyone can trust — pre-flight checks, the inverse control, the sample-size rule, and how to report a result honestly. Use before ANY backtest, sweep, statistic or performance claim.
 ---
 
@@ -57,3 +58,22 @@ row is the luckiest row. Count how many have been tried and say the number when
 reporting. Past roughly ten, stop, and get new evidence instead: a different
 period, a different instrument, a walk-forward with parameters fixed per fold,
 or live demo fills.
+
+## Acceptance
+
+The instrument is proved before the number is reported, on answers known in advance.
+
+```acceptance
+run: python -m pytest -q tests/test_engine_truth.py
+number: closed_trades >= 100
+ask: did the inverse control actually TRADE and LOSE?
+```
+
+`tests/test_engine_truth.py` is this skill's pre-flight expressed as code: a planted edge the engine
+must find, a planted loss it must not flatter, a coin-flip market it must not turn negative, cost
+charged once per trade, and entry at the next bar's open. If it fails, no number below it means
+anything — including a negative one.
+
+The last check is asked, not automated, because the failure it catches looks like a pass: an inverse
+that takes **zero** trades is not a control, it is a free pass, and only someone reading the control's
+trade count can say so.

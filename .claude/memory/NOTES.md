@@ -773,10 +773,12 @@ names codes the draft does not have — `REJECT_NO_SETUP`, `REJECT_INVALID_STRUC
 
 ### Two things to know before running tests here
 
-`tests/test_active_account.py` hangs at import/collection (63 s with `--collect-only` alone) and is
-alphabetically first, so the whole suite appears to stall on it. The full suite has therefore NOT been run
-clean since the STEP 1 change; the engine subset has: `test_engine_truth.py` + `test_engine_package.py` +
-`test_ledger_entry_price.py` = **43 passed in 6.04 s**.
+**Correction, 19:50.** I first wrote that `tests/test_active_account.py` hangs at import. It does not — it
+passes 13 tests in 4.71 s. `tests/conftest.py` copies `data/` and `models/` (~4.4 GB) into a temp sandbox on
+EVERY pytest invocation, so any pytest command costs ~170 s of wall clock whatever it selects. That is the
+whole of the apparent hang, and it means the suite must be run as ONE process; file-by-file multiplies the
+copy by 123. Killed runs cannot delete their own sandbox and the conftest sweep only reclaims ones over 6
+hours old, so my three killed runs left 9 sandboxes holding 30.9 GB — since removed.
 
 The machine sits at 84-90 % of 7.4 GB with the app, two MT5 terminals, Edge and two Claude sessions up.
 A single whole-suite pytest process tips it. Orphaned pytest children survive the harness's "low memory"
