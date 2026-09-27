@@ -1848,3 +1848,52 @@ path and was **silently ignored by every registered builder**, so a one-sided re
 as a spec without being re-run two-sided later; and `strategy_book.neighbours` raised `KeyError` for any
 family without a parameter grid, which aborted a save part-way instead of recording the measurement as
 missing. **No live input, preset, demo strategy or EA changed.**
+
+## 2026-09-27 — 30M direction sweep, long then short, pre-flight printed first
+
+Owner asked for the 30-minute timeframe specifically, with the measure-skill pre-flight printed **above**
+any results table. `python -m src.direction_sweep run --side long|short --timeframes 30m`, written to
+`data/strategy_lab/direction_sweep_{long,short}_20260927.json`. No live input, preset, demo strategy or
+EA changed; nothing saved to the strategy book from this run.
+
+### Pre-flight (both sides, the same bars)
+
+| market | bars | span | med bar | p90 bar | ATR14 | ATR/bar | cost(px) |
+|---|---|---|---|---|---|---|---|
+| XAUUSD:30m | 50,000 | 2022-07-05 → 2026-09-25 | 4.14 | 14.43 | 4.41 | 1.06 | 0.284 |
+| BTCUSD:30m | 50,000 | 2023-10-25 → 2026-09-27 | 279.26 | 688.41 | 327.31 | 1.17 | 40.19 |
+
+Tick 0.01 on both. ATR/bar 1.06 and 1.17 — a 1-ATR stop is only just wider than a typical candle, so the
+geometry is acceptable but not generous; ambiguous exits were counted per variant and came out **0** on
+every row reported below. Fill is the next bar's open; a last-bar signal is not traded. Every variant was
+run inverted on the same bars, and a control that made money or produced no trades does not count.
+
+### LONG — 229 configurations, 58 profitable on the holdout, 4 survived all three splits and beat a real inverse
+
+| family | market | variant | trades | win% | PF | net% | inverse% | amb | evidence |
+|---|---|---|---|---|---|---|---|---|---|
+| sweep_reversal | XAUUSD:30m | continue\|lb40\|body\|rr3 | 175 | 33.1 | 1.14 | **+6.80** | −8.82 | 0 | ok |
+| smart_entry_arch | BTCUSD:30m | 5_full_model\|rr3 | 10 | 50.0 | 1.15 | +0.89 | −1.81 | 0 | INSUFFICIENT |
+| smart_entry_arch | BTCUSD:30m | 5_full_model\|rr1 | 10 | 60.0 | 1.05 | +0.20 | −0.08 | 0 | INSUFFICIENT |
+| smart_entry_arch | BTCUSD:30m | 5_full_model\|rr2 | 10 | 50.0 | 1.04 | +0.09 | −2.01 | 0 | INSUFFICIENT |
+
+### SHORT — 229 configurations, 62 profitable on the holdout, 1 survived all three splits and beat a real inverse
+
+| family | market | variant | trades | win% | PF | net% | inverse% | amb | evidence |
+|---|---|---|---|---|---|---|---|---|---|
+| smart_entry_arch | XAUUSD:30m | 4_poc_cisd_fvg\|rr1 | 50 | 52.0 | 1.30 | +5.23 | −0.08 | 0 | INSUFFICIENT |
+
+### Reading
+
+**One row on the whole 30M timeframe carries enough evidence to be called a result:** gold
+`sweep_reversal continue|lb40|body|rr3` long, **+6.80 % after spread and swap over 175 trades**, PF 1.14,
+33.1 % win at 3R, zero ambiguous exits, against an inverse that lost 8.82 %. Modest, and it is the best of
+229 configurations on the same bars, so it is the luckiest row until re-tested on data this survey never
+saw.
+
+**The short side has nothing that clears the bar on 30M.** Its single survivor made +5.23 % at PF 1.30 but
+on 50 trades, and its inverse only lost 0.08 %, which is close enough to flat that the control barely
+discriminates. Recorded as insufficient evidence, not as a loss — 62 short variants were profitable on the
+holdout; they simply do not survive the splits and the control together.
+
+`crt_htf` and `sweep_reclaim` cannot run on 30m at all (4 family/market combinations skipped on each side).

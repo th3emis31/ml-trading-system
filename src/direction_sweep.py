@@ -149,6 +149,9 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
                 "inverse_trades": inverse.get("trades"),
                 "splits": splits,
                 "all_splits_positive": all(v is not None and v > 0 for v in splits),
+                # `.claude/skills/measure`: under 100 closed trades the row is labelled insufficient
+                # evidence and is not ranked against rows that clear it.
+                "insufficient_evidence": (holdout.get("trades") or 0) < 100,
                 # The control only means something if it actually traded AND lost. A bullish-only pattern
                 # inverted on a long-only pass produces NO trades, and comparing against nothing passed the
                 # check for free - four of the first sixteen candidates cleared it that way. A positive
@@ -199,6 +202,88 @@ def run(side: str = "long", symbols=SYMBOLS, timeframes=TIMEFRAMES) -> dict:
                     encoding="utf-8")
     report["path"] = str(path)
     return report
+
+
+def preflight(symbols=SYMBOLS, timeframes=TIMEFRAMES) -> dict:
+    """The five checks from `.claude/skills/measure`, run BEFORE any result exists.
+
+    Printed ahead of every table because a number without them does not count: every wrong result this
+    project has produced came from units, scale or provenance, never from the strategy logic.
+    """
+    import pandas as pd
+
+    from .mtf_data import load_bars
+
+    out = {"checks": [], "markets": {}}
+    costs = getattr(lab, "BACKTEST_COSTS", {})
+    for symbol in symbols:
+        for timeframe in timeframes:
+            key = f"{symbol}:{timeframe}"
+            bars = load_bars(symbol, timeframe, source="app")
+            if bars is None or bars.empty:
+                out["markets"][key] = {"available": False, "reason": "no broker bars"}
+                continue
+            frame = bars.sort_values("datetime").reset_index(drop=True)
+            high = frame["high"].astype(float)
+            low = frame["low"].astype(float)
+            close = frame["close"].astype(float)
+            previous = close.shift(1)
+            true_range = pd.concat([high - low, (high - previous).abs(),
+                                    (low - previous).abs()], axis=1).max(axis=1)
+            atr = true_range.ewm(alpha=1 / 14, adjust=False).mean()
+            bar_range = (high - low)
+            spread_fraction = (costs.get(symbol) or costs.get("default") or {}).get("round_trip_pct")
+            median_price = float(close.median())
+            out["markets"][key] = {
+                "available": True,
+                "source": frame.attrs.get("source", "unknown"),
+                "bars": int(len(frame)),
+                "from": str(frame["datetime"].min())[:16],
+                "to": str(frame["datetime"].max())[:16],
+                "median_bar_range": round(float(bar_range.median()), 3),
+                "p90_bar_range": round(float(bar_range.quantile(0.90)), 3),
+                "median_atr14": round(float(atr.median()), 3),
+                # A stop of 1 ATR against a typical bar: below 1.0 the engine's stop-first convention
+                # decides trades instead of the market.
+                "atr_over_median_bar": round(float(atr.median() / bar_range.median()), 2)
+                if float(bar_range.median()) else None,
+                "round_trip_cost_fraction": spread_fraction,
+                "round_trip_cost_in_price": round(spread_fraction * median_price, 3)
+                if spread_fraction else None,
+            }
+    out["checks"] = [
+        ("units", "gold and bitcoin quote to 0.01; costs are a FRACTION of price, not a percentage "
+                  "(0.00009 = 0.009%), which is the unit that has gone wrong before"),
+        ("scale", "a stop must be clearly wider than a typical bar. Each market below reports its median "
+                  "bar range and ATR(14); ambiguous exits are counted per variant in the results"),
+        ("causality", "signals are computed on closed bars and the fill is the NEXT bar's open - "
+                      "simulate_orders takes t+1, and a signal on the last bar is not traded"),
+        ("control", "each variant is run inverted on the same bars. A control that produced no trades, "
+                    "or that also made money, does not count as passed"),
+        ("provenance", "broker bars through the running app's MT5 connection; the span of each is below"),
+    ]
+    return out
+
+
+def print_preflight(out: dict) -> None:
+    print("PRE-FLIGHT (.claude/skills/measure) - read before any number below")
+    for name, detail in out["checks"]:
+        print(f"  {name:11} {detail}")
+    print()
+    print(f"  {'market':16} {'bars':>7} {'span':>28} {'med bar':>9} {'p90 bar':>9} "
+          f"{'ATR14':>8} {'ATR/bar':>8} {'cost(px)':>9}")
+    for key, row in out["markets"].items():
+        if not row.get("available"):
+            print(f"  {key:16} {row.get('reason')}")
+            continue
+        print(f"  {key:16} {row['bars']:>7} {row['from'] + ' -> ' + row['to'][:10]:>28} "
+              f"{row['median_bar_range']:>9.2f} {row['p90_bar_range']:>9.2f} "
+              f"{row['median_atr14']:>8.2f} {row['atr_over_median_bar']:>8.2f} "
+              f"{(row['round_trip_cost_in_price'] or 0):>9.3f}")
+    print()
+    print("  ATR/bar under 1.0 means a 1-ATR stop sits INSIDE a typical candle: the engine's stop-first")
+    print("  convention would decide those trades, not the market. Ambiguous exits are reported per row.")
+    print("  Any row under 100 closed trades is labelled INSUFFICIENT EVIDENCE regardless of its profit factor.")
 
 
 def save_candidates(report: dict, limit: int = 12) -> dict:
@@ -279,6 +364,9 @@ def print_sweep_report(report: dict) -> None:
     contort the data to suit a printer, so this is a second table with a different job, not a copy."""
     print(f"{report['side'].upper()} ONLY - every family, {', '.join(report['timeframes'])}, "
           f"after spread and swap")
+    print(f"  CONFIGURATIONS TRIED: {report['variants_tested']}. The measure skill stops at roughly ten "
+          "and asks for new evidence instead, so treat the best row here as the luckiest row until it is "
+          "re-tested on data this survey never saw.")
     print(f"  {report['variants_tested']} variants produced trades; "
           f"{report['profitable_on_holdout']} profitable on the holdout; "
           f"{len(report['candidates'])} survive all three splits AND beat their inverse")
@@ -290,12 +378,13 @@ def print_sweep_report(report: dict) -> None:
         print("  no candidate cleared all three checks.")
         return
     print(f"  {'family':18} {'market':14} {'variant':26} {'trades':>7} {'win%':>6} {'PF':>6} "
-          f"{'net%':>8} {'inv%':>8} {'amb':>5} {'control':>8}")
+          f"{'net%':>8} {'inv%':>8} {'amb':>5} {'evidence':>10}")
     for row in report["candidates"][:25]:
         print(f"  {row['family']:18} {row['market']:14} {str(row['variant'])[:26]:26} "
               f"{row['trades']:>7} {(row['win_rate_pct'] or 0):>6.1f} {(row['profit_factor'] or 0):>6.2f} "
               f"{(row['net_pct'] or 0):>8.2f} {(row['inverse_net_pct'] or 0):>8.2f} "
-              f"{(row['ambiguous_exits'] or 0):>5} {row.get('inverse_control', '?'):>8}")
+              f"{(row['ambiguous_exits'] or 0):>5} "
+              f"{('INSUFFICIENT' if row.get('insufficient_evidence') else 'ok'):>10}")
 
 
 def main(argv=None) -> int:
@@ -308,6 +397,10 @@ def main(argv=None) -> int:
     runner.add_argument("--save", action="store_true", help="store the survivors in the strategy book")
     args = parser.parse_args(argv)
 
+    # The pre-flight is printed BEFORE anything is run, not alongside the results. A number without it
+    # in front of it does not count.
+    print_preflight(preflight(tuple(args.symbols), tuple(args.timeframes)))
+    print()
     report = run(args.side, tuple(args.symbols), tuple(args.timeframes))
     print_sweep_report(report)
     print(f"\n  written to {report['path']}")

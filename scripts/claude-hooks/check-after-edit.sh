@@ -2,12 +2,29 @@
 # PostToolUse (Edit|Write|MultiEdit): fast correctness check for the edited file.
 # Exit 2 sends the error back to Claude so it fixes it immediately.
 set -u; . "$(dirname "$0")/_common.sh"
-file="$(cat | tool_file)"; [ -z "$file" ] && exit 0
+HOOK_STDIN="$(cat)"; export HOOK_STDIN
+file="$(tool_file)"; [ -z "$file" ] && { echo "[kit] could not determine the edited file — NOT checked" >&2; log_hook check-after-edit "UNKNOWN FILE"; exit 0; }
 root="$(root_dir)"; cd "$root" || exit 0
 case "$file" in
   *.py)
     out="$($(py) -m py_compile "$file" 2>&1)" || { echo "SYNTAX ERROR in $file — fix before continuing:" >&2; echo "$out" | tail -20 >&2; exit 2; }
-    echo "[kit] python compile OK: ${file##*/}"; exit 0 ;;
+    # py_compile proves the file PARSES. It does not import it, does not run a
+    # test, and does not look at any other file. Calling that "OK" was read as
+    # verification, and every wrong result this project produced was syntactically
+    # perfect Python. So say what was actually checked, and run the fast tests
+    # when the project has them.
+    msg="[kit] ${file##*/}: SYNTAX ONLY — not verified"
+    if [ -d tests ]; then
+      if out="$($(py) -m pytest -q -x --timeout=60 2>&1)"; then
+        msg="$msg; tests pass"
+      else
+        echo "TESTS FAILED after editing $file:" >&2; echo "$out" | tail -25 >&2
+        log_hook check-after-edit "tests failed: $file"; exit 2
+      fi
+    else
+      msg="$msg; no tests/ directory, so nothing ran"
+    fi
+    echo "$msg"; log_hook check-after-edit "$file"; exit 0 ;;
   *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs)
     if [ -f package.json ] && [ -d node_modules ] && grep -q '"build"' package.json; then
       out="$(npm run build --silent 2>&1)" || { echo "BUILD FAILED after editing $file:" >&2; echo "$out" | tail -40 >&2; exit 2; }

@@ -1,48 +1,61 @@
 # shared helpers for hooks (sourced)
-root_dir(){ git rev-parse --show-toplevel 2>/dev/null || pwd; }
+#
+# Two rules learned the hard way:
+#   * Windows hands us C:\a\b while git hands back C:/a/b, so every path is
+#     normalised to forward slashes before anything is compared. Without this the
+#     project-relative path never matched, so backups landed flat and the
+#     duplicate checker treated every tracked file as brand new.
+#   * A hook that cannot tell what it was given says so on stderr. Passing quietly
+#     is how a file gets edited with no backup and nobody notices.
 
-# On Windows "python3" (and sometimes "python") can be a Microsoft Store stub that
-# only prints "Python was not found" - every post-edit check then reported a false
-# syntax error. Use the first interpreter that actually runs.
-py(){
-  local cand
-  for cand in python python3 py; do
-    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys' >/dev/null 2>&1; then
-      echo "$cand"; return
-    fi
-  done
-  for cand in "${LOCALAPPDATA:-/nonexistent}/Programs/Python/Python310/python.exe" /c/Users/*/AppData/Local/Programs/Python/Python3*/python.exe; do
-    if [ -x "$cand" ] && "$cand" -c 'import sys' >/dev/null 2>&1; then
-      echo "$cand"; return
-    fi
-  done
-  echo python
+norm(){ printf '%s' "$1" | tr '\\' '/'; }
+
+# The project root is the kit's own location, not wherever git happens to think.
+# A home directory that is not a repository used to resolve to itself, which made
+# the wrong-directory check pass in exactly the case it existed for.
+root_dir(){
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P)" || here="$(pwd -P)"
+  norm "$here"
 }
 
-tool_file(){ node -e '
+tool_file(){
+  local raw=""
+  raw="$(printf '%s' "${HOOK_STDIN:-}" | node -e '
 let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);
-process.stdout.write((j.tool_input&&(j.tool_input.file_path||j.tool_input.path))||"")}catch(e){}})' 2>/dev/null \
-  || "$(py)" -c 'import sys,json
+process.stdout.write((j.tool_input&&(j.tool_input.file_path||j.tool_input.path))||"")}catch(e){}})' 2>/dev/null)"
+  if [ -z "$raw" ]; then
+    raw="$(printf '%s' "${HOOK_STDIN:-}" | $(py) -c 'import sys,json
 try:
   j=json.load(sys.stdin); print((j.get("tool_input") or {}).get("file_path") or (j.get("tool_input") or {}).get("path") or "", end="")
-except Exception: pass' 2>/dev/null; }
-
-# C:\Users\x\file.py -> /c/Users/x/file.py (bash tools and awk choke on backslashes).
-to_posix(){
-  if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"
-  else printf '%s' "$1" | sed -E 's#\\#/#g; s#^([A-Za-z]):#/\L\1#'
+except Exception: pass' 2>/dev/null)"
   fi
+  norm "$raw"
 }
 
-# The project an edited file belongs to: the nearest ancestor holding .git or app.py.
-# The live app (C:\Users\th_em) is not the repository this kit sits in, so using the
-# kit's own git root compared live files against the stale snapshot.
-project_root_for(){
-  local dir
-  dir="$(dirname "$(to_posix "$1")")"
-  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
-    if [ -d "$dir/.git" ] || [ -f "$dir/app.py" ]; then echo "$dir"; return; fi
-    dir="$(dirname "$dir")"
-  done
-  root_dir
+# Project-relative path, compared case-insensitively so a drive letter cannot
+# defeat the match on Windows.
+rel_path(){
+  local file root lf lr
+  file="$(norm "$1")"; root="$(norm "$2")"
+  lf="$(printf '%s' "$file" | tr 'A-Z' 'a-z')"
+  lr="$(printf '%s' "$root" | tr 'A-Z' 'a-z')"
+  case "$lf" in
+    "$lr"/*) printf '%s' "${file:$((${#root}+1))}" ;;
+    *) printf '%s' "$file" ;;
+  esac
+}
+
+py(){ command -v python3 >/dev/null 2>&1 && echo python3 || { command -v python >/dev/null 2>&1 && echo python || echo py; }; }
+
+# Every invocation is recorded, so "did the guardrails actually run?" is answerable
+# at the start of the next session rather than assumed.
+log_hook(){
+  local root logf
+  root="$(root_dir)"; logf="$root/.claude/hook-log"
+  mkdir -p "$root/.claude" 2>/dev/null
+  printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-?}" "${2:-}" >> "$logf" 2>/dev/null
+  if [ "$(wc -l < "$logf" 2>/dev/null || echo 0)" -gt 5000 ]; then
+    tail -n 2000 "$logf" > "$logf.tmp" 2>/dev/null && mv "$logf.tmp" "$logf" 2>/dev/null
+  fi
 }

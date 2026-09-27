@@ -24,3 +24,14 @@ ntuser*
 *.log
 data/tv_worker_profile/
 data/tradingview/chart_worker.log
+# Trading project contents. Committing these is how a webhook secret, a live model
+# binary and the whole trade history end up in git history in one `git add -A`.
+data/
+*.pkl
+*.joblib
+*.h5
+*.sqlite
+.venv/
+venv/
+config.local.json
+*webhook*.json
