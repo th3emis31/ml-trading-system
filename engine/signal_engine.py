@@ -127,3 +127,214 @@ def condition_effect(decisions: List[SignalDecision]) -> Dict[str, dict]:
             else:
                 row["absent"] += 1
     return dict(sorted(out.items()))
+
+
+# ============================================================ STEP 2: the full research record
+#
+# `SignalDecision` above is the compact pair the bar loop uses, and it stays exactly as it is: every
+# existing caller keeps working, and `tests/test_engine_package.py` keeps passing unchanged. What
+# follows is ADDITIVE — the complete record the research engine needs, with a deterministic reject
+# code beside the free-text reason rather than instead of it.
+#
+# THE THREE FIELDS THAT EARN THEIR PLACE
+# --------------------------------------
+# * `invalidation` is NOT the stop. The stop is where the position closes; the invalidation is the
+#   market fact that would prove the idea wrong. They coincide only by choice, and storing both is
+#   what lets a post-mortem separate "the idea was wrong" from "the stop was badly placed".
+# * `source_conditions` keeps every condition CHECKED, true or false — not only the ones that passed.
+#   A condition that is always true is doing nothing, and that is invisible if only passes are kept.
+# * `reject_code` is a stable enum, so refusals can be COUNTED. Free text cannot be grouped.
+#
+# ONE TARGET IS RECORDED AS ONE TARGET
+# ------------------------------------
+# Most rules in this project produce a single take-profit. tp2 and tp3 are therefore None, not a
+# guessed multiple of tp1. Inventing them would put numbers in the ledger that no rule ever computed,
+# and a later study of "how often does tp2 fill" would be measuring this function's arithmetic.
+
+from engine.reject_codes import RejectCode  # noqa: E402  (additive, kept beside the compact pair)
+
+
+@dataclass
+class SignalRecord:
+    """The complete record of one signal - taken or rejected - as the research engine stores it.
+
+    Named ``SignalRecord``, not ``Signal``: ``volatility_trend_breakout.Signal`` already exists and
+    means a breakout entry from the owner's Pine script. Two different things called Signal in one
+    codebase is how a reader ends up reasoning about the wrong one.
+
+    `trial_id` and `experiment_id` tie a signal to the run that produced it, which is what makes the
+    multiple-testing accounting auditable rather than asserted.
+    """
+
+    asset: str
+    timestamp: str
+    bar: int
+    direction: Optional[str]                     # BUY / SELL, or None when there was no candidate
+    strategy: str = ""
+    variant: str = ""
+    timeframe: str = ""
+    entry: Optional[float] = None
+    stop: Optional[float] = None
+    tp1: Optional[float] = None
+    tp2: Optional[float] = None                  # None means the rule produced no second target
+    tp3: Optional[float] = None
+    risk: Optional[float] = None                 # price distance from entry to stop
+    regime: Dict[str, Optional[str]] = field(default_factory=dict)
+    confidence: Optional[float] = None           # only when the strategy genuinely produces one
+    reasons: List[str] = field(default_factory=list)      # the free text, preserved
+    invalidation: Optional[float] = None
+    source_conditions: Dict[str, bool] = field(default_factory=dict)
+    accepted: bool = False
+    reject_code: Optional[RejectCode] = None
+    trial_id: Optional[str] = None
+    experiment_id: Optional[str] = None
+
+    @property
+    def targets(self) -> List[float]:
+        """The targets that actually exist, in order. Absent ones are absent, not zero."""
+        return [t for t in (self.tp1, self.tp2, self.tp3) if t is not None]
+
+    @property
+    def reward_risk(self) -> Optional[float]:
+        """R:R to TP1 — the one that decides whether the trade is worth its own spread."""
+        if self.entry is None or self.stop is None or self.tp1 is None:
+            return None
+        risk = abs(self.entry - self.stop)
+        return None if risk <= 0 else abs(self.tp1 - self.entry) / risk
+
+    def as_row(self) -> dict:
+        """A flat dict for the ledger. The reject code serialises as its stable string."""
+        return {
+            "asset": self.asset, "timestamp": self.timestamp, "bar": self.bar,
+            "direction": self.direction, "strategy": self.strategy, "variant": self.variant,
+            "timeframe": self.timeframe, "entry": self.entry, "stop": self.stop,
+            "tp1": self.tp1, "tp2": self.tp2, "tp3": self.tp3, "risk": self.risk,
+            "reward_risk": self.reward_risk, "regime": dict(self.regime),
+            "confidence": self.confidence, "reasons": list(self.reasons),
+            "invalidation": self.invalidation, "source_conditions": dict(self.source_conditions),
+            "accepted": self.accepted,
+            "reject_code": (str(self.reject_code) if self.reject_code else None),
+            "trial_id": self.trial_id, "experiment_id": self.experiment_id,
+        }
+
+
+def build_signal(*, asset: str, timestamp: str, bar: int, direction: Optional[str],
+                 strategy: str = "", variant: str = "", timeframe: str = "",
+                 entry: Optional[float] = None, stop: Optional[float] = None,
+                 tp1: Optional[float] = None, tp2: Optional[float] = None,
+                 tp3: Optional[float] = None,
+                 regime: Optional[Dict[str, Optional[str]]] = None,
+                 conditions: Optional[Dict[str, bool]] = None,
+                 invalidation: Optional[float] = None, confidence: Optional[float] = None,
+                 bias: str = NEUTRAL, min_confluence: int = 1,
+                 require_bias_agreement: bool = False,
+                 trial_id: Optional[str] = None, experiment_id: Optional[str] = None) -> SignalRecord:
+    """Assemble a Signal and decide it, attaching a deterministic reject code when it does not qualify.
+
+    Checks run in order of how FUNDAMENTAL the objection is, not in the order they were written, so
+    the code recorded is the deepest reason rather than whichever test happened to run last. A setup
+    with no stop is REJECT_INVALID_STOP, never REJECT_INVALID_STRUCTURE — "it had no stop" and "it had
+    too few conditions" are different research findings and must not collapse into one another.
+    """
+    conditions = dict(conditions or {})
+    risk = None if (entry is None or stop is None) else abs(entry - stop)
+    sig = SignalRecord(asset=asset, timestamp=timestamp, bar=bar, direction=direction,
+                       strategy=strategy, variant=variant, timeframe=timeframe,
+                       entry=entry, stop=stop, tp1=tp1, tp2=tp2, tp3=tp3, risk=risk,
+                       regime=dict(regime or {}), confidence=confidence,
+                       invalidation=invalidation, source_conditions=conditions,
+                       trial_id=trial_id, experiment_id=experiment_id)
+
+    def refuse(code: RejectCode, why: str) -> SignalRecord:
+        sig.accepted, sig.reject_code, sig.reasons = False, code, [why]
+        return sig
+
+    if direction not in ("BUY", "SELL"):
+        return refuse(RejectCode.NO_SETUP, "no directional candidate at this bar")
+    if entry is None or not entry > 0:
+        return refuse(RejectCode.INVALID_ENTRY, "entry is missing or not a positive price")
+    if stop is None:
+        return refuse(RejectCode.INVALID_STOP, "no stop, so the setup has no invalidation")
+    if risk is None or risk <= 0:
+        return refuse(RejectCode.INVALID_STOP, "stop is at the entry, so there is no risk unit")
+    if (direction == "BUY" and stop >= entry) or (direction == "SELL" and stop <= entry):
+        return refuse(RejectCode.INVALID_STOP,
+                      f"stop is on the wrong side of the entry for a {direction}")
+    if tp1 is None:
+        return refuse(RejectCode.INVALID_TARGET, "no first target, so there is nothing to aim at")
+    if (direction == "BUY" and tp1 <= entry) or (direction == "SELL" and tp1 >= entry):
+        return refuse(RejectCode.INVALID_TARGET,
+                      f"first target is on the wrong side of the entry for a {direction}")
+
+    present = sorted(k for k, v in conditions.items() if v)
+    if len(present) < min_confluence:
+        missing = sorted(k for k, v in conditions.items() if not v)
+        # A NAMED condition that failed reports its OWN code. "no FVG" and "not enough conditions"
+        # are different findings, and collapsing them loses the one that can be acted on.
+        for needle, code in (("fvg", RejectCode.NO_FVG),
+                             ("sweep", RejectCode.NO_LIQUIDITY),
+                             ("liquidity", RejectCode.NO_LIQUIDITY),
+                             ("reclaim", RejectCode.INVALID_RECLAIM),
+                             ("session", RejectCode.SESSION)):
+            hit = next((name for name in missing if needle in name.lower()), None)
+            if hit:
+                return refuse(code, f"{hit} absent; {len(present)} of {min_confluence} present")
+        return refuse(RejectCode.INVALID_STRUCTURE,
+                      f"{len(present)} of a required {min_confluence} conditions present"
+                      + (f"; missing {', '.join(missing)}" if missing else ""))
+
+    if require_bias_agreement:
+        wanted = BULLISH if direction == "BUY" else BEARISH
+        if bias != wanted:
+            return refuse(RejectCode.NO_TREND, f"{direction} against a {bias} structural bias")
+
+    sig.accepted = True
+    sig.reasons = [f"{direction} with {len(present)} condition(s): {', '.join(present)}"]
+    return sig
+
+
+def reject_profile(signals: List[SignalRecord]) -> Dict[str, object]:
+    """Opportunities, signals, rejections, and why — BY CODE.
+
+    These are the four questions the research engine must be able to answer about any run, and they
+    are only answerable because the code is an enum rather than a sentence.
+    """
+    accepted = sum(1 for s in signals if s.accepted)
+    by_code: Dict[str, int] = {}
+    uncoded = 0
+    for s in signals:
+        if s.accepted:
+            continue
+        if s.reject_code is None:
+            uncoded += 1                       # a rejection with no code is a defect, so it is COUNTED
+            continue
+        key = str(s.reject_code)
+        by_code[key] = by_code.get(key, 0) + 1
+    return {"opportunities": len(signals), "accepted": accepted,
+            "rejected": len(signals) - accepted,
+            "by_code": dict(sorted(by_code.items(), key=lambda kv: -kv[1])),
+            "rejections_without_a_code": uncoded,
+            "acceptance_rate_pct": (round(accepted / len(signals) * 100, 2) if signals else None)}
+
+
+def signal_from_decision(decision: SignalDecision, *, asset: str, timeframe: str = "",
+                         strategy: str = "", variant: str = "",
+                         tp2: Optional[float] = None, tp3: Optional[float] = None,
+                         regime: Optional[Dict[str, Optional[str]]] = None,
+                         invalidation: Optional[float] = None,
+                         trial_id: Optional[str] = None,
+                         experiment_id: Optional[str] = None) -> SignalRecord:
+    """Promote a compact `SignalDecision` into a full `Signal`, for callers migrating gradually.
+
+    This is the backward-compatibility seam. The bar loop can keep calling `decide_signal` and gain
+    the full record without its decision logic being rewritten in the same change — which is how the
+    old and the new would otherwise drift apart and start disagreeing about the same bar.
+    """
+    return build_signal(
+        asset=asset, timestamp=decision.ts, bar=decision.bar, direction=decision.side,
+        strategy=strategy, variant=variant, timeframe=timeframe,
+        entry=decision.entry, stop=decision.stop, tp1=decision.target, tp2=tp2, tp3=tp3,
+        regime=regime, conditions=decision.conditions,
+        invalidation=invalidation if invalidation is not None else decision.stop,
+        bias=decision.bias, min_confluence=max(1, decision.confluence if decision.take else 1),
+        trial_id=trial_id, experiment_id=experiment_id)
