@@ -4,6 +4,7 @@ from flask import Flask, jsonify, render_template_string, request, send_from_dir
 from werkzeug.exceptions import HTTPException
 
 from datetime import datetime, timezone, timedelta
+import functools
 import importlib
 import json
 import logging
@@ -91,6 +92,57 @@ register_auto_voice_routes(app)
 register_pause_voice_routes(app)
 register_market_scheduler_routes(app)
 register_wake_word_routes(app)
+
+# ─────────────────────────────────────────────────────────── write authentication
+# The server binds to the loopback interface (see the app.run call at the bottom of this file), so the
+# only routes into it are this machine and the Cloudflare tunnel, which puts Cloudflare Access in front.
+# On top of that, the nine endpoints that can move money, place orders, approve a trade, or start a long
+# job now require the shared secret in X-Control-Secret (data/control_api.json).
+#
+# This is deliberately NOT a blanket rule over all 103 write endpoints: 25 of the dashboard's 30 write
+# buttons send no header, and requiring it everywhere would break paper trading, the backtest runner,
+# voice and the Telegram config. The nine are named explicitly instead, so the blast radius of the
+# change is exactly the list the owner approved.
+#
+# Pages already hand the secret to their own JavaScript through {{ control_secret|tojson }} when the
+# request arrives on loopback - which, behind the tunnel, includes the phone - so no device has to be
+# configured by hand. A page that calls a guarded endpoint MUST send the header; grep for
+# SMARTENTRY_CONTROL_SECRET to see the pattern.
+SECRET_GUARDED_ENDPOINTS = (
+  '/api/jarvis-command',
+  '/api/quality-retrain',
+  '/api/auto-trade/approve',
+  '/api/auto-trade/execute',
+  '/api/brain/execute-approved-trade',
+  '/api/brain/approve-plan',
+  '/api/brain/think-and-plan',
+  '/api/screenshot-learn',
+  '/api/strategy-lab/run',
+)
+
+
+def require_control_secret(view):
+  """Refuse the request unless it carries a matching X-Control-Secret.
+
+  No origin exemption: a request from this machine needs the header exactly as a tunnelled one does.
+  That is what keeps the rule honest - the dashboard proves it holds the secret rather than proving it
+  came from loopback, which anything running on this PC could also claim. functools.wraps keeps the
+  view's name, without which Flask would map every guarded route to the same endpoint and refuse to
+  start.
+  """
+  @functools.wraps(view)
+  def guarded(*args, **kwargs):
+    from src import execution_guard
+    if not execution_guard.secret_matches(request.headers.get(execution_guard.SECRET_HEADER),
+                                          execution_guard.load_or_create_secret()):
+      return jsonify({
+        'status': 'rejected',
+        'error': f'{execution_guard.SECRET_HEADER} is required for {request.path}',
+        'places_orders': False,
+      }), 403
+    return view(*args, **kwargs)
+  return guarded
+
 
 logger = logging.getLogger("jarvis.autoheal")
 if not logger.handlers:
@@ -13621,7 +13673,10 @@ AUTO_TRADER_TEMPLATE = """
       // Every call is time-boxed. Without this a stalled bridge request never
       // settles, and the status poller below would queue requests forever.
       const opts = Object.assign({}, options || {});
-      if (String(path).indexOf('/api/auto-trade/execute') === 0 && SMARTENTRY_CONTROL_SECRET) {
+      // Both guarded auto-trade endpoints, not just execute: /approve is on the secret-guarded list too,
+      // and attaching the header only to execute is what would leave the Approve buttons returning 403.
+      const GUARDED = ['/api/auto-trade/execute', '/api/auto-trade/approve'];
+      if (GUARDED.some((p) => String(path).indexOf(p) === 0) && SMARTENTRY_CONTROL_SECRET) {
         opts.headers = Object.assign({}, opts.headers || {}, { 'X-Control-Secret': SMARTENTRY_CONTROL_SECRET });
       }
       const timeoutMs = opts.timeoutMs || 20000;
@@ -17006,6 +17061,7 @@ def auto_trade_recommend_api():
 
 
 @app.route('/api/auto-trade/approve', methods=['POST'])
+@require_control_secret
 def auto_trade_approve_api():
   payload = request.get_json(silent=True) or request.form.to_dict() or {}
   decision = str(payload.get('decision') or payload.get('action') or 'approve').strip().lower()
@@ -21618,6 +21674,7 @@ def strategy_lab_api():
 
 
 @app.route('/api/strategy-lab/run', methods=['POST'])
+@require_control_secret
 def strategy_lab_run_api():
   """Start one search in its own process (the hourly task's script). A run already in progress makes it exit at once."""
   started = _strategy_lab_run_started['at']
@@ -21879,7 +21936,12 @@ STRATEGY_LAB_TEMPLATE = r"""
     document.getElementById('run-btn').addEventListener('click', async () => {
       const line = document.getElementById('status-line');
       try {
-        const body = await (await fetch('/api/strategy-lab/run', { method: 'POST' })).json();
+        // /api/strategy-lab/run is secret-guarded, so the Run button has to prove it holds the secret.
+        const secret = {{ control_secret|tojson }} || ((window.localStorage && localStorage.getItem('smartentry_control_secret')) || '');
+        const body = await (await fetch('/api/strategy-lab/run', {
+          method: 'POST',
+          headers: { 'X-Control-Secret': secret },
+        })).json();
         line.textContent = body.started ? body.message : body.reason;
         if (body.started) setTimeout(() => load(true), 30000);
       } catch (error) {
@@ -21896,7 +21958,11 @@ STRATEGY_LAB_TEMPLATE = r"""
 
 @app.route('/strategy-lab')
 def strategy_lab_page():
-  return render_template_string(STRATEGY_LAB_TEMPLATE, theme_css=THEME_CSS)
+  # The template now asks for {{ control_secret|tojson }} for the Run button, so it has to be passed:
+  # rendering with only theme_css is what made /screenshot-learn answer 500 once before.
+  from src import execution_guard
+  control_secret = execution_guard.load_or_create_secret() if request.remote_addr in {'127.0.0.1', '::1'} else ''
+  return render_template_string(STRATEGY_LAB_TEMPLATE, theme_css=THEME_CSS, control_secret=control_secret)
 
 
 # System Doctor (src/system_doctor.py): health checks run outside the app every 30 minutes, plus a deep
@@ -26799,6 +26865,7 @@ def _jarvis_advisory_prompt(user_message: str, symbol: str | None = None) -> str
   )
 
 @app.route('/api/jarvis-command', methods=['POST'])
+@require_control_secret
 def jarvis_command_api():
   payload = request.get_json(silent=True) or {}
   command = str(payload.get('command', '')).strip().lower()
@@ -30347,6 +30414,7 @@ def get_market_snapshot_api():
 # Your Personal AI Trading Brain: Plans, Recommends, Waits for Approval, Executes
 
 @app.route('/api/brain/think-and-plan', methods=['POST'])
+@require_control_secret
 def brain_think_and_plan():
     """
     STEP 1: JARVIS THINKS & PLANS
@@ -30396,6 +30464,7 @@ def brain_get_pending_approvals():
 
 
 @app.route('/api/brain/approve-plan', methods=['POST'])
+@require_control_secret
 def brain_approve_plan():
     """
     STEP 2: YOU DECIDE
@@ -30423,6 +30492,7 @@ def brain_approve_plan():
 
 
 @app.route('/api/brain/execute-approved-trade', methods=['POST'])
+@require_control_secret
 def brain_execute_approved_trade():
     """
     STEP 3: EXECUTE
@@ -31818,4 +31888,10 @@ def telegram_test():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    # Loopback only. This was '0.0.0.0', which served every write endpoint to anyone on the same
+    # network. Phone access goes through the Cloudflare tunnel instead: cloudflared runs on this
+    # machine and connects to 127.0.0.1, with Cloudflare Access authenticating the user at the edge
+    # before anything reaches Flask. Scheduled scripts are unaffected - they already call 127.0.0.1.
+    # SMARTENTRY_BIND=0.0.0.0 restores the old behaviour without editing code, but note that doing so
+    # re-exposes the 94 write endpoints that are not on SECRET_GUARDED_ENDPOINTS.
+    app.run(debug=False, host=os.environ.get('SMARTENTRY_BIND', '127.0.0.1'), port=5000)
