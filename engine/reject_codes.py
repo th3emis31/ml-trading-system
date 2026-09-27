@@ -46,9 +46,25 @@ class RejectCode(str, Enum):
     INVALID_TARGET = "REJECT_INVALID_TARGET"        # first target missing, or on the wrong side
 
     # -- the account or the rules would not take it ------------------------------------------------
-    RISK = "REJECT_RISK"                            # sizing, exposure, drawdown or reward:risk refused
+    RISK = "REJECT_RISK"                            # a risk refusal with no more specific cause
     EXECUTION = "REJECT_EXECUTION"                  # spread, fill or broker-side refusal
     DATA = "REJECT_DATA"                            # bars missing, stale, or not from the broker
+
+    # -- STEP 3: risk engine. Specific enough that a funnel says WHICH rule refused ----------------
+    # REJECT_RISK above stays as the catch-all so an older ledger keeps its meaning; new refusals use
+    # the specific code, because "risk refused it" cannot be acted on and "below the broker's minimum
+    # lot" can.
+    RISK_TOO_LARGE = "REJECT_RISK_TOO_LARGE"        # requested risk % above what the limits allow
+    INVALID_LOT = "REJECT_INVALID_LOT"              # computed size is not a finite positive number
+    MIN_LOT = "REJECT_MIN_LOT"                      # size rounds below the broker's minimum volume
+    MAX_LOT = "REJECT_MAX_LOT"                      # size exceeds the broker's maximum volume
+    INVALID_INSTRUMENT = "REJECT_INVALID_INSTRUMENT"  # no specification for this symbol at all
+    INVALID_SPEC = "REJECT_INVALID_SPEC"            # a specification exists but is incomplete/absurd
+    CURRENCY_CONVERSION = "REJECT_CURRENCY_CONVERSION"  # profit currency differs and no rate is known
+    MAX_EXPOSURE = "REJECT_MAX_EXPOSURE"            # too much already open
+    MAX_DRAWDOWN = "REJECT_MAX_DRAWDOWN"            # drawdown halt reached
+    DAILY_LOSS = "REJECT_DAILY_LOSS"                # the day's loss stop reached
+    REWARD_RISK = "REJECT_REWARD_RISK"              # reward:risk below the minimum worth its spread
 
     def __str__(self) -> str:                       # so f-strings print the code, not the member repr
         return self.value
@@ -63,8 +79,15 @@ SIGNAL_CODES = frozenset({
     RejectCode.INVALID_ENTRY, RejectCode.INVALID_STOP, RejectCode.INVALID_TARGET,
 })
 
-#: Codes the RISK engine may return (STEP 3 extends the risk engine to use these).
-RISK_CODES = frozenset({RejectCode.RISK})
+#: Codes the RISK engine may return. `RISK` remains a member so ledgers written before STEP 3 still
+#: read back, but new refusals name the specific rule: a funnel that says "risk refused 400 setups"
+#: tells you nothing, while "380 below the minimum lot" tells you the account is too small for the stop.
+RISK_CODES = frozenset({
+    RejectCode.RISK, RejectCode.RISK_TOO_LARGE, RejectCode.INVALID_LOT,
+    RejectCode.MIN_LOT, RejectCode.MAX_LOT, RejectCode.INVALID_INSTRUMENT,
+    RejectCode.INVALID_SPEC, RejectCode.CURRENCY_CONVERSION, RejectCode.MAX_EXPOSURE,
+    RejectCode.MAX_DRAWDOWN, RejectCode.DAILY_LOSS, RejectCode.REWARD_RISK,
+})
 
 #: Codes raised once an order is being placed or a bar is being read, rather than while deciding.
 RUNTIME_CODES = frozenset({RejectCode.EXECUTION, RejectCode.DATA})

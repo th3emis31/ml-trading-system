@@ -1,0 +1,66 @@
+{
+ "_comment": [
+  "Instrument contract specifications, MEASURED from the broker, never invented.",
+  "",
+  "Every number here was read from MetaTrader5 symbol_info on the account named in `account` below,",
+  "at the timestamp in `measured_at`. Nothing in this file is a published figure, a default, or a",
+  "reasonable-looking guess: a wrong contract size or tick value sizes every position by the same",
+  "wrong factor, and that error is invisible because the arithmetic still looks tidy.",
+  "",
+  "tick_value IS ALREADY IN THE ACCOUNT CURRENCY. This is the single most important line in the file.",
+  "The account settles in GBP and both instruments profit in USD, so a conversion is unavoidable - and",
+  "the broker has already applied it. XAUUSD: tick_size 0.01 x contract_size 100 = 1.00 USD per tick",
+  "per lot, reported as 0.7554981 GBP, which implies USD->GBP 0.7555. BTCUSD: 0.01 x 1 = 0.01 USD per",
+  "tick per lot, reported as 0.0075550 GBP - the same rate, which is what makes the two readings",
+  "consistent rather than coincidental. So a sizing calculation that uses tick_value needs NO rate of",
+  "its own, and must not invent one.",
+  "",
+  "A tick_value is therefore only valid while the exchange rate it embeds is roughly current. It is",
+  "stamped with its measurement time so a caller can decide whether it is stale, rather than trusting",
+  "a number of unknown age. Refresh with: python -m engine.instrument_specs --refresh",
+  "",
+  "To add an instrument: measure it. Do not copy a row and edit the symbol."
+ ],
+ "account": {
+  "login": 11581419,
+  "server": "VantageMarkets-Demo",
+  "account_currency": "GBP",
+  "note": "Vantage demo 11581419, the system's own account. allow_live is false."
+ },
+ "instruments": {
+  "XAUUSD": {
+   "symbol": "XAUUSD",
+   "tick_size": 0.01,
+   "tick_value": 0.7554981376970905,
+   "tick_value_currency": "GBP",
+   "contract_size": 100.0,
+   "min_lot": 0.01,
+   "max_lot": 100.0,
+   "lot_step": 0.01,
+   "digits": 2,
+   "point": 0.01,
+   "currency": "USD",
+   "currency_base": "XAU",
+   "measured_at": "2026-09-27T21:00Z",
+   "source": "MetaTrader5 symbol_info, Vantage demo 11581419",
+   "note": "100 troy ounces per lot, so one dollar of price movement is 100 USD on one lot, reported by the broker as 75.54981 GBP."
+  },
+  "BTCUSD": {
+   "symbol": "BTCUSD",
+   "tick_size": 0.01,
+   "tick_value": 0.0075549813769709056,
+   "tick_value_currency": "GBP",
+   "contract_size": 1.0,
+   "min_lot": 0.01,
+   "max_lot": 100.0,
+   "lot_step": 0.01,
+   "digits": 2,
+   "point": 0.01,
+   "currency": "USD",
+   "currency_base": "BTC",
+   "measured_at": "2026-09-27T21:00Z",
+   "source": "MetaTrader5 symbol_info, Vantage demo 11581419",
+   "note": "1 BTC per lot, which agrees with the holding-cost record in strategy_lab (51.76 USD per 1 BTC per night). min_lot 0.01 means the smallest tradable position is 0.01 BTC."
+  }
+ }
+}
