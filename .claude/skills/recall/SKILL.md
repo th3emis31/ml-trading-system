@@ -1,5 +1,6 @@
 ---
 name: recall
+family: core
 description: Search what this project already knows before doing new work — prior results, decisions, lessons, failed approaches and existing code. Use at the start of any task, and whenever tempted to build, test or measure something that might already exist.
 ---
 
@@ -36,3 +37,14 @@ time. "Trying again" is not a reason.
 If a function, module or strategy already exists, extend it. Do not create a second one
 with a different name. The dup-check hook blocks the obvious cases; this skill catches
 the ones it cannot see, such as the same idea under a different vocabulary.
+
+## Acceptance
+
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
+```acceptance
+run: grep -rn --include=NOTES.md --include=LESSONS.md --include=BASELINE.md -e . .claude/memory
+appended: .claude/memory/NOTES.md
+ask: was a previous attempt at this found, and if it failed, is the reason it failed named?
+```

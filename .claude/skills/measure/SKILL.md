@@ -1,5 +1,6 @@
 ---
 name: measure
+family: core
 description: The contract for producing a number anyone can trust — pre-flight checks, the inverse control, the sample-size rule, and how to report a result honestly. Use before ANY backtest, sweep, statistic or performance claim.
 ---
 
@@ -27,6 +28,17 @@ a table is written, not after someone objects to it.
    trades is not a control, it is a free pass.
 5. **Provenance.** Where did the data come from, what dates does it span, and is
    any pasted transcript or screenshot actually current? Check the timestamp.
+
+6. **Parameter units.** Every ratio-valued parameter states its unit: `_pct` is 0 to 100,
+   `_frac` is 0 to 1, `_bps` is basis points. Assert the range where it is consumed
+   (`assert 0 <= cost_frac < 0.01`). Report the round-trip cost in basis points beside the
+   result and check it against the broker's real spread. A cost argument named percent that
+   is really a fraction charges a hundred times too much, and the symptom — everything
+   loses — is identical to the wrong tick size, so the diagnosis goes to the wrong place.
+7. **Stationarity.** State the minimum and maximum price in the sample. If the ratio exceeds
+   1.5, no threshold may be an absolute price or a dollar amount: express it in ATR, percent
+   or basis points. Report the metric split across at least three equal sub-periods. A result
+   that exists in only one sub-period is a regime artefact, not an edge.
 
 ## The sample rule
 
@@ -57,3 +69,15 @@ row is the luckiest row. Count how many have been tried and say the number when
 reporting. Past roughly ten, stop, and get new evidence instead: a different
 period, a different instrument, a walk-forward with parameters fixed per fold,
 or live demo fills.
+
+## Acceptance
+
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
+```acceptance
+appended: .claude/memory/BASELINE.md
+number: trades >= 100
+run: python scripts/doctor.py --quiet --skip-secrets
+ask: was the pre-flight printed BEFORE the numbers, and does the row name its tick size, its cost unit and its ambiguous-exit count?
+```

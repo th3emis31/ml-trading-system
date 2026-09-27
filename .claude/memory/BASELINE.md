@@ -1897,3 +1897,177 @@ discriminates. Recorded as insufficient evidence, not as a loss — 62 short var
 holdout; they simply do not survive the splits and the control together.
 
 `crt_htf` and `sweep_reclaim` cannot run on 30m at all (4 family/market combinations skipped on each side).
+
+## 2026-09-27 — audit of the backtest mechanism, and a cost that was wrong in sign
+
+Asked to check the mechanism and calculation across every strategy. Three findings, one of which changes
+results. No trading logic touched.
+
+### 1. The metric layer is arithmetically sound
+
+`tests/test_engine_truth.py` (13 tests) already proves the SIMULATION - a planted edge is found, a planted
+loss is reported, cost is charged once per trade, entry is the next bar's open, a last-bar signal is not
+traded. It does not check the METRIC layer, so every reported metric was recomputed from the raw trade list
+by a second, independent implementation and compared.
+
+**14 trade lists, 7 families, 75 to 1,585 trades, XAUUSD:1h holdout: 0 mismatches.** trades, long/short
+counts, win rate, profit factor, expectancy_pct, expectancy_r, avg_r, total_return_pct, max_drawdown_pct
+and sharpe all agree. (The first run reported sharpe mismatches; that was a defect in the audit - the
+engine rounds sharpe to 3dp and the comparison used full precision.)
+
+Four conventions that are CHOICES rather than calculations, worth knowing when reading any number:
+
+* **Zero-return trades count as losses** (`net <= 0`), so win rate is slightly pessimistic. Profit factor is
+  unaffected, since zeros do not change the loss sum.
+* **Profit factor is None when nothing lost**, and `_profit_factor()` substitutes **3.0** for gating. A
+  flawless strategy therefore scores 3.0, not infinity.
+* **Equity compounds each trade's raw price move on the whole account** (`equity *= 1 + net_pct/100`), so
+  `total_return_pct` is a full-capital-per-trade, unleveraged figure - directly comparable to the
+  `buy_and_hold_pct` printed beside it, and NOT "1 % risk per trade compounded". `expectancy_r` is the
+  risk-scaled view.
+* **Ambiguous exits book the stop**, with `expectancy_r_bound` reporting the opposite extreme.
+
+### 2. The SHORT overnight swap was wrong in SIGN — this changes results
+
+`HOLDING_COSTS` said, in its own words, "short side assumed equal to long". Read from the broker through
+MT5 `symbol_info` (newly exposed by `MT5Service.check_symbol`):
+
+| symbol | swap_mode | broker swap_long | broker swap_short | what the engine charged shorts |
+|---|---|---|---|---|
+| XAUUSD | 1 = POINTS | -79.48 pts = 0.7948 cost/night | **+34.41 pts = 0.3441 CREDIT/night** | 0.0190 % as a COST |
+| BTCUSD | 5 = annual % | -20.0 %/yr = 0.0548 %/night | **0.0 - not financed** | 0.0560 % as a COST |
+
+Gold shorts EARN financing; bitcoin shorts pay none. At gold 4,286 a short was over-charged
+0.0190 % (charged) + 0.0080 % (should have been credited) = **0.0270 % of price for every night held**.
+
+Same six short variants on XAUUSD:4h, before and after the correction:
+
+| family / variant | trades | before | after |
+|---|---|---|---|
+| cisd `run1\|sweep10\|wait3\|rr1` | 42 | +12.00 % | **+14.10 %** |
+| crt_displacement `body\|disp\|sweep\|rr2` | 54 | **-1.93 %** | **+2.46 %** |
+| smart_entry_arch `1_poc_volume\|rr1` | 26 | -3.98 % | -0.06 % |
+| crt_htf `classic\|rr2\|none` | 384 | -27.91 % | -24.25 % |
+| sweep_reversal `reject\|lb10\|body\|rr1` | 160 | -13.80 % | -11.62 % |
+| candle_pattern `marubozu\|rr1` | 109 | -10.44 % | -9.27 % |
+
+Only the short side changed; the long rates were measured from real deals and stay. `COST_MODEL` moved
+v3 -> **v4**, which queues **49,912** stored results tagged v3 (and 9,871 at v2) for re-score by
+`strategy_book.rescore_market` as the hourly job runs. Every one of those trade counts is under 100 except
+crt_htf and sweep_reversal, so these are sensitivities, not verdicts.
+
+### 3. One strategy had never been backtested at all
+
+`direction_sweep` overwrote each spec's own `family` with the registry key. `sweep_reclaim` - the owner's
+26 September rule, "the 4H candle takes out the low of the previous N candles AND closes above their high,
+mirrored for sells" - declares family `sweep_reversal` in its own specs, so nothing was registered under
+its key and every sweep reported "no registered builder" and skipped it. It has now run for the first time,
+18 variants per side on XAUUSD:4h, 0 errors:
+
+| side | variant | trades | net | inverse | ambiguous | evidence |
+|---|---|---|---|---|---|---|
+| LONG | `reclaim\|ref1\|rr3\|notrend` | 93 | **+32.09 %** | -6.75 % | 0 | INSUFFICIENT (<100) |
+| LONG | `reclaim\|ref1\|rr2\|notrend` | 99 | **+30.56 %** | -14.54 % | 0 | INSUFFICIENT (<100) |
+| LONG | `reclaim\|ref1\|rr3\|ema400` | 78 | +22.54 % | -3.84 % | 0 | INSUFFICIENT (<100) |
+| SHORT | `reclaim\|ref3\|rr2\|ema400` | 6 | +8.60 % | **+0.46 %** | 0 | INSUFFICIENT + no control |
+| SHORT | `reclaim\|ref2\|rr2\|ema400` | 10 | +8.31 % | -4.56 % | 0 | INSUFFICIENT (<100) |
+
+The two best LONG rows made real money after costs, beat a control that traded and lost, and have zero
+ambiguous exits - and both sit at 93 and 99 trades, just under the 100-trade bar, so they are recorded as
+**insufficient evidence**, not as a result. 36 configurations were tried (18 x 2 sides), which is past the
+point where the measure skill asks for new evidence rather than another variant, so the honest next step is
+more bars or a forward test, not more tuning.
+
+## 2026-09-27 — new strategy: carry-positive short gold. REFUTED by its own declared test, same day
+
+`strategies/carry_short_gold.md` written first, hypothesis and refutation conditions stated before any code,
+then `python -m src.carry_short run` on XAUUSD:4h. Ten configurations, ONE variable (hold length), because
+the measure skill says stop at about ten rather than sweep 180 and crown the luckiest row.
+
+**Hypothesis:** the broker credits a gold short 0.0080 %/night (measured today; longs pay 0.0185 %), so a
+short setup with near-zero price expectancy should turn profitable once held across enough rollovers.
+
+**Pre-flight:** XAUUSD 4h, 16,068 bars 2007-06-21 → 2026-09-25, holdout 2024-08-30 → 2026-09-25, round trip
+0.000115 as a fraction, stop at the swept extreme (never inside one candle), fill at the next bar's open,
+every row inverted as a control plus the LONG side as a second control, **0 ambiguous exits on every row**.
+
+| side | hold | trades | win % | expectancy_r | net % | carry % | price % | nights/tr | inverse % | buy & hold |
+|---|---|---|---|---|---|---|---|---|---|---|
+| short | 6b | 108 | 37.96 | −0.1275 | +1.38 | +0.64 | +1.61 | 0.74 | −10.96 | +71.22 |
+| short | 12b | 104 | 31.73 | −0.1603 | −0.30 | +0.90 | −0.01 | 1.08 | −2.72 | +71.22 |
+| short | 30b | 102 | 27.45 | −0.1995 | −4.41 | +1.13 | −4.13 | 1.38 | −7.82 | +71.22 |
+| short | 60b | 101 | 26.73 | −0.2162 | −4.53 | +1.18 | −4.30 | 1.47 | −8.40 | +71.22 |
+| short | 120b | 98 | 26.53 | −0.2172 | −0.89 | +1.29 | −0.65 | 1.64 | −10.34 | INSUFFICIENT |
+| long | 6b | 111 | 53.15 | +0.3504 | +28.67 | −1.94 | +27.71 | 0.92 | −4.59 | +71.22 |
+| long | 12b | 103 | 52.43 | +0.4140 | +30.20 | −2.47 | +29.57 | 1.26 | −10.69 | +71.22 |
+| long | 30b | 99 | 49.49 | +0.4185 | +30.56 | −2.77 | +30.36 | 1.47 | −14.54 | INSUFFICIENT |
+| long | 60b | 98 | 48.98 | +0.4203 | +32.04 | −2.79 | +31.53 | 1.50 | −17.61 | INSUFFICIENT |
+| long | 120b | 98 | 48.98 | +0.4203 | +32.04 | −2.79 | +31.53 | 1.50 | −17.61 | INSUFFICIENT |
+
+**Refuted, two of three tests failed.** (1) Short `expectancy_r` falls monotonically −0.1275 → −0.2172 as the
+hold lengthens: longer is strictly worse. (3) The LONG side improves over the same sweep (+0.3504 → +0.4203),
+so the effect is gold's drift, not financing — the failure mode named in the document before the run.
+
+**The carry itself measures correctly and is simply too small:** it accumulates +0.64 % → +1.29 % as nights
+per trade rise 0.74 → 1.64, exactly the 0.008 %/night credit. Against a price component that moves from
++1.61 % to −4.30 %, roughly 1.2 % of financing is noise. Financing is not an edge on gold at these holds.
+
+**Every short row has a NEGATIVE `expectancy_r` even where `net_pct` is positive** (6b: +1.38 % net,
+−0.1275 R). `net_pct` compounds the raw price move on full capital; `expectancy_r` scales each trade by its
+own risk distance, which is what a 1 %-risk account experiences. For a risk-sized strategy expectancy_r is
+the honest figure, and it says the short side loses at every hold length.
+
+**The long rows are NOT a discovery.** +32.04 % at 5.5 % max drawdown with expectancy_r +0.42 and an inverse
+that lost 17.6 % looks strong, but gold returned **+71.22 %** over the same holdout — less than half of simply
+holding it. Whether the lower drawdown makes it attractive needs buy-and-hold's own drawdown, not measured
+here. Three of the five long rows are also under 100 trades.
+
+**What survives:** the financing measurement (already applied, `COST_MODEL` v4), and `src/carry_short.py` +
+`tests/test_carry_short.py` (8 tests), which can decompose any strategy's result into price and carry -
+something this system could not do before. Nothing promoted to the strategy book.
+
+## 2026-09-27 — the owner's 1pm UK Tokyo-range breakout continuation: the best-evidenced new result today
+
+Owner's rule, in their words: *"uk time 1pm wait for breakout Tokyo zone high or low and continuation"*,
+confirmed as **UK TIME 1PM**. Built as `src/tokyo_breakout.py`, 6 declared configurations, gold 15m.
+
+**Pre-flight.** 1pm UK is NOT a fixed UTC hour: London is BST (12:00 UTC) for about seven months and GMT
+(13:00 UTC) for the other five, so the trigger is found by converting each tz-aware UTC bar stamp to
+`Europe/London` and reading the local hour. Assuming one UTC hour would put the entry an hour early for half
+the year and average two strategies together. Tokyo zone swept over two definitions (00:00-06:00 and
+00:00-08:00 UTC) because it is genuinely ambiguous; both close by 08:00 UTC and the trigger cannot fire
+before 12:00 UTC, so **the range is always complete hours before it is used** - causality from the clock, not
+from a shift(). Stop is the full Tokyo range width, many times a 15m candle. Trigger 13:00-20:00 London, one
+trade per day, fill at the next bar's open. **0 ambiguous exits on every row.**
+
+| variant | trades | long/short | win % | PF | expectancy_r | net % | max dd % | inverse % | evidence |
+|---|---|---|---|---|---|---|---|---|---|
+| **tokyo_0_6\|rr1** | **109** | 52/57 | 52.29 | **1.471** | **+0.0910** | **+13.40** | **3.07** | **−15.06** | ok |
+| tokyo_0_6\|rr3 | 109 | 52/57 | 51.38 | 1.427 | +0.0953 | +12.09 | 3.31 | −10.84 | ok |
+| tokyo_0_6\|rr2 | 109 | 52/57 | 51.38 | 1.391 | +0.0812 | +11.01 | 3.31 | −12.99 | ok |
+| asia_0_8\|rr1 | 103 | 49/54 | 49.51 | 1.329 | +0.0663 | +9.62 | 3.82 | −12.10 | ok |
+| asia_0_8\|rr3 | 103 | 49/54 | 49.51 | 1.244 | +0.0504 | +6.95 | 4.35 | −9.12 | ok |
+| asia_0_8\|rr2 | 103 | 49/54 | 49.51 | 1.209 | +0.0407 | +5.92 | 4.35 | −9.94 | ok |
+
+**All six made money after spread and swap. All six clear the 100-trade bar. All six beat a control that
+traded the same 103-109 times and lost 9-15 %. Every row has a positive after-cost `expectancy_r`** - the
+risk-scaled figure, not just the raw return. Only six configurations were tried.
+
+**And it is not riding a trend: gold FELL 10.519 % over the same holdout** while the best variant made
++13.40 %, from a balanced 52 long / 57 short. The two-sided trade split and the losing inverse are the two
+things that separate this from the long-side results recorded earlier today, which merely tracked a rising
+market and underperformed it.
+
+**A control bug found and fixed before any of this was believed.** The first run reported an inverse of
+0.0 % on **0 trades** for all six variants - a free pass, the same vacuous-control failure already recorded
+in `direction_sweep`. Cause: the stop was read off the range edge AFTER flipping the side, so an inverted
+long became a short whose stop sat at the Tokyo high, a level price had already broken above, and the
+geometry check rejected every one. The control now mirrors the stop at the same distance, keeping timing,
+count and risk size identical and changing only direction. `tests/test_tokyo_breakout.py` (12 tests) pins
+both the BST/GMT conversion and this control.
+
+**NOT promoted, and these are the reasons.** The holdout is only **2026-04-14 to 2026-09-25**, about 5.5
+months and one regime, because the 15m series is capped at 50,000 bars. The **deflated Sharpe has not been
+computed**, so the standing 0.95 bar is unmeasured. Search and validation splits were not run, so
+consistency across periods is unknown. The honest next step is the other two splits and a deflated Sharpe
+over all six trials - not another variant.

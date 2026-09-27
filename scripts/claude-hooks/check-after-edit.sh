@@ -15,7 +15,11 @@ case "$file" in
     # when the project has them.
     msg="[kit] ${file##*/}: SYNTAX ONLY — not verified"
     if [ -d tests ]; then
-      if out="$($(py) -m pytest -q -x --timeout=60 2>&1)"; then
+      # --timeout comes from pytest-timeout, which is NOT installed everywhere. Passing it blindly
+      # makes pytest exit on a usage error, which this hook then reported as "TESTS FAILED" - a
+      # guard accusing the code of something the guard did. Added only when the plugin is present.
+      tmo=""; $(py) -c "import pytest_timeout" >/dev/null 2>&1 && tmo="--timeout=60"
+      if out="$($(py) -m pytest -q -x $tmo 2>&1)"; then
         msg="$msg; tests pass"
       else
         echo "TESTS FAILED after editing $file:" >&2; echo "$out" | tail -25 >&2

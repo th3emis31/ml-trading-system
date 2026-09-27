@@ -35,3 +35,7 @@ data/
 venv/
 config.local.json
 *webhook*.json
+*.bak
+*.bak_*
+*.orig
+.claude/hook-log

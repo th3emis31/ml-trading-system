@@ -1,5 +1,6 @@
 ---
 name: doctor
+family: core
 description: Check whether this project is safe to work in — wrong working directory, hooks that silently never run, memory that has stopped being written, disabled schedules, empty or corrupt data files, credentials in tracked files, and a server exposed to the network. Run at the start of a session and before trusting any result.
 ---
 
@@ -45,3 +46,14 @@ The detectors are heuristics. If it flags something that is fine, do not just
 silence it: tighten the rule and test it against a known-good and a known-bad case,
 then record that in LESSONS.md. A tool that cries wolf gets ignored, which is worse
 than not having one.
+
+## Acceptance
+
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
+```acceptance
+run: python scripts/doctor.py --quiet
+file: .claude/hook-log
+ask: does every FAIL have either a fix applied or a reason recorded, rather than being noted and passed over?
+```

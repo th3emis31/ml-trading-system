@@ -1,5 +1,6 @@
 ---
 name: tv-plan
+family: trading
 description: One cycle of the TradingView daily plan — read the system's plan, redraw it on the 4H chart in Chrome, and manage a PAPER TRADING position only. Designed to repeat with /loop (e.g. "/loop 3h58m /tv-plan"). Requires Claude Code started with --chrome and TradingView logged in.
 ---
 
@@ -72,3 +73,14 @@ is not.
    each symbol's chart.
 7. **Report** a table per symbol: bias, entry, SL, TP1–3, R:R, action taken, paper P&L,
    and any contradiction between chart and plan. Then stop; the loop calls you again.
+
+## Acceptance
+
+This skill may not report success on its own say-so.
+At least one of these is adjudicated by something other than the model.
+
+```acceptance
+appended: .claude/memory/NOTES.md
+file: data/paper_trading
+ask: did this cycle run draw-only, and if an order was placed, did the invocation explicitly ask for it?
+```

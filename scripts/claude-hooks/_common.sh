@@ -1,14 +1,19 @@
 # shared helpers for hooks (sourced)
 #
-# Two rules learned the hard way:
-#   * Windows hands us C:\a\b while git hands back C:/a/b, so every path is
-#     normalised to forward slashes before anything is compared. Without this the
-#     project-relative path never matched, so backups landed flat and the
-#     duplicate checker treated every tracked file as brand new.
+# Three rules learned the hard way:
+#   * Windows hands us C:\a\b, Git Bash's pwd hands back /c/a/b, and comparing the
+#     two never matches. Everything is canonicalised to the /c/a/b form before any
+#     comparison, or the project-relative path silently stays absolute and backups
+#     land in a directory literally named "C:".
 #   * A hook that cannot tell what it was given says so on stderr. Passing quietly
 #     is how a file gets edited with no backup and nobody notices.
+#   * A guard that cries wolf gets ignored, so it must not fire on ordinary code.
 
-norm(){ printf '%s' "$1" | tr '\\' '/'; }
+# Canonical form: forward slashes, and a drive letter folded to the /c/... form
+# that Git Bash itself uses.
+norm(){
+  printf '%s' "$1" | tr '\\' '/' | sed -E 's#^([A-Za-z]):/#/\L\1/#'
+}
 
 # The project root is the kit's own location, not wherever git happens to think.
 # A home directory that is not a repository used to resolve to itself, which made
@@ -46,7 +51,22 @@ rel_path(){
   esac
 }
 
-py(){ command -v python3 >/dev/null 2>&1 && echo python3 || { command -v python >/dev/null 2>&1 && echo python || echo py; }; }
+# An interpreter that EXISTS is not an interpreter that RUNS. On Windows,
+# %LOCALAPPDATA%\Microsoft\WindowsApps\python3 is an App Execution Alias: a stub that
+# `command -v` finds happily and that then prints "Python was not found; run without
+# arguments to install from the Microsoft Store" and exits non-zero. This function used to
+# pick it on that basis, so check-after-edit reported "SYNTAX ERROR ... Python was not
+# found" for every Python file edited on 27 September 2026 - a guard that failed loudly
+# enough to be dismissed each time and never actually parsed anything.
+# So each candidate is probed with --version and the first one that truly answers wins.
+py(){
+  local c
+  for c in python3 python py; do
+    command -v "$c" >/dev/null 2>&1 || continue
+    "$c" --version >/dev/null 2>&1 && { printf '%s' "$c"; return 0; }
+  done
+  printf '%s' python   # nothing answered; let the caller fail with a real error
+}
 
 # Every invocation is recorded, so "did the guardrails actually run?" is answerable
 # at the start of the next session rather than assumed.
