@@ -13,6 +13,28 @@ if not errorlevel 1 (
   exit /b 0
 )
 
+rem The port check above is necessary but not sufficient: it only sees a socket that is already
+rem LISTENING, and app.py takes about 30 s to bind because it imports Keras and yfinance first. On
+rem 26 September the logon task started the app at 14:25:15 and the Startup shortcut started a second
+rem one at 14:25:44 - inside that window, so both passed the port check and two servers ended up on
+rem port 5000. The deep System Doctor failed the next morning on exactly that ("App server", pids
+rem 22972 and 4528).
+rem
+rem An app.py process exists from second zero, so looking for the process closes the window the port
+rem check leaves open. This covers all three launchers, because start_everything.ps1 and the doctor's
+rem repair both come through this file.
+rem
+rem It fails SAFE by design: only the literal token below refuses to start. If PowerShell is missing,
+rem blocked or errors, it prints nothing, findstr finds nothing, and we go on and start the app - a
+rem boot script must never refuse to start the system because a check could not be made. Never
+rem replace this with an exit-code test, which would read a PowerShell failure as "already running".
+powershell -NoProfile -Command "if ((Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*app.py*' })) { 'APPRUNNING' }" 2>nul | findstr /C:"APPRUNNING" >nul 2>&1
+if not errorlevel 1 (
+  echo An app.py process is already running or still starting up; leaving it alone.
+  %SystemRoot%\System32\timeout.exe /t 5 /nobreak >nul
+  exit /b 0
+)
+
 :start
 echo ========================================
 echo  SmartEntry Pro AI - Starting...
