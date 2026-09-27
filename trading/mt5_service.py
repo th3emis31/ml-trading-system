@@ -5,6 +5,26 @@ from datetime import datetime, timezone, timedelta
 from time import monotonic
 
 
+def _maybe_float(value):
+    """A float, or None when the broker did not supply the field. Never raises, never invents a zero.
+
+    A missing financing rate must read as "not known", not as "free": a 0.0 stood in for an absent
+    swap_short would look like a measurement and silently remove a real cost from every short backtest.
+    """
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_int(value):
+    """An int, or None when the broker did not supply the field."""
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class MT5Service:
     """Optional MetaTrader5 integration with safe fallbacks when unavailable."""
 
@@ -63,6 +83,30 @@ class MT5Service:
             self._last_error = str(exc)
             return False
 
+    def _link_alive(self) -> bool:
+        """Is the handle still talking to a terminal, or did that terminal go away underneath us?
+
+        MetaTrader5's Python link belongs to one terminal PROCESS. The terminal updates itself: on
+        27 September 2026 at 13:30 the 11581419 terminal ran LiveUpdate, exited, and came back as build
+        6230 - healthy, re-authorised, 1230 symbols, 10 positions - while the app kept the dead handle
+        from before. `_connected` was still True, so `status()` short-circuited and never reconnected, and
+        for the rest of the day every real call failed: symbol_info said XAUUSD was "not found on broker",
+        positions_get returned None, account_info returned null. The demo model executor refused every
+        signal with "could not read open MT5 positions" (correctly - it fails safe), so nothing traded and
+        the System Doctor still reported "MT5 connected", because it asks this very method.
+
+        terminal_info() and account_info() are local IPC and cost well under a millisecond, so this is
+        affordable on every status() call. Anything other than two live answers counts as dead, which is
+        the safe direction: a reconnect is attempted, and if that fails the status says disconnected
+        rather than claiming a connection that cannot answer.
+        """
+        if self._mt5 is None:
+            return False
+        try:
+            return self._mt5.terminal_info() is not None and self._mt5.account_info() is not None
+        except Exception:
+            return False
+
     def status(self) -> dict:
         if self._mt5 is None:
             return {
@@ -73,6 +117,11 @@ class MT5Service:
             }
 
         connected = self._connected or self.connect()
+        if connected and not self._link_alive():
+            # The terminal restarted under us. Drop the stale handle and reconnect to the new process.
+            self._connected = False
+            self._last_error = "terminal restarted; reconnecting"
+            connected = self.connect()
         return {
             "available": True,
             "connected": bool(connected),
@@ -500,6 +549,21 @@ class MT5Service:
                 "bid": float(getattr(tick, "bid", 0.0) or 0.0),
                 "ask": float(getattr(tick, "ask", 0.0) or 0.0),
                 "spread": float(getattr(tick, "ask", 0.0) or 0.0) - float(getattr(tick, "bid", 0.0) or 0.0),
+                # The broker's own overnight financing, per side. Nothing in this system read these before
+                # 27 Sep 2026, which is why src/strategy_lab.py HOLDING_COSTS says of gold "short side
+                # assumed equal to long" - the long rate was measured from Strategy Tester deals and the
+                # short rate was a guess set equal to it. That guess is load-bearing: on XAUUSD:4h it costs
+                # short strategies 0.82 to 3.07 percentage points, and one of six variants measured went
+                # from -1.93 % to +1.14 % when shorts paid nothing. Reported here so the cost model can be
+                # measured instead of assumed. swap_mode says what the numbers mean (points, percent, or
+                # currency per lot) and must be read before using them.
+                "swap_long": _maybe_float(getattr(info, "swap_long", None)),
+                "swap_short": _maybe_float(getattr(info, "swap_short", None)),
+                "swap_mode": _maybe_int(getattr(info, "swap_mode", None)),
+                "swap_rollover3days": _maybe_int(getattr(info, "swap_rollover3days", None)),
+                "trade_contract_size": _maybe_float(getattr(info, "trade_contract_size", None)),
+                "point": _maybe_float(getattr(info, "point", None)),
+                "digits": _maybe_int(getattr(info, "digits", None)),
             }
         except Exception as exc:
             return {
