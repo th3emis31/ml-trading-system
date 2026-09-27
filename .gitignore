@@ -35,3 +35,7 @@ data/
 venv/
 config.local.json
 *webhook*.json
+
+# Hook backups and the hook invocation log: local safety copies, never history.
+*.bak_*
+.claude/hook-log

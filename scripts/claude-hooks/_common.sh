@@ -46,7 +46,16 @@ rel_path(){
   esac
 }
 
-py(){ command -v python3 >/dev/null 2>&1 && echo python3 || { command -v python >/dev/null 2>&1 && echo python || echo py; }; }
+# The candidate must actually RUN, not merely be on PATH. Windows ships a `python3`
+# App Execution Alias that exists, exits non-zero and prints "Python was not found",
+# so a `command -v` probe picks the stub and every syntax check reports a false error.
+py(){
+  local c
+  for c in python python3 py; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c '' >/dev/null 2>&1; then echo "$c"; return 0; fi
+  done
+  echo python
+}
 
 # Every invocation is recorded, so "did the guardrails actually run?" is answerable
 # at the start of the next session rather than assumed.

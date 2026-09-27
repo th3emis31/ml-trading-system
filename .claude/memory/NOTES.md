@@ -747,3 +747,43 @@ reason says how.
 **Still open, measured not guessed:** `/api/strategy-lab` returns **966 KB in 40 seconds**. It is not an
 error - the page works - but it is the slowest thing in the app by a wide margin and wants pagination.
 
+
+## 2026-09-27 19:30 — research engine, STEP 1 of 9 done, STOPPED at the owner's request
+
+The owner specified a nine-step plan for finishing the research infrastructure and required a report and an
+approval gate after each step. **STEP 1 is complete and reported. STEPS 2-9 are not started.**
+
+### What changed on disk
+
+| File | State |
+|---|---|
+| `engine/loop.py` | **CHANGED.** Ledger entry price is now the executed fill (`open[i+1]`), not the signal close. `fill_bar` / `fill_time` / `slippage_from_signal` added to the row detail. New `reconcile_entry_prices()` runs on every run and its verdict prints in the pre-flight. Backups `engine/loop.py.bak_190422` (pre-fix) and `.bak_191140_reconcile`. |
+| `tests/test_ledger_entry_price.py` | **NEW**, 7 tests, all passing. Includes the defect re-injected, a limit-entry fill that is not the next open, and an unmatched-trade case, so silence cannot pass for agreement. |
+| `scripts/claude-hooks/_common.sh` | **FIXED.** `py()` now requires the interpreter to run, not merely be on PATH. Backup `.bak_*_pyprobe2`. |
+| `engine/signal_engine.py` | **UNCHANGED at 129 lines** — reverted to its STEP 1 shape when the owner said STEP 1 only. |
+
+### Parked, awaiting approval
+
+The STEP 2 draft is in the session scratchpad, not in the repo:
+`step2_signal_record_draft.py` (the full `Signal` record, `build_signal`, `reject_profile`) and
+`step2_reject_codes_draft.py` (a `RejectCode` enum). **Both need reworking before use:** the owner's STEP 2
+names codes the draft does not have — `REJECT_NO_SETUP`, `REJECT_INVALID_STRUCTURE`,
+`REJECT_INVALID_TARGET`, `REJECT_EXECUTION`, `REJECT_DATA` — and requires every rejection to carry
+`code` + `message` + `inputs`.
+
+### Two things to know before running tests here
+
+`tests/test_active_account.py` hangs at import/collection (63 s with `--collect-only` alone) and is
+alphabetically first, so the whole suite appears to stall on it. The full suite has therefore NOT been run
+clean since the STEP 1 change; the engine subset has: `test_engine_truth.py` + `test_engine_package.py` +
+`test_ledger_entry_price.py` = **43 passed in 6.04 s**.
+
+The machine sits at 84-90 % of 7.4 GB with the app, two MT5 terminals, Edge and two Claude sessions up.
+A single whole-suite pytest process tips it. Orphaned pytest children survive the harness's "low memory"
+kill and must be ended by hand afterwards.
+
+### Unresolved, and it is a real inconsistency
+
+The ledger entry row's `ts` is the SIGNAL bar's timestamp while its `price` is now the FILL bar's price, and
+the simulator's own `entry_time` is the fill bar. The owner asked that entry timestamps not change, so `ts`
+was left alone and the fill time recorded beside it. Aligning them is a separate decision, not yet taken.

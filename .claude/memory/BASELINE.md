@@ -1897,3 +1897,43 @@ discriminates. Recorded as insufficient evidence, not as a loss — 62 short var
 holdout; they simply do not survive the splits and the control together.
 
 `crt_htf` and `sweep_reclaim` cannot run on 30m at all (4 family/market combinations skipped on each side).
+
+## 2026-09-27 — engine package: the ledger entry price, and what it did NOT change
+
+**Provenance, measured not asserted.** `fetch_app_bars("XAUUSD", "4h")` returned source
+`app:mt5:XAUUSD`, and all 500 overlapping bars matched the cached frame
+(`data/research/cache/xauusd_4h_app_20260927_1600.csv`, 16,068 bars) to **0.00000** on open, high, low and
+close. The bars are MT5.
+
+**The defect.** `engine/loop.py` recorded the SIGNAL bar's close as the ledger's entry price, while
+`strategy_lab.simulate_orders` fills at the NEXT bar's open. On gold 4h those differ by up to 10.04 points
+against a median risk of roughly 8 points, so the ledger was auditing trades against a price they never
+traded at. Fixed at `engine/loop.py:125-126` and `:160`; the signal price is preserved in the row's detail
+as `signal_price`, `fill_bar`, `fill_time` and `slippage_from_signal`.
+
+**The result is unchanged, which is the point.** XAUUSD 4h `sweep_reclaim` short, holdout, after the fix:
+
+| metric | value |
+|---|---|
+| trades | 109 |
+| win rate | 47.71 % |
+| profit factor | 1.075 |
+| expectancy_r | **−0.0771** |
+| net return | +3.137 % |
+| max drawdown | 11.393 % |
+| ambiguous exits | 1 |
+| buy & hold, same period | **+71.217 %** |
+| outcomes | STOP 57, TARGET 52 |
+| MAE winners / losers / worst | 0.381R / 1.394R / 4.932R |
+| entry-price reconciliation | 109 of 109 checked, **0 mismatches** |
+
+Every figure is identical to the pre-fix record. Structurally it could not have moved them: trades come
+from `execution_engine.run_trades`, which the ledger never feeds. The only value that changed is the one
+that was wrong.
+
+**`sweep_reclaim` short / 18 trials = NOT PASSED stands.** Deflated Sharpe 0.086 against a 0.95 bar,
+expectancy negative per R, and buy-and-hold made 22x the strategy's return over the same holdout. Recorded
+as a rejection, not to be re-run in search of a better number.
+
+The ledger holds 115 entry rows against 109 executed trades; all six differences are a signal arriving
+while a position was still open, which is the simulator's one-position-at-a-time rule, not a gap.
