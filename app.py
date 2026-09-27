@@ -24138,6 +24138,23 @@ def demo_sweep_cycle_api():
   return jsonify(summary)
 
 
+@app.route('/api/demo-sweep/resume', methods=['POST'])
+def demo_sweep_resume_api():
+  """Clear the sweep trader's halt. Same guard as its cycle: local origin AND the control secret.
+
+  This route did not exist until 27 September 2026. The sweep trader could halt itself like every other
+  demo strategy, and its halt message told the owner to resume on /demo-trading, but there was nothing
+  there to resume it with - no route and no button. It sat halted while the other two were brought back.
+  """
+  refused = _demo_pullback_refused()
+  if refused:
+    return refused
+  from src import demo_sweep_trader
+  with _demo_sweep_lock:
+    event = demo_sweep_trader.owner_resume()
+  return jsonify(event)
+
+
 @app.route('/api/demo-sweep/status')
 def demo_sweep_status_api():
   from src import demo_sweep_trader
@@ -24804,6 +24821,20 @@ DEMO_TRADING_TEMPLATE = r"""
     <div class='card'><h2>Breakout closed trades</h2><div class='table-wrap' id='b-closed'><p class='muted'>Loading…</p></div></div>
     <div class='card'><h2>Breakout decision log</h2><div class='table-wrap' id='b-log'><p class='muted'>Loading…</p></div></div>
   </div>
+
+  <div class='wrap'>
+    <div class='head'>
+      <div>
+        <h1>Sweep trader (manipulation candle)</h1>
+        <p class='muted'>The owner's sweep/reclaim rule on the same demo account (magic 440805). It had no resume control until 27 September 2026: it could halt itself like the others, its halt message pointed here, and there was nothing here to bring it back.</p>
+      </div>
+      <div style='text-align:right'>
+        <button class='resume-btn' id='s-resume-btn' type='button' hidden>Resume sweep</button>
+        <div class='muted' id='s-control-msg' style='font-size:12px;margin-top:6px'></div>
+      </div>
+    </div>
+    <div class='banner warn' id='s-mode-banner'>Loading…</div>
+  </div>
 <script>
 const CONTROL_SECRET = {{ control_secret|tojson }};
 const esc = v => String(v === null || v === undefined ? '—' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -24990,10 +25021,45 @@ async function loadBreakout() {
   decisionLog('b-log', d.log || []);
 }
 
+let sweepResumeArmed = false;
+async function controlSweep(path) {
+  const msg = document.getElementById('s-control-msg');
+  msg.textContent = 'Sending…';
+  try {
+    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Control-Secret': CONTROL_SECRET}, body: '{}'});
+    const body = await r.json();
+    msg.textContent = r.ok ? (body.reason || 'done') : ('Refused: ' + (body.reason || r.status));
+  } catch (e) { msg.textContent = 'Request failed: ' + e; }
+  loadSweep();
+}
+document.getElementById('s-resume-btn').addEventListener('click', () => {
+  const btn = document.getElementById('s-resume-btn');
+  if (!sweepResumeArmed) { sweepResumeArmed = true; btn.textContent = 'Click again to resume'; setTimeout(() => { sweepResumeArmed = false; btn.textContent = 'Resume sweep'; }, 5000); return; }
+  sweepResumeArmed = false; btn.textContent = 'Resume sweep';
+  controlSweep('/api/demo-sweep/resume');
+});
+
+async function loadSweep() {
+  let d;
+  try { d = await (await fetch('/api/demo-sweep/status')).json(); } catch (e) { return; }
+  const banner = document.getElementById('s-mode-banner');
+  if (d.halted) {
+    banner.className = 'banner bad';
+    banner.innerHTML = `<strong>HALTED (${esc(d.halted.kind)})</strong> at ${esc(d.halted.at)} UTC: ${esc(d.halted.reason)}`;
+  } else if (d.dry_run === false) {
+    banner.className = 'banner ok'; banner.innerHTML = '<strong>Sending orders</strong> to demo account 11581419 (magic 440805).';
+  } else {
+    banner.className = 'banner warn'; banner.innerHTML = '<strong>Dry run</strong> - orders are logged, not sent.';
+  }
+  document.getElementById('s-resume-btn').hidden = !d.halted;
+}
+
 load();
 loadBreakout();
+loadSweep();
 setInterval(load, 30000);
 setInterval(loadBreakout, 30000);
+setInterval(loadSweep, 30000);
 </script>
 </body>
 </html>
