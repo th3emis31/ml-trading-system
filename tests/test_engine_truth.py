@@ -249,3 +249,54 @@ def test_the_real_gold_cost_is_the_size_the_record_says_it_is():
     gold = BACKTEST_COSTS["XAUUSD"]["round_trip_pct"]
     assert 0.00002 <= gold <= 0.0005, (
         f"gold round-trip cost is {gold} as a fraction, i.e. {gold * 100:.4f}% - outside the measured range")
+
+
+# --- the hazard that broke a real study: levels smaller than one bar ---------------------------------
+
+def test_levels_smaller_than_one_bar_bias_the_win_rate_and_the_engine_says_so():
+    """Not an engine fault - an engine LIMIT, and one that silently destroyed a real measurement.
+
+    A stop and target both inside a single candle's range means the bar touched both, and the engine books
+    the stop. On 27 September 2026 a scalp study sized its levels at 0.3 x the 15m ATR - about 2.1 points
+    against a 7.2-point average 15m bar - and a fair 1:1 bet measured 37.3 % instead of 50 %. The missing
+    thirteen points were the stop-first convention, applied to a quarter of all trades.
+
+    The cause was a unit error: the owner's trades were measured as 0.35 ATR on HOURLY bars (6.4 points)
+    and that fraction was then applied to a 15m frame, making the levels a third of their real size.
+
+    So: `ambiguous_exits` is the number to read before believing any tight-stop result, and the fix is
+    finer bars or wider levels - never a different convention.
+    """
+    rng = np.random.default_rng(4)
+    n = 6000
+    close = 2000 + np.cumsum(rng.normal(0, 1.2, n))
+    open_ = np.concatenate(([close[0]], close[:-1]))
+    # Deliberately wide bars: each candle's range dwarfs the levels below.
+    high = np.maximum(open_, close) + rng.uniform(2.0, 4.0, n)
+    low = np.minimum(open_, close) - rng.uniform(2.0, 4.0, n)
+    times = pd.to_datetime(pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC"))
+    atr = np.full(n, 6.0)
+
+    rows = np.arange(100, n - 40, 5)
+    side = np.zeros(n, dtype=int)
+    side[rows] = -1
+    exits = {**EXITS, "max_bars": 8}
+
+    tight = simulate_orders(open_, high, low, close, atr, times, side, close + 1.0, close - 1.0,
+                            rows, exits, 0.0, None, None)
+    wide = simulate_orders(open_, high, low, close, atr, times, side, close + 12.0, close - 12.0,
+                           rows, exits, 0.0, None, None)
+
+    def summarise(trades):
+        return summarize_trades(trades, test_start=times[0], test_end=times[-1], test_bars=n,
+                                bars_in_market=sum(t["bars_held"] for t in trades))
+
+    tight_out, wide_out = summarise(tight), summarise(wide)
+    tight_ambiguous = tight_out.get("ambiguous_exits") or 0
+    assert tight_ambiguous > 0, "levels inside one bar must produce ambiguous exits"
+    assert tight_out["win_rate_pct"] < wide_out["win_rate_pct"], (
+        "levels inside a single bar must measure WORSE than levels the bar cannot straddle - "
+        "that gap is the convention, not the market")
+    # And with levels the bar cannot straddle, the same fair bet is near the coin flip.
+    assert 42 <= wide_out["win_rate_pct"] <= 58, (
+        f"a fair 1:1 with levels wider than the bars measured {wide_out['win_rate_pct']}%")

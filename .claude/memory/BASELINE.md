@@ -1735,3 +1735,52 @@ short-side gold timing, and the system cannot do it.**
 **Honest limits:** 3 buys is far too few to say buys lose; 12 of 12 in the late session is twelve trades;
 all 54 sit inside about six weeks of one regime. This is a direction to test, not a proven edge, and it
 needs a holdout like anything else. **No live input, preset, demo strategy or EA changed.** 9 tests.
+
+---
+
+## 2026-09-27 — short-only gold from the owner's own trades, and the unit error that broke the first attempt
+
+The owner approved testing a short-only gold rule built from their real entries (previous row). Three runs
+were needed, and the first two were wrong in ways worth recording.
+
+### Attempt 1, H1, half-day swing: 0 of 24 positive — and it tested the wrong strategy
+
+Stop at the swept high + 0.25 ATR, targets 1–2 R, 12-hour limit. Everything lost. Then I measured what the
+owner's trades actually ARE: winners move a median **6.40 points (0.35 ATR), held 30 minutes**; losers
+−5.25 points, 24 minutes. I had tested a half-day swing for 1–2 ATR against a **half-hour scalp for a third
+of an ATR**. On H1 bars such a trade often opens and closes inside one candle.
+
+### Attempt 2, 15m, "0.35 ATR": 0 of 48 positive — because of a UNIT ERROR of mine
+
+Their 0.35 ATR was measured on **hourly** bars (≈18 points → 6.4 points). I applied "0.35 ATR" to the
+**15m** frame, where ATR ≈ the bar range ≈ 7 points, making the levels **2.1 points — a third of their real
+size and smaller than one candle.**
+
+The consequence is measurable and severe. A short on EVERY 15m bar with an equal 0.3 ATR stop and target —
+a fair 1:1 coin flip — measured **37.3 %** instead of ~50 %, with **25.4 % of trades ambiguous** (the bar
+touched both levels and the engine books the stop). 37.3 % + half of 25.4 % ≈ 50 %: the entire shortfall is
+the convention, applied to levels too small for the bars.
+
+**The engine itself is fair.** With 6.4-point levels: 1m **50.0 %** win (0.0 % ambiguous), 5m **50.4 %**
+(2.2 %), 15m 47.7 % (2.9 %). `tests/test_engine_truth.py` now carries this as a documented limit.
+
+### Attempt 3, 5m, levels in POINTS: the honest result
+
+108 trials. The best are **short gold on a Parabolic SAR flip down**, 9-point stop and 9-point target,
+2-hour limit:
+
+| variant | search | validation | holdout | PF | maxDD | inverse |
+|---|---|---|---|---|---|---|
+| `all_hours nosweep sar s9 t9` | **−14.24 %** (1,231) | +3.90 % (374) | **+2.77 %** (384, 53.9 % win) | 1.08 | 4.15 % | −12.20 % |
+| `from_13utc nosweep sar s9 t9` | **−6.98 %** (513) | +2.04 % (152) | **+2.21 %** (165, 55.8 % win) | 1.16 | 2.37 % | −7.08 % |
+
+Zero ambiguous exits, so these outcomes are read off the data. The inverse loses 7–12 points, so the
+direction carries information. Win rates of 54–56 % sit below the owner's own 70.6 %.
+
+**But the search window is negative on both**, so it is not consistent across the 5m history — it worked in
+the last two windows and lost in the first. The liquidity-sweep filter reduces the sample to 11–41 signals
+and is unusable. **The deflated Sharpe is degenerate here** (sr₀ reported as 28.1 at 108 trials): with
+per-trade Sharpes this small the variance estimate is not usable, so that figure must not be quoted as a bar.
+
+**Verdict: not proven.** A short-side signal exists on the recent windows and is contradicted by the
+earliest one. **No live input, preset, demo strategy or EA changed.** 12 engine tests.
