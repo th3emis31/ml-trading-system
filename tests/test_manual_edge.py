@@ -134,3 +134,31 @@ def test_every_feature_reports_winners_losers_and_all(tmp_path, monkeypatch):
     out = study("XAUUSD", "1h", str(path))
     for key, values in out["features"].items():
         assert set(values) == {"winners", "losers", "all"}, key
+
+
+# --- the strategy book must survive a family that has no search grid ---------------------------------
+
+def test_a_family_with_no_parameter_grid_reports_no_neighbours_instead_of_raising():
+    """Families registered through ORDER_BUILDERS declare their variants in code and have no entry in
+    lab.FAMILIES. `neighbours` indexed that dict directly and raised KeyError, which stopped an entire
+    save of survey survivors partway through. A missing measurement must be reported, never thrown."""
+    from src.strategy_book import neighbour_share, neighbours
+
+    spec = {"family": "smart_entry_arch", "params": {"symbol": "XAUUSD", "rr": 2.0},
+            "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0, "max_bars": 48,
+                      "swing_lookback": 0}}
+    assert neighbours(spec) == []
+    assert neighbour_share(None, spec) is None
+
+
+def test_a_family_that_does_have_a_grid_still_produces_neighbours():
+    from src.strategy_lab import FAMILIES
+    from src.strategy_book import neighbours
+
+    family = next(iter(FAMILIES))
+    grid = FAMILIES[family]
+    params = {key: values[0] for key, values in grid.items() if values}
+    spec = {"family": family, "params": params,
+            "exits": {"stop": "fixed", "sl_atr": 1.0, "rr": 2.0, "trail_atr": 0.0, "max_bars": 48,
+                      "swing_lookback": 20}}
+    assert isinstance(neighbours(spec), list)

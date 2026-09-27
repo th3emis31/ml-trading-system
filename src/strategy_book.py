@@ -97,7 +97,14 @@ def rolling_consistency(trades: list[dict], window_days: int = 365, step_days: i
 def neighbours(spec: dict) -> list[dict]:
     """Every valid spec that moves one setting one step along its search grid (the side is never flipped)."""
     out, seen = [], {lab.spec_id(spec)}
-    grids = [("params", lab.FAMILIES[spec["family"]]), ("exits", lab.EXIT_GRID)]
+    # Families registered through ORDER_BUILDERS declare their own variants in code and have no entry in
+    # lab.FAMILIES, so there is no grid to step along. That is a MISSING measurement, not an error:
+    # `neighbour_share` returns None and `classify` records "neighbour share n/a" against the entry, which
+    # keeps it out of approved_for_demo. Raising KeyError instead stopped the whole save.
+    family_grid = lab.FAMILIES.get(spec["family"])
+    if family_grid is None:
+        return []
+    grids = [("params", family_grid), ("exits", lab.EXIT_GRID)]
     for group, grid in grids:
         for key, values in grid.items():
             if key == "side" or len(values) < 2 or key not in spec[group]:

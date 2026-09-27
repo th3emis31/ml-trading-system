@@ -1784,3 +1784,67 @@ per-trade Sharpes this small the variance estimate is not usable, so that figure
 
 **Verdict: not proven.** A short-side signal exists on the recent windows and is contradicted by the
 earliest one. **No live input, preset, demo strategy or EA changed.** 12 engine tests.
+
+---
+
+## 2026-09-27 — every strategy in the system, one by one, LONG then SHORT, on 15m / 1h / 4h
+
+The owner asked for exactly this survey. `src/direction_sweep.py` takes each family's OWN declared
+variants, forces one direction, and runs them on both markets and all three timeframes. Nothing new is
+invented — only the side is constrained.
+
+| | variants that traded | profitable on holdout | survived all 3 splits + a REAL inverse control |
+|---|---|---|---|
+| **LONG** | 711 | 164 | **8** |
+| **SHORT** | 708 | 136 | **4** |
+
+### Long survivors
+
+| family | market | variant | trades | win% | PF | net | inverse |
+|---|---|---|---|---|---|---|---|
+| crt_displacement | XAUUSD 1h | `body disp nosweep rr2` | 334 | 42.5 | 1.19 | **+20.82 %** | −4.14 % |
+| smart_entry_arch | XAUUSD 4h | `2_poc_sweep rr2` | 28 | 50.0 | 1.69 | +15.69 % | −0.62 % |
+| sweep_reversal | XAUUSD 4h | `continue lb40 rr1` | 145 | 54.5 | 1.27 | +14.79 % | −3.00 % |
+| poi_liquidity | BTCUSD 4h | `ride nobos rr3` | 89 | 33.7 | 1.10 | +5.55 % | −2.98 % |
+| cisd | XAUUSD 4h | `run1 sweep20 wait3 rr1` | 28 | 57.1 | 1.09 | +1.44 % | −9.59 % |
+
+### Short survivors — all four are the owner's own CISD card, on gold 4H
+
+| variant | trades | win% | PF | net | inverse |
+|---|---|---|---|---|---|
+| `run2 sweep10 wait3 rr1` | 26 | 53.9 | **1.91** | **+15.42 %** | −8.61 % |
+| `run2 sweep20 wait3 rr1` | 21 | 57.1 | 1.99 | +12.34 % | −5.92 % |
+| `run2 sweep20 wait5 rr1` | 32 | 53.1 | 1.38 | +8.04 % | −7.66 % |
+| `run2 sweep10 wait5 rr1` | 39 | 48.7 | 1.25 | +6.92 % | −14.21 % |
+
+### Two flaws in my own filter, found before anything was saved
+
+1. **A vacuous inverse control.** Four long "survivors" were bullish-only patterns (hammer, morning star,
+   bullish engulfing). Inverting them on a long-only pass produces NO trades, so "beats its inverse"
+   passed against nothing. The check now requires the inverse to have **traded and lost**.
+2. **Drift dressed as edge.** Four more had an inverse that was also POSITIVE (`continue lb40 rr2` made
+   +34.62 % while its inverse made +5.22 %). Both directions making money is drift, not direction.
+
+### What was saved, and by whose standard
+
+Survivors were written to the system's own strategy book through `gather_evidence` + `classify`, so the
+book's unchanged rules decided the status. **It rejected 6 of 8 longs and 3 of 4 shorts.** Three entries
+were added, all `watchlist`, none `approved_for_demo`:
+
+* `XAUUSD:4h|long|sweep_reversal|continue|lb40|body|rr1` and `|nobody|` — 145 trades, +14.79 %
+* `XAUUSD:4h|short|cisd|run2|sweep20|wait5|rr1` — 32 trades, +8.04 %
+
+**And within the hour the system re-ranked them itself.** The scheduled Strategy Lab job ran at 09:53 and
+ARCHIVED both long entries, reason *"outside the best 10 watchlist strategies of XAUUSD:4h"* — the book
+ranks on deflated Sharpe first, and these have none. Archived means kept and no longer re-checked, not
+deleted. The short CISD entry was added at 10:05, after that pass, and will face the same cap on the next
+one. So the honest state is: three entries stored, one currently on the watchlist, two already ranked out
+by the system's own rules.
+
+Each still fails the deflated Sharpe and has no neighbour share, which is recorded on the entry.
+
+**Two defects fixed to make this possible, both real:** `params["side"]` constrained the built-in signal
+path and was **silently ignored by every registered builder**, so a one-sided result could not be stored
+as a spec without being re-run two-sided later; and `strategy_book.neighbours` raised `KeyError` for any
+family without a parameter grid, which aborted a save part-way instead of recording the measurement as
+missing. **No live input, preset, demo strategy or EA changed.**

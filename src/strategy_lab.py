@@ -309,7 +309,18 @@ def strategy_orders(ind: Indicators, spec: dict) -> tuple[np.ndarray, np.ndarray
     """Per bar: side (+1/-1/0), stop and target computed from that closed bar (NaN without a signal)."""
     builder = ORDER_BUILDERS.get(spec["family"])
     if builder is not None:
-        return builder(ind, spec)
+        orders = builder(ind, spec)
+        # `params["side"]` restricted the built-in signal path below to one direction and was SILENTLY
+        # IGNORED by every registered builder - the same key meaning two different things depending on
+        # which path a family happened to use. It now applies to both, so a one-sided result can be stored
+        # as a spec and re-run as the same thing later. Without this, a long-only entry saved in the
+        # strategy book would be re-checked two-sided and quietly stop matching its own recorded evidence.
+        wanted = str((spec.get("params") or {}).get("side") or "")
+        if wanted in ("long", "short"):
+            keep = 1 if wanted == "long" else -1
+            side = np.where(orders[0] == keep, keep, 0).astype(int)
+            return (side, orders[1], orders[2]) + tuple(orders[3:])
+        return orders
     params, exits = spec["params"], spec["exits"]
     long_sig, short_sig = SIGNALS[spec["family"]](ind, params)
     with np.errstate(invalid="ignore"):

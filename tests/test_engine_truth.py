@@ -300,3 +300,38 @@ def test_levels_smaller_than_one_bar_bias_the_win_rate_and_the_engine_says_so():
     # And with levels the bar cannot straddle, the same fair bet is near the coin flip.
     assert 42 <= wide_out["win_rate_pct"] <= 58, (
         f"a fair 1:1 with levels wider than the bars measured {wide_out['win_rate_pct']}%")
+
+
+# --- one-sided specs must mean the same thing in both code paths ------------------------------------
+
+def test_a_side_restricted_spec_is_honoured_by_a_registered_builder():
+    """`params["side"]` constrained the built-in signal path and was ignored by registered builders, so
+    the same key meant two different things. A long-only result stored as a spec would then be re-run
+    two-sided by the strategy book and stop matching its own recorded evidence."""
+    from src.strategy_lab import ORDER_BUILDERS, strategy_orders
+
+    o, h, l, c, atr, times = ramp_market(n=120)
+    n = len(c)
+
+    def both_ways(ind, spec):
+        side = np.zeros(n, dtype=int)
+        side[40] = 1
+        side[60] = -1
+        return side, c - 5.0, c + 5.0
+
+    ORDER_BUILDERS["_side_probe"] = both_ways
+    try:
+        frame = pd.DataFrame({"open": o, "high": h, "low": l, "close": c, "volume": 1.0})
+        frame["datetime"] = times
+        from src.strategy_lab import Indicators
+
+        ind = Indicators(frame)
+        base = strategy_orders(ind, {"family": "_side_probe", "params": {}, "exits": {}})[0]
+        assert set(base.tolist()) == {0, 1, -1}
+
+        longs = strategy_orders(ind, {"family": "_side_probe", "params": {"side": "long"}, "exits": {}})[0]
+        shorts = strategy_orders(ind, {"family": "_side_probe", "params": {"side": "short"}, "exits": {}})[0]
+        assert longs[40] == 1 and longs[60] == 0, "a long-only spec must drop the short"
+        assert shorts[60] == -1 and shorts[40] == 0, "a short-only spec must drop the long"
+    finally:
+        ORDER_BUILDERS.pop("_side_probe", None)
