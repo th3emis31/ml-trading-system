@@ -35,9 +35,22 @@ except Exception: pass' 2>/dev/null)"
 
 # Project-relative path, compared case-insensitively so a drive letter cannot
 # defeat the match on Windows.
+# `C:/Users/x` and `/c/Users/x` name the same file and compared UNEQUAL, because root_dir() reports
+# the MSYS form while the tool input carries the Windows one. rel_path therefore fell through to its
+# absolute branch, and dup-check's self-exclusion - which tests whether a match starts with the file's
+# own relative path - matched nothing. Every new Python file was reported as duplicating itself, on
+# every definition it contained. A guard that fires on correct work is worse than no guard: it is the
+# reason hook output stops being read.
+msys(){
+  case "$1" in
+    [A-Za-z]:/*) printf '/%s/%s' "$(printf '%s' "${1%%:*}" | tr 'A-Z' 'a-z')" "${1#*:/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 rel_path(){
   local file root lf lr
-  file="$(norm "$1")"; root="$(norm "$2")"
+  file="$(msys "$(norm "$1")")"; root="$(msys "$(norm "$2")")"
   lf="$(printf '%s' "$file" | tr 'A-Z' 'a-z')"
   lr="$(printf '%s' "$root" | tr 'A-Z' 'a-z')"
   case "$lf" in
