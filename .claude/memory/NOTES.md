@@ -1010,3 +1010,28 @@ result 1** at 06:30. Two fixes, both awaiting the owner: prune the superseded bu
 reads them, all regenerable), and make `load_bars` delete the previous bucket as it writes the new one.
 
 Not started: STEPS 4-9 of the research plan. The owner stopped the work after STEP 3 for approval.
+
+## 2026-09-28 06:50 — the dashboard is on loopback, and the duplicate server is gone for good
+
+**Both fixed, verified.** The app had been listening on `0.0.0.0:5000` - every write endpoint reachable
+from anyone on the network - because the running process predated the loopback commit. And there were
+TWO `start_trading.bat` relaunch loops (cmd 19216 from 19:44:42 and cmd 20616 from 19:48:39), started
+four minutes apart on 27 September, each supervising its own `app.py`. Killing a python process alone
+achieved nothing: its loop relaunched it in five seconds.
+
+The owner ran the stops; the classifier correctly refuses to let a session kill the live trading app.
+One subtlety cost a second round: **killing a loop does not kill the app it has already spawned.**
+Loop 20616 had spawned pid 28436 a second before it died, leaving an ORPHAN that held the port with no
+supervisor, while the surviving loop's child sat idle without it - exactly inverted. Ending both let
+loop 19216 start a single clean one.
+
+Final state, measured rather than read:
+
+    app.py processes : 1   (pid 3328, ppid 19216 - supervised by the surviving loop)
+    relaunch loops   : 1
+    bound to         : 127.0.0.1:5000
+    healthz          : HTTP 200 in 4.8 ms
+    LAN 192.168.1.65 : ConnectionRefusedError  <- the actual proof, not the bind string
+
+The last line is the one worth keeping. Reading `127.0.0.1` from a config or a listener table says what
+was asked for; connecting to this machine's own LAN address and being refused says what is true.
