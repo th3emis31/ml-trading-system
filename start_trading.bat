@@ -48,6 +48,8 @@ rem account 25446287 is not the configured demo account 11581419": 25446287 is t
 rem Files terminal, which runs the ATOMIC ANALYST indicator and the SwingTrendPullback expert.
 rem Pinning the path keeps the system on its own account. The Atomic panel is unaffected - it
 rem is read from that terminal's MQL5\Files folder on disk, not over this connection.
+set SMARTENTRY_BIND=0.0.0.0
+
 set MT5_PATH=C:\Users\th_em\AppData\Roaming\MetaTrader\terminal64.exe
 
 rem The SECOND MT4 account, so one signal trades both MT4 terminals. Three DWX bridges answer on
