@@ -219,6 +219,11 @@ def load_bars(symbol: str, timeframe: str, source: str = "auto", use_cache: bool
             frame = pd.read_csv(cache)
             frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
             frame.attrs["source"] = f"{provider}(cache {stamp})"
+            # Pruning on a HIT as well as a write is what actually clears a backlog. Reading bucket X
+            # proves every older bucket of this series is superseded, and most calls are hits - so
+            # without this the 3,903 MB already on disk would only drain one series at a time as each
+            # happened to be re-fetched, and the series no longer fetched at all would never drain.
+            _drop_superseded(symbol, timeframe, provider, keep=cache)
             return frame
         if provider == "app":
             frame = fetch_app_bars(symbol, timeframe)
@@ -230,10 +235,45 @@ def load_bars(symbol: str, timeframe: str, source: str = "auto", use_cache: bool
             if use_cache:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 frame.to_csv(cache, index=False)
+                _drop_superseded(symbol, timeframe, provider, keep=cache)
             return frame
     empty = pd.DataFrame(columns=OHLCV)
     empty.attrs["source"] = "none"
     return empty
+
+
+def _drop_superseded(symbol: str, timeframe: str, provider: str, keep: Path) -> int:
+    """Remove the older cache buckets for this series, keeping only the one just written.
+
+    WHY THIS EXISTS. `cache_stamp` buckets by bar interval, so a 15-minute series gets a NEW file 96
+    times a day and nothing ever removed the previous one. Measured on 28 September 2026:
+    `data/research/cache` held **1,186 files and 3,973 MB** - 318 buckets of `btcusd_15m_app` and 324 of
+    `xauusd_15m_app` - of which exactly one per series is ever read. 3,903 MB was dead.
+
+    That dead weight is not merely untidy. `tests/conftest.py` copies `data/` into a fresh sandbox on
+    EVERY pytest invocation, so it made each test run copy 4.4 GB, which on a 7.4 GB machine is why the
+    full suite could not finish and why the 06:30 deep-doctor task had been failing. The same unbounded
+    growth once left 89 test sandboxes holding 225 GB and took the C: drive down to 1.59 GB free, which
+    is enough to stop the live app writing its own state.
+
+    Only this symbol/timeframe/provider series is touched, and only files older than the one just
+    written. A failure to delete is ignored: a locked file is a tidying problem, never a reason to fail
+    a bar fetch that already succeeded.
+    """
+    pattern = f"{symbol.lower()}_{timeframe}_{provider}_*.csv"
+    removed = 0
+    try:
+        for old_file in CACHE_DIR.glob(pattern):
+            if old_file.name == keep.name:
+                continue
+            try:
+                old_file.unlink()
+                removed += 1
+            except OSError:
+                pass                   # another process holds it; the next write will try again
+    except OSError:
+        return removed
+    return removed
 
 
 def htf_context(htf: pd.DataFrame, minutes: int, prefix: str) -> pd.DataFrame:

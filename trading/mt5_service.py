@@ -582,7 +582,16 @@ class MT5Service:
         cached = getattr(self, "_utc_offset_cache", None)
         if cached and monotonic() - cached[1] < 3600:
             return cached[0]
+        # CONNECT FIRST, then probe. `self._mt5` is set as soon as the module imports, but the terminal
+        # is not initialised until status() runs - so asking before connecting found no tick, fell
+        # through to hours = 0 and returned it as though measured. Measured 28 September 2026: a fresh
+        # service answered 0 while the broker clock was genuinely UTC+3, which mislabels every bar time
+        # by three hours. A wrong offset that looks like a real answer is worse than an error, because
+        # nothing downstream can tell the difference.
+        if self._mt5 is not None and not self.status().get("connected"):
+            return 0                      # not cached: a later call, once connected, must be able to measure
         hours = 0
+        measured = False
         if self._mt5 is not None:
             for probe in ("BTCUSD", "ETHUSD", "XAUUSD"):
                 try:
@@ -596,8 +605,13 @@ class MT5Service:
                 # Only trust a fresh tick: within 15h and within 15 minutes of a whole-hour offset.
                 if abs(diff) < 15 * 3600 and abs(diff - round(diff / 3600) * 3600) < 900:
                     hours = int(round(diff / 3600))
+                    measured = True
                     break
-        self._utc_offset_cache = (hours, monotonic())
+        # Only a MEASURED offset is cached. Caching an unmeasured 0 for an hour would keep handing out
+        # the wrong answer long after the terminal came back.
+        self._utc_offset_measured = measured
+        if measured:
+            self._utc_offset_cache = (hours, monotonic())
         return hours
 
     # M30 added 26 Sep 2026. Without it the app answered a 30m request from YAHOO, and
