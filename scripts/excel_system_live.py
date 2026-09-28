@@ -136,11 +136,35 @@ def read_system() -> list:
     return rows
 
 
-def write(rows: list) -> str:
+def write(rows: list, xl=None, wb=None) -> str:
+    """Write the System Live sheet into the workbook the CALLER already resolved.
+
+    This used to do its own lookup - `GetActiveObject("Excel.Application")` then `Workbooks(1)` -
+    which means whatever Excel answered, workbook number one, with no path check of any kind. On
+    28 September 2026 that picked up an orphaned workbook whose file lived on a DISCONNECTED external
+    drive, and the save failed with "the file name or path does not exist".
+
+    The failure was the lucky outcome. `Workbooks(1)` is whichever book happens to be first, so with a
+    different book open this would have written the system's live account data into someone else's
+    spreadsheet and saved it. `excel_refresh.open_workbook` exists precisely to match on the FULL PATH
+    and never the name; doing a second, weaker lookup here threw that guarantee away.
+
+    So the workbook is now passed in. The old self-lookup remains only as a fallback for running this
+    module by hand, and it verifies the path before writing.
+    """
     import win32com.client as win32
 
-    xl = win32.GetActiveObject("Excel.Application")
-    wb = xl.Workbooks(1)
+    if wb is None or xl is None:
+        xl = win32.GetActiveObject("Excel.Application")
+        from excel_refresh import WORKBOOK, same_path                     # same folder
+
+        wb = next((xl.Workbooks(i) for i in range(1, xl.Workbooks.Count + 1)
+                   if same_path(xl.Workbooks(i).FullName, WORKBOOK)), None)
+        if wb is None:
+            raise RuntimeError(
+                f"the configured workbook is not open in this Excel: {WORKBOOK}. Refusing to write to "
+                "whichever workbook happens to be first - that is how live account data ends up in the "
+                "wrong file.")
     name = "System Live"
     try:
         ws = wb.Sheets(name)

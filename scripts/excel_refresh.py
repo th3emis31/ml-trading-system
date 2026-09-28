@@ -174,7 +174,20 @@ def open_workbook():
             # real dashboard stale, with both files looking perfectly plausible.
             if same_path(book.FullName, WORKBOOK):
                 return xl, book, False
-        return xl, xl.Workbooks.Open(str(WORKBOOK)), False       # Excel open, this book is not
+        # A workbook with the SAME FILE NAME but a different path is open here - on this machine that
+        # is the backup on the external drive, which has the identical name. Excel cannot hold two
+        # workbooks of the same name in one instance, so Open() there returns None rather than raising,
+        # and the refresh died with "'NoneType' object has no attribute 'Name'" every hour.
+        #
+        # So: do not ask that instance. Fall through to a private one, which has no name clash. This is
+        # deliberately not solved by closing the other file - it is the owner's backup on their own
+        # drive, and a refresh script has no business closing it.
+        clash = any(Path(str(xl.Workbooks(i).Name)).name.lower() == WORKBOOK.name.lower()
+                    for i in range(1, xl.Workbooks.Count + 1))
+        if not clash:
+            return xl, xl.Workbooks.Open(str(WORKBOOK)), False   # Excel open, this book is not
+    except Exception:
+        pass
     except Exception:
         pass
     xl = win32.DispatchEx("Excel.Application")                    # a private instance, not theirs
@@ -185,6 +198,20 @@ def open_workbook():
 
 def main() -> int:
     xl, wb, started_here = open_workbook()
+    # Excel's COM Open() returns None rather than raising when it cannot actually open the file - a
+    # cloud-only OneDrive placeholder, a file already open elsewhere, a dialog suppressed by
+    # DisplayAlerts. Without this check the next line died with
+    # "AttributeError: 'NoneType' object has no attribute 'Name'", which for a scheduled task that
+    # runs hourly means an opaque traceback instead of the one fact worth knowing: which workbook,
+    # by which route, could not be opened.
+    if wb is None:
+        print(f"could not open the workbook: {WORKBOOK}")
+        print(f"  exists on disk : {Path(WORKBOOK).exists()}")
+        print(f"  route          : {'a private Excel instance' if started_here else 'the running Excel'}")
+        print("  Excel's Open() returned nothing. Usual causes: the file is a cloud-only OneDrive "
+              "placeholder, it is already open read-only elsewhere, or Excel is waiting on a dialog.")
+        print("  The path itself is configured as excel_workbook in config/machine.json.")
+        return 1
     print(f"refreshing {wb.Name}" + (" (opened for this run)" if started_here else " (already open)"))
     xl.ScreenUpdating = False
     xl.Calculation = -4135                      # manual while writing; 40,000 rows recalculating per
@@ -200,7 +227,7 @@ def main() -> int:
 
     from excel_system_live import read_system, write as write_live      # same folder
 
-    print("  " + write_live(read_system()))
+    print("  " + write_live(read_system(), xl, wb))   # the SAME workbook main() resolved, not a second weaker lookup
 
     # Which session, day, hour and month the system actually earns in, rebuilt from the same trade
     # history the journal above uses. It re-attaches through open_workbook(), so it finds this very
