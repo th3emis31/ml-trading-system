@@ -988,3 +988,25 @@ it is why the tag had to move.
 **Not done, deliberately:** the three halted demo strategies are still halted (owner's switch), and the
 reclaim rule's two best long variants sit at 93 and 99 trades - under the 100-trade bar - so nothing was
 promoted to the strategy book from this work.
+
+## 2026-09-28 03:00 — STEP 3 done and saved; the cache leak is the real blocker
+
+**STEP 3 committed as `5f1ed03`.** Spec-aware position sizing beside the untouched `position_size`.
+`config/instrument_specs.json` holds broker-measured specs for XAUUSD and BTCUSD with provenance;
+`engine/instrument_specs.py` loads, validates and REFUSES rather than defaulting; `engine/risk_engine.py`
+gains `size_position`, `PositionSizing`, `RiskRejection` and `check_trade_coded`; eleven risk codes were
+added to the STEP 2 enum rather than creating a second system. 66 new tests, 169 passing across the
+engine package, no strategy file touched.
+
+The headline number: gold at 10,000 GBP equity and an 8.30 stop sizes to 0.15 lots and risks **94.06
+against a 100.00 target, an error of -5.94 %**. Bitcoin's is -0.27 %. Neither is 1 %, and the engine
+reports `target_risk`, `actual_risk` and `risk_error` separately so nobody can call it that.
+
+**STILL OPEN, and it is the most useful thing to fix next.** `data/research/cache` holds 1,186 files /
+3,973 MB because `mtf_data.load_bars` never removes the bucket it supersedes. 3,903 MB of that is dead.
+It is 91 % of the 4.4 GB `tests/conftest.py` copies on every pytest run, which is why the full suite
+cannot complete on this machine and is the likely reason **System Doctor Daily has been failing with
+result 1** at 06:30. Two fixes, both awaiting the owner: prune the superseded buckets (nothing else
+reads them, all regenerable), and make `load_bars` delete the previous bucket as it writes the new one.
+
+Not started: STEPS 4-9 of the research plan. The owner stopped the work after STEP 3 for approval.

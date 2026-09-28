@@ -2110,3 +2110,41 @@ months and one regime, because the 15m series is capped at 50,000 bars. The **de
 computed**, so the standing 0.95 bar is unmeasured. Search and validation splits were not run, so
 consistency across periods is unknown. The honest next step is the other two splits and a deflated Sharpe
 over all six trials - not another variant.
+
+## 2026-09-27/28 — STEP 3: spec-aware position sizing. Target risk is not actual risk.
+
+Instrument specifications MEASURED from the broker (MetaTrader5 `symbol_info`, Vantage demo 11581419),
+written to `config/instrument_specs.json` with provenance. Nothing invented; an unmeasured instrument
+raises rather than receiving a default.
+
+| | tick_size | tick_value | contract_size | min/step/max lot | profit ccy | account ccy |
+|---|---|---|---|---|---|---|
+| XAUUSD | 0.01 | 0.7554981377 GBP | 100.0 | 0.01 / 0.01 / 100 | USD | GBP |
+| BTCUSD | 0.01 | 0.0075549814 GBP | 1.0 | 0.01 / 0.01 / 100 | USD | GBP |
+
+**The account settles in GBP and both instruments profit in USD**, so conversion is unavoidable - and
+the broker has already applied it. `tick_value` is reported in the account currency, and the two
+readings prove it rather than assert it: gold's 1.00 USD per tick per lot comes back as 0.7554981 GBP
+and bitcoin's 0.01 USD as 0.0075550 GBP, the SAME implied USD->GBP rate of 0.7555 on two different
+contract sizes. A test pins that agreement to 1e-9.
+
+**Sizing at the owner's standing 1.00 %, equity 10,000 GBP:**
+
+| | target_risk | raw lots | final lots | actual_risk | risk_error |
+|---|---|---|---|---|---|
+| XAUUSD, 8.30 stop | 100.00 | 0.159473 | **0.15** | **94.06** | **-5.94 (-5.94 %)** |
+| BTCUSD, 1,200 stop | 100.00 | 0.110303 | **0.11** | **99.73** | **-0.27 (-0.27 %)** |
+
+**NEITHER IS 1 %, and the engine will not say it is.** `target_risk` is exactly 1.00 % by construction;
+`actual_risk` is what the tradable size really loses at the stop. Gold rounds more than twenty times
+worse than bitcoin because its money-per-lot is large against a 0.01 lot step - at 10,000 equity with an
+8.30 stop, gold simply cannot be sized to 1 % with any accuracy on this grid. That is a fact about the
+instrument and the account size, not a defect, and it is worth knowing before any live sizing decision.
+
+Rounding is floor-to-grid, named and reported, because flooring can only ever risk LESS than asked.
+Nothing is clamped: a size below `min_lot` is refused with what the minimum WOULD have risked, and a
+size above `max_lot` is refused rather than cut.
+
+Regression: only `test_engine_package`, `test_risk_engine` and `test_signal_engine` touch the changed
+modules, and nothing in `src/`, `app.py` or `trading/` imports them - the `engine/` package is
+self-contained. 169 tests pass across it. No strategy file was touched.
