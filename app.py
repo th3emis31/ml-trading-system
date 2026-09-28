@@ -1279,7 +1279,23 @@ def _atomic_write_json(path: Path, payload) -> None:
       os.replace(path, backup)
     except OSError:
       pass
-  os.replace(tmp_path, path)
+  # os.replace IS atomic on both platforms, but on Windows it also FAILS when the destination has an
+  # open handle - POSIX renames over an open file happily, Windows raises WinError 32 "being used by
+  # another process". Any reader touching the file at that instant breaks the write, and on
+  # 28 September 2026 that surfaced on the TradingView chart as "Plan unavailable: [WinError 32]"
+  # while the plan itself was perfectly fine.
+  #
+  # A reader holds the file for microseconds, so a short backoff clears it. The final attempt is left
+  # UNGUARDED on purpose: if it still cannot be written the caller must see the error rather than
+  # carry on believing the file was updated.
+  for attempt in range(6):
+    try:
+      os.replace(tmp_path, path)
+      return
+    except OSError:
+      if attempt == 5:
+        raise
+      sleep(0.05 * (attempt + 1))        # `from time import sleep` at the top; `time` is not imported
 
 
 def _read_state_json(path: Path):
