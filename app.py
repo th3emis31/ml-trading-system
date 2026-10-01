@@ -23992,6 +23992,70 @@ def demo_model_execute_api():
   return jsonify(event)
 
 
+@app.route('/api/mt4-mirror/protect', methods=['POST'])
+def mt4_mirror_protect_api():
+  """Put the MT5 leg's stop onto a mirrored MT4 order that was opened without one.
+
+  This repairs positions opened before the bridge defect was fixed on 1 October 2026, where
+  place_market_order hard-coded the DWX stop fields to zero and still reported the stop as set.
+
+  It is the narrowest repair that works, and every limit below is deliberate:
+
+  * It only ever sends TRADE;MODIFY. Closing, cancelling and deleting are not reachable from here.
+  * It touches ONLY tickets this system's own journal records placing. Another expert's orders on
+    the same MT4 account are not even looked up.
+  * `only_if_missing` means a level that already exists is left exactly as it is, so it can add
+    protection and can never move or remove a stop the owner set.
+  * It reads the order back afterwards and reports the stop the broker actually holds.
+  * It blocks nothing: no signal, gate, schedule or strategy touches this path.
+  """
+  if not _local_request_only():
+    return jsonify({'ok': False, 'reason': 'local calls only'}), 403
+  demo_executor, config_path, journal_path = _demo_model_files()
+  config = demo_executor.load_config(config_path)
+  journal = demo_executor.load_journal(journal_path)
+  # Tickets this system placed, with the levels its MT5 leg was given. The journal is the proof of
+  # ownership - a magic number is not, because the mirror stamped 123456 on everything until today.
+  wanted = {}
+  for event in (journal.get('events') or []):
+    if not isinstance(event, dict):
+      continue
+    mirrors = event.get('mirror')
+    mirrors = mirrors if isinstance(mirrors, list) else [mirrors]
+    request = event.get('request') or {}
+    for leg in mirrors:
+      if isinstance(leg, dict) and leg.get('executed') and leg.get('ticket'):
+        wanted[int(leg['ticket'])] = {'stop_loss': request.get('stop_loss'),
+                                      'take_profit': request.get('take_profit'),
+                                      'at': event.get('at')}
+  if not wanted:
+    return jsonify({'ok': True, 'checked': 0, 'results': [],
+                    'message': 'the journal records no mirrored MT4 ticket'})
+  results = []
+  for engine in (MT4_ENGINES or []):
+    status = engine.status() or {}
+    if not status.get('connected'):
+      results.append({'skipped': 'bridge not connected'})
+      continue
+    if 'demo' not in str(status.get('server') or '').lower():
+      results.append({'skipped': f"{status.get('server')} is not a demo account"})
+      continue
+    book = engine.open_trades()
+    if not book.get('ok'):
+      results.append({'skipped': f"could not read open trades: {book.get('message')}"})
+      continue
+    for row in book.get('trades') or []:
+      ticket = int(row.get('ticket') or 0)
+      if ticket not in wanted:
+        continue          # not ours: never touched, never reported
+      levels = wanted[ticket]
+      results.append({'server': status.get('server'), **engine.set_stops(
+          ticket, stop_loss=levels['stop_loss'], take_profit=levels['take_profit'],
+          only_if_missing=True)})
+  return jsonify({'ok': True, 'checked': len(wanted), 'symbol': config.get('symbol'),
+                  'results': results})
+
+
 @app.route('/api/demo-model/sync', methods=['POST'])
 def demo_model_sync_api():
   """Record positions the broker closed and close model positions that reached the time limit."""

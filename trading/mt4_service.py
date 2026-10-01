@@ -355,6 +355,91 @@ class MT4Service:
                 'reason': f'Error checking symbol: {str(e)}'
             }
     
+    def open_trades(self) -> Dict[str, Any]:
+        """Every order open on this MT4 account. READ-ONLY.
+
+        The EA has answered `TRADE;GET_OPEN_TRADES` all along; this client simply never asked, which
+        is why the MT4 half of the system was invisible. Its reply is
+        ``{'_action': 'OPEN_TRADES', '_trades': {<ticket>: {_magic, _symbol, _lots, _type,
+        _open_price, _open_time, _SL, _TP, _pnl, _comment}}}``.
+        """
+        if not self.connected:
+            return {"ok": False, "trades": [], "message": "MT4 not connected"}
+        try:
+            reply = self._send_command("TRADE;GET_OPEN_TRADES")
+            book = reply.get("trades")
+            if not isinstance(book, dict):
+                return {"ok": False, "trades": [],
+                        "message": str(reply.get("response") or reply.get("raw") or "no trades in reply")[:200]}
+            rows = []
+            for ticket, row in book.items():
+                if not isinstance(row, dict):
+                    continue
+                clean = {str(k).lstrip("_"): v for k, v in row.items()}
+                clean["ticket"] = int(ticket)
+                clean["side"] = "BUY" if int(clean.get("type", 0)) == 0 else "SELL"
+                rows.append(clean)
+            return {"ok": True, "trades": rows, "message": f"{len(rows)} open"}
+        except Exception as exc:
+            return {"ok": False, "trades": [], "message": f"{type(exc).__name__}: {exc}"}
+
+    def set_stops(self, ticket: int, stop_loss: Optional[float] = None,
+                  take_profit: Optional[float] = None, only_if_missing: bool = True) -> Dict[str, Any]:
+        """Put a protective stop and target on an order that is ALREADY OPEN.
+
+        Written on 1 October 2026 for a position this system had opened unprotected through the bug
+        fixed in `place_market_order`. It is deliberately the narrowest thing that repairs that:
+
+        * It only ever sends ``TRADE;MODIFY``. It cannot close, cancel or delete an order - those
+          commands are not reachable from here at all.
+        * With ``only_if_missing`` (the default) it will not touch a level the order already has, so
+          it can only ADD protection, never move or remove a stop the owner or an expert set.
+        * It reads the order's OWN open price first, because DWX computes the stop as
+          ``open_price - points * MODE_POINT``; using the other platform's entry would place the stop
+          at the wrong level.
+        * It reads the order back afterwards and reports the stop the broker actually holds, not the
+          one that was requested.
+        """
+        if not self.connected:
+            return {"ok": False, "message": "MT4 not connected"}
+        book = self.open_trades()
+        if not book.get("ok"):
+            return {"ok": False, "message": f"could not read open trades: {book.get('message')}"}
+        order = next((t for t in book["trades"] if int(t.get("ticket", 0)) == int(ticket)), None)
+        if order is None:
+            return {"ok": False, "message": f"ticket {ticket} is not open on this account"}
+        existing_sl = float(order.get("SL") or 0.0)
+        existing_tp = float(order.get("TP") or 0.0)
+        if only_if_missing and existing_sl and existing_tp:
+            return {"ok": True, "changed": False, "ticket": ticket,
+                    "stop_loss": existing_sl, "take_profit": existing_tp,
+                    "message": "order already has a stop and a target; left untouched"}
+        symbol = str(order.get("symbol") or "")
+        check = self.check_symbol(symbol)
+        if not check.get("point"):
+            return {"ok": False, "message": f"the bridge did not report a point size for {symbol}, "
+                                            f"so a stop distance cannot be computed without guessing"}
+        open_price = float(order.get("open_price") or 0.0)
+        if not open_price:
+            return {"ok": False, "message": f"ticket {ticket} reported no open price"}
+        want_sl = existing_sl if (only_if_missing and existing_sl) else stop_loss
+        want_tp = existing_tp if (only_if_missing and existing_tp) else take_profit
+        sl_points = self._points_from_price(open_price, want_sl, check)
+        tp_points = self._points_from_price(open_price, want_tp, check)
+        if not sl_points and not tp_points:
+            return {"ok": False, "message": "nothing to set: no usable stop or target was given"}
+        applied, detail = self._apply_stops(ticket, symbol, sl_points, tp_points)
+        after = next((t for t in self.open_trades().get("trades", [])
+                      if int(t.get("ticket", 0)) == int(ticket)), {})
+        return {"ok": applied, "changed": applied, "ticket": ticket, "symbol": symbol,
+                "open_price": open_price,
+                "stop_loss_before": existing_sl or None, "take_profit_before": existing_tp or None,
+                "stop_loss": float(after.get("SL") or 0.0) or None,
+                "take_profit": float(after.get("TP") or 0.0) or None,
+                "requested": {"stop_loss": want_sl, "take_profit": want_tp,
+                              "sl_points": sl_points, "tp_points": tp_points},
+                "message": detail}
+
     @staticmethod
     def _points_from_price(entry, level, symbol_check: Dict[str, Any]) -> Optional[int]:
         """Convert a stop/target PRICE into the point distance DWX wants, or None if it cannot.
