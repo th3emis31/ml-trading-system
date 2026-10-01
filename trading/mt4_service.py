@@ -327,12 +327,22 @@ class MT4Service:
             ask = float(ask)
             spread = (ask - bid) / bid if bid > 0 else 0
             
+            # `digits` comes straight from MarketInfo(MODE_DIGITS) in the EA's RATES reply. It is
+            # carried through because DWX takes stop distances in POINTS, not prices, so converting
+            # a stop price into a distance is impossible without it - and guessing the point size is
+            # how a stop ends up a hundred times too close or too far.
+            try:
+                digits = int(response.get('digits'))
+            except (TypeError, ValueError):
+                digits = None
             return {
                 'symbol': symbol,
                 'valid': True,
                 'bid': bid,
                 'ask': ask,
                 'spread': spread,
+                'digits': digits,
+                'point': (10.0 ** -digits) if digits is not None else None,
             }
         except Exception as e:
             logger.error(f"Symbol check failed for {symbol}: {str(e)}")
@@ -345,6 +355,45 @@ class MT4Service:
                 'reason': f'Error checking symbol: {str(e)}'
             }
     
+    @staticmethod
+    def _points_from_price(entry, level, symbol_check: Dict[str, Any]) -> Optional[int]:
+        """Convert a stop/target PRICE into the point distance DWX wants, or None if it cannot.
+
+        Returns None rather than a guess when the symbol's point size is unknown: DWX applies the
+        number it is given as `price - points * point_size`, so a wrong point size does not produce a
+        slightly wrong stop, it produces one a hundred times too close or too far. A missing stop that
+        is reported as missing is recoverable; a silently wrong one is not.
+        """
+        try:
+            point = symbol_check.get('point')
+            if not point or entry is None or level is None:
+                return None
+            distance = abs(float(entry) - float(level))
+            points = int(round(distance / float(point)))
+            return points if points > 0 else None
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def _apply_stops(self, ticket, symbol: str, sl_points, tp_points) -> tuple:
+        """Set the stop and target on an open ticket. Returns (applied, message).
+
+        TRADE;MODIFY;TYPE;SYMBOL;PRICE;SL;TP;COMMENT;LOTS;MAGIC;TICKET - the EA reads the ticket from
+        field 10 and, for an open BUY/SELL, replaces the price with the order's own open price, so
+        only the ticket and the two point distances actually matter here.
+        """
+        try:
+            command = (f"TRADE;MODIFY;0;{symbol.upper()};0;"
+                       f"{sl_points or 0};{tp_points or 0};;0;0;{ticket}")
+            reply = self._send_command(command)
+            raw = str(reply.get('raw', '')) + str(reply.get('response', ''))
+            if "'_sl'" in raw or '"_sl"' in raw:
+                return True, raw[:160]
+            if 'ERROR' in raw.upper() or '_response' in raw:
+                return False, f'broker refused the stop: {raw[:160]}'
+            return False, f'no confirmation from the bridge: {raw[:160] or "empty reply"}'
+        except Exception as exc:
+            return False, f'{type(exc).__name__}: {exc}'
+
     def place_market_order(
         self,
         symbol: str,
@@ -352,7 +401,8 @@ class MT4Service:
         volume: float,
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
-        comment: str = 'AI Trade'
+        comment: str = 'AI Trade',
+        magic: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Execute a market order on MT4.
@@ -441,11 +491,24 @@ class MT4Service:
             
             entry_price = symbol_check.get('ask') if side.upper() == 'BUY' else symbol_check.get('bid')
 
-            # DWX expects command format with semicolon-delimited fields.
-            # For broad broker compatibility, submit market order with SL/TP in points set to 0.
+            # DWX expects semicolon-delimited fields:
+            #   TRADE;OPEN;TYPE;SYMBOL;PRICE;SL;TP;COMMENT;LOTS;MAGIC;TICKET
+            # SL and TP are read with StrToInteger in the EA, so they are DISTANCES IN POINTS from the
+            # fill, never prices (DWX_OpenOrder: sl = _price - _SL * dir * MarketInfo(MODE_POINT)).
+            #
+            # THIS IS THE DEFECT THIS BLOCK EXISTS TO FIX. Until 1 October 2026 the command hard-coded
+            # `0;0;0` "for broad broker compatibility", so every mirrored order opened with no stop and
+            # no target - while this method still returned the caller's stop_loss and take_profit in
+            # its result, which read as "the stop was set". The gold 4H executor mirrored a live SELL
+            # onto MT4 that way (#652199599, sl 0.00 tp 0.00) and the journal recorded it as executed
+            # with stops. An unprotected position reported as protected is worse than a refusal.
             order_type = 0 if side.upper() == 'BUY' else 1
             safe_comment = (comment or 'AI Trade').replace(';', ' ')
-            command = f"TRADE;OPEN;{order_type};{symbol.upper()};0;0;0;{safe_comment};{float(volume)};123456"
+            order_magic = int(magic) if magic else 123456
+            sl_points = self._points_from_price(entry_price, stop_loss, symbol_check)
+            tp_points = self._points_from_price(entry_price, take_profit, symbol_check)
+            command = (f"TRADE;OPEN;{order_type};{symbol.upper()};0;"
+                       f"{sl_points or 0};{tp_points or 0};{safe_comment};{float(volume)};{order_magic}")
             response = self._send_command(command)
             raw_resp = str(response.get('raw', ''))
             ticket = response.get('ticket')
@@ -462,6 +525,19 @@ class MT4Service:
             is_success = ('ERROR' not in response_text) and (ticket is not None or 'OPEN' in response_text or 'DONE' in response_text)
 
             if is_success:
+                # The EA ships with DMA_MODE = true, and in that mode DWX_OpenOrder leaves sl and tp
+                # at 0.0 and ignores the point distances entirely. DWX_ModifyOrder applies them in
+                # BOTH modes, so the stop is set with a follow-up MODIFY rather than hoped for. If
+                # that cannot be confirmed, the result says the stop is NOT on the order; it never
+                # echoes the requested price back as though the broker had accepted it.
+                stops_wanted = bool(sl_points or tp_points)
+                stops_applied = False
+                stops_message = 'no stop or target was requested'
+                if stops_wanted and ticket:
+                    stops_applied, stops_message = self._apply_stops(
+                        ticket, symbol, sl_points, tp_points)
+                elif stops_wanted:
+                    stops_message = 'order executed but no ticket came back, so stops could not be set'
                 return {
                     'executed': True,
                     'ticket': ticket,
@@ -469,9 +545,20 @@ class MT4Service:
                     'side': side.upper(),
                     'volume': volume,
                     'entry': entry_price,
-                    'stop_loss': stop_loss,
-                    'take_profit': take_profit,
-                    'message': f'Order {ticket} executed successfully' if ticket else 'Order executed successfully',
+                    'magic': order_magic,
+                    'stop_loss_requested': stop_loss,
+                    'take_profit_requested': take_profit,
+                    'stops_applied': stops_applied,
+                    'stops_message': stops_message,
+                    # Only reported as set when the broker confirmed it. A caller that trusts these
+                    # fields is trusting the order is protected.
+                    'stop_loss': stop_loss if stops_applied else None,
+                    'take_profit': take_profit if stops_applied else None,
+                    'unprotected': bool(stops_wanted and not stops_applied),
+                    'message': (f'Order {ticket} executed successfully' if ticket else 'Order executed successfully')
+                               + ('' if not stops_wanted else
+                                  (f'; stops set ({stops_message})' if stops_applied
+                                   else f'; WITHOUT STOPS - {stops_message}')),
                     'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                 }
             else:

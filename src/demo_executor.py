@@ -144,6 +144,36 @@ def order_levels(side: str, price: float, atr: float, sl_atr: float, tp_atr: flo
     return (round(price - direction * sl_atr * atr, digits), round(price + direction * tp_atr * atr, digits))
 
 
+#: Broker refusals that say nothing about the trade, only about the venue at that instant. A signal
+#: refused for one of these is left retryable; everything else is final. Kept deliberately narrow -
+#: anything describing the ORDER (invalid stops, invalid volume, not enough money, market rules) must
+#: stay out, because retrying those would be a loop, not a recovery.
+TRANSIENT_BROKER_REFUSALS = (
+    "market closed",
+    "market is closed",
+    "request timeout",
+    "timed out",
+    "no prices",
+    "off quotes",
+    "price changed",
+    "requote",
+    "too many requests",
+    "server busy",
+    "trade context busy",
+    "connection",
+    "no connection",
+    "temporarily",
+)
+
+
+def is_transient_refusal(message) -> bool:
+    """True when the broker's refusal was about the moment, not about the order."""
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    return any(mark in text for mark in TRANSIENT_BROKER_REFUSALS)
+
+
 def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None, mirror=None) -> dict:
     """Try to open one demo position for ``signal``. Returns the journal event describing what happened."""
     now = pd.Timestamp(now) if now is not None else pd.Timestamp(datetime.now(timezone.utc))
@@ -204,6 +234,19 @@ def execute_signal(engine, signal: dict, config: dict, journal: dict, now=None, 
     details["mirror"] = mirror_order(mirror, request)
     event = _event(journal, now, "opened" if executed else "failed", reason=result.get("message"),
                    ticket=order.get("order") or order.get("deal"), broker_request=result.get("request"), **details)
+    if not executed and is_transient_refusal(result.get("message")):
+        # The bar is NOT recorded as attempted, so the next cycle may try again. A venue that was
+        # shut, or a request that timed out, says nothing about whether the trade was worth taking -
+        # yet until 1 October 2026 it was filed exactly like a rejected trade and the `already
+        # attempted` guard above then blocked the signal for good. In the week to that date two of
+        # the three orders died this way, both in the 21:05 slot minutes after the gold session
+        # closed, and both signals were still inside their time limit when the market reopened.
+        #
+        # This does not weaken any gate. check_signal still decides whether the signal is fresh
+        # enough, the one-position rule still holds, and a real rejection - invalid stops, no money,
+        # bad volume - is still final, because none of those are in the transient list.
+        event["retryable"] = True
+        return event
     journal["attempts"][bar] = {**event, "status": "open" if executed else "failed"}
     return event
 
@@ -242,10 +285,21 @@ def mirror_order(mirror, request: dict) -> Optional[dict]:
         out = mirror.place_market_order(
             symbol=request["symbol"], side=request["side"], volume=request["volume"],
             stop_loss=request.get("stop_loss"), take_profit=request.get("take_profit"),
+            # The magic was hard-coded to 123456 inside the bridge until 1 October 2026, so mirrored
+            # trades could not be told from anything else on the MT4 account - the same attribution
+            # hole that makes the shared 903110 default useless on MT5. The strategy's own magic is
+            # passed so its MT4 leg is as identifiable as its MT5 one.
+            magic=request.get("magic"),
             comment=request.get("comment", "AI Trade"),
         ) or {}
         return {"sent": True, "executed": bool(out.get("executed")), "ticket": out.get("ticket"),
-                "server": server, "message": out.get("message")}
+                "server": server, "message": out.get("message"),
+                # Recorded per order, because "it opened" and "it opened protected" are different
+                # facts and the journal was only ever keeping the first one.
+                "stops_applied": out.get("stops_applied"),
+                "unprotected": bool(out.get("unprotected")),
+                "stops_message": out.get("stops_message"),
+                "magic": out.get("magic")}
     except Exception as exc:                 # never let the second platform break the first
         return {"sent": False, "reason": f"{type(exc).__name__}: {exc}"}
 

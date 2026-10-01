@@ -232,3 +232,79 @@ def test_one_failing_account_does_not_stop_the_other():
     out = de.mirror_order([bad, good], {"symbol": "XAUUSD", "side": "BUY", "volume": 0.01})
     assert out[0]["sent"] is False and out[1]["sent"] is True
     assert good.sent, "the healthy account still trades"
+
+
+# --------------------------------------------------------------------------------------------------
+# 1 October 2026. Two faults the /system-trades page surfaced on its first day, both found in the
+# system's own journal rather than in a backtest.
+
+
+@pytest.mark.parametrize("message", [
+    "Market closed", "market is closed", "Request timeout", "Trade context busy",
+    "No prices", "Off quotes", "requote", "No connection to the trade server",
+])
+def test_a_venue_refusal_leaves_the_signal_retryable(message):
+    """A shut market says nothing about whether the trade was worth taking.
+
+    In the week to 1 October 2026 two of the gold 4H model's three orders died like this - both at
+    21:05, minutes after the gold session closed - and because a failure consumed the bar, the
+    `already attempted` guard then blocked each signal for good even though it was still inside its
+    time limit when the market reopened an hour later.
+    """
+    class _Venue(FakeEngine):
+        def place_market_order(self, **request):
+            self.orders.append(request)
+            return {"executed": False, "message": message, "result": {}}
+
+    engine, journal = _Venue(), {}
+    event = de.execute_signal(engine, _signal(), _config(), journal, NOW)
+    assert event["event"] == "failed" and event.get("retryable") is True
+    assert "2026-09-13 21:00" not in journal.get("attempts", {}), "the bar must stay open for a retry"
+    # the next cycle really does try again, and can fill
+    engine.executed = True
+    again = de.execute_signal(FakeEngine(), _signal(), _config(), journal, NOW)
+    assert again["event"] == "opened"
+
+
+@pytest.mark.parametrize("message", [
+    "Invalid stops", "Invalid volume", "Not enough money", "Trade is disabled", "rejected",
+])
+def test_a_refusal_about_the_ORDER_is_still_final(message):
+    """The narrow half of the rule. Retrying a bad order would be a loop, not a recovery."""
+    class _Bad(FakeEngine):
+        def place_market_order(self, **request):
+            self.orders.append(request)
+            return {"executed": False, "message": message, "result": {}}
+
+    engine, journal = _Bad(), {}
+    event = de.execute_signal(engine, _signal(), _config(), journal, NOW)
+    assert event["event"] == "failed" and not event.get("retryable")
+    assert journal["attempts"]["2026-09-13 21:00"]["status"] == "failed"
+    again = de.execute_signal(engine, _signal(), _config(), journal, NOW)
+    assert again["event"] == "refused" and len(engine.orders) == 1
+
+
+def test_the_mirror_carries_the_strategys_own_magic():
+    """Until this date the bridge stamped every mirrored order 123456, so the MT4 leg could not be
+    told from anything else on that account - the same attribution hole as the shared 903110."""
+    m = _Mirror()
+    de.mirror_order(m, {"symbol": "XAUUSD", "side": "SELL", "volume": 0.01, "magic": 440401,
+                        "stop_loss": 4365.96, "take_profit": 4289.52, "comment": "GOLD4H demo model"})
+    assert m.sent[0]["magic"] == 440401
+
+
+def test_the_mirror_records_whether_the_stop_actually_reached_the_broker():
+    """On 1 October 2026 MT4 ticket 652199599 opened with sl 0.00 tp 0.00 while the journal recorded
+    it as executed with stops. An unprotected position reported as protected is the worst outcome
+    available, so the journal now carries the broker's answer, not the request."""
+    class _NoStops(_Mirror):
+        def place_market_order(self, **kw):
+            self.sent.append(kw)
+            return {"executed": True, "ticket": 999, "message": "Order 999 executed successfully; "
+                    "WITHOUT STOPS - broker refused the stop", "stops_applied": False,
+                    "unprotected": True, "stops_message": "broker refused the stop"}
+
+    out = de.mirror_order(_NoStops(), {"symbol": "XAUUSD", "side": "SELL", "volume": 0.01,
+                                       "magic": 440401, "stop_loss": 4365.96, "take_profit": 4289.52})
+    assert out["executed"] is True
+    assert out["unprotected"] is True and out["stops_applied"] is False
