@@ -79,6 +79,7 @@ from jarvis_voice_pause_routes import register_pause_voice_routes
 from jarvis_market_scheduler_routes import register_market_scheduler_routes
 from jarvis_market_scheduler import get_market_scheduler
 from jarvis_wake_word_routes import register_wake_word_routes
+from jarvis_system_trades_routes import register_system_trades_routes
 from jarvis_wake_word_detector import get_wake_word_detector
 from jarvis_command_learner import get_command_learner
 
@@ -92,6 +93,10 @@ register_auto_voice_routes(app)
 register_pause_voice_routes(app)
 register_market_scheduler_routes(app)
 register_wake_word_routes(app)
+# /system-trades: this system's own trades only, with wins, losses and the week totals. Added
+# 1 October 2026 because no existing page answered "what is MY system doing" - /auto-trader lists
+# the account's last 25 trades from every expert, and only when the session executed nothing.
+register_system_trades_routes(app)
 
 # ─────────────────────────────────────────────────────────── write authentication
 # The server binds to the loopback interface (see the app.run call at the bottom of this file), so the
@@ -801,6 +806,9 @@ MAIN_NAV_GROUPS = [
     ('/tradingview', 'TradingView'),
   ]),
   ('Automation', [
+    # First in the group on purpose: it is the one page that answers "what is MY system doing",
+    # filtered to this system's own magics, so the owner never has to read a mixed account list.
+    ('/system-trades', 'My Trades'),
     ('/auto-trader', 'SmartEntry'),
     ('/control', 'Control'),
     ('/ea-panel', 'EA Bridge'),
