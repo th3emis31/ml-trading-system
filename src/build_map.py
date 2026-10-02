@@ -94,6 +94,25 @@ STEPS = (
             "without a person looking at it. Isolation is one notch weaker than the module builder's: "
             "-E -s instead of -I, so the app's files can import each other. A test proves this "
             "repository is still unreachable from inside the sandbox."},
+    # AFTER THE FREEZE. Recorded 2 October 2026 as knowledge, not as work in progress: the Coinversa
+    # Pulse connector went live that day as a READ-ONLY data source and changed no setting, no signal
+    # and no trade. This card exists so the agreed order cannot quietly be skipped later - the
+    # temptation with a new feed is always to act on its first reading.
+    {"n": 12, "phase": "After the freeze", "title": "Coinversa Pulse cohort bias", "done": False,
+     "delivers": "The Pulse cohort bias logged beside each signal, and nothing more until it is proven",
+     "proof": "Not yet attempted. The acceptance test is fixed in advance so it cannot be softened "
+              "afterwards: log the cohort bias next to every signal, accumulate at least 30 closed "
+              "trades, then test the bias against the ACTUAL outcomes. Only a result from that test "
+              "earns the bias a place in signal generation. Hyperliquid symbols are BTC, xyz:GOLD and "
+              "xyz:SP500 - never SPX, which on that venue is a meme coin and would return plausible "
+              "data about the wrong instrument, the same failure mode as pricing gold off Yahoo's "
+              "GC=F future. First snapshot, 2026-10-02: BTC mixed, GOLD top earners short while smart "
+              "money is long, SP500 money printers long.",
+     "gap": "Read-only and inert by design. Pulse touches no setting, no signal and no order, and the "
+            "30-trade bar is the whole point: a cohort reading acted on the day it arrives is the "
+            "shortcut the evidence rules exist to stop, and it would let an untested input start "
+            "steering trades. Logging beside a signal is observation; using it is a change that has "
+            "to be earned."},
 )
 
 SCOPE = (
