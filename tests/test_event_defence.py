@@ -115,3 +115,96 @@ def test_event_defence_endpoint_reports_and_logs_without_touching_orders(tmp_pat
     assert kinds.count("tier1_window_block") == 2 and kinds.count("tier1_pre_event_alert") == 2   # XAUUSD and BTCUSD
     client.get("/api/event-defence?now=2026-09-16T17:31:00Z")
     assert len(log.read_text(encoding="utf-8").splitlines()) == len(kinds), "each event is logged once, not on every poll"
+
+
+# --------------------------------------------------------------------------------------------------
+# 2 October 2026. The owner asked for the system to KNOW every impact event, having found it blind to
+# most of them. The vocabulary was widened for observation; the blocking set was deliberately not.
+
+import pytest
+from src import event_defence as _ed
+
+
+def test_the_blocking_set_is_exactly_what_it_was():
+    """The guard on this whole change. Widening what the system RECOGNISES must not widen what it
+    REFUSES, or signals start disappearing and the record needed to judge these events disappears
+    with them."""
+    assert _ed.TIER1_EVENTS == ("FOMC_DECISION", "FOMC_PRESS_CONFERENCE", "FOMC_MINUTES", "CPI", "NFP")
+    assert len(_ed.LIVE_TITLE_TIER1) == 8
+    assert _ed.AFFECTED_SYMBOLS == {"USD": ("XAUUSD", "BTCUSD")}
+    assert _ed.TIER1_BEFORE_MIN == 60 and _ed.TIER1_AFTER_MIN == 90
+    # the new names that fire in NFP's own minute are recognised for OBSERVATION...
+    assert _ed.classify_calendar_event("Average Hourly Earnings m/m", "USD")["kind"] == "AVG_HOURLY_EARNINGS"
+    assert _ed.classify_calendar_event("Unemployment Rate", "USD")["kind"] == "UNEMPLOYMENT_RATE"
+    # ...and still do NOT block, because classify_live_event never learned them
+    assert _ed.classify_live_event("Average Hourly Earnings m/m", "USD") is None
+    assert _ed.classify_live_event("Unemployment Rate", "USD") is None
+
+
+@pytest.mark.parametrize("title,currency,kind", [
+    ("Core PCE Price Index m/m", "USD", "CORE_PCE"),          # the Fed's preferred gauge, was absent
+    ("CPI Flash Estimate y/y", "EUR", "CPI"),                 # the title "cpi y/y" never matched
+    ("Core CPI Flash Estimate y/y", "EUR", "CORE_CPI"),
+    ("ADP Non-Farm Employment Change", "USD", "ADP"),
+    ("Non-Farm Employment Change", "USD", "NFP"),
+    ("Average Hourly Earnings m/m", "USD", "AVG_HOURLY_EARNINGS"),
+    ("Unemployment Rate", "USD", "UNEMPLOYMENT_RATE"),
+    ("Unemployment Claims", "USD", "JOBLESS_CLAIMS"),
+    ("Final GDP q/q", "USD", "GDP"),
+    ("Retail Sales y/y", "USD", "RETAIL_SALES"),
+    ("Core Retail Sales m/m", "USD", "CORE_RETAIL_SALES"),
+    ("ISM Services PMI", "USD", "ISM_SERVICES"),
+    ("Trimmed Mean CPI m/m", "AUD", "CORE_CPI"),
+    ("Cash Rate", "AUD", "RBA_DECISION"),
+    ("ANZ Business Confidence", "NZD", "BUSINESS_CONFIDENCE"),
+    ("FOMC Member Logan Speaks", "USD", "FED_SPEAKER"),
+])
+def test_the_vocabulary_now_names_the_releases_the_owner_listed(title, currency, kind):
+    hit = _ed.classify_calendar_event(title, currency)
+    assert hit is not None, f"{title} is still invisible to the system"
+    assert hit["kind"] == kind
+
+
+def test_more_specific_titles_win_over_general_ones():
+    assert _ed.classify_calendar_event("Core CPI m/m", "USD")["kind"] == "CORE_CPI"
+    assert _ed.classify_calendar_event("CPI m/m", "USD")["kind"] == "CPI"
+    assert _ed.classify_calendar_event("ADP Non-Farm Employment Change", "USD")["kind"] == "ADP"
+    assert _ed.classify_calendar_event("Core PPI m/m", "USD")["kind"] == "CORE_PPI"
+
+
+def test_events_near_describes_the_moment_and_blocks_nothing():
+    """Today's real 12:30 UTC release, read at 12:05 - the minute the gold 4H executor fires."""
+    now = pd.Timestamp("2026-10-02 12:05:00", tz="UTC")
+    rows = [
+        {"title": "Non-Farm Employment Change", "currency": "USD", "impact": "high",
+         "time_utc": "2026-10-02T12:30:00+00:00", "forecast": "89K", "previous": "162K"},
+        {"title": "Average Hourly Earnings m/m", "currency": "USD", "impact": "high",
+         "time_utc": "2026-10-02T12:30:00+00:00", "forecast": "0.3%", "previous": "0.3%"},
+        {"title": "Unemployment Rate", "currency": "USD", "impact": "high",
+         "time_utc": "2026-10-02T12:30:00+00:00", "forecast": "4.1%", "previous": "4.1%"},
+        {"title": "CPI Flash Estimate y/y", "currency": "EUR", "impact": "medium",
+         "time_utc": "2026-10-02T09:00:00+00:00", "forecast": "3.7%", "previous": "3.3%"},
+        {"title": "Tokyo Core CPI y/y", "currency": "JPY", "impact": "medium",
+         "time_utc": "2026-10-01T23:30:00+00:00"},
+    ]
+    out = _ed.events_near(rows, now, "XAUUSD")
+    kinds = {e["kind"] for e in out["nearby"]}
+    assert {"NFP", "AVG_HOURLY_EARNINGS", "UNEMPLOYMENT_RATE"} <= kinds
+    # The EUR flash estimate was at 09:00 and this reading is 12:05, so it is 185 minutes behind and
+    # correctly OUTSIDE the +/-120 window - being recognised is not the same as being nearby.
+    assert all(e["kind"] != "CPI" for e in out["nearby"])
+    assert _ed.classify_calendar_event("CPI Flash Estimate y/y", "EUR")["kind"] == "CPI"
+    # ...and it IS nearby when the reading sits inside the window, which it never was before.
+    at_nine = _ed.events_near(rows, pd.Timestamp("2026-10-02 09:30:00", tz="UTC"), "XAUUSD")
+    assert any(e["kind"] == "CPI" and e["currency"] == "EUR" for e in at_nine["nearby"])
+    assert all(e["currency"] != "JPY" for e in out["nearby"]), "JPY is not observed for gold"
+    assert out["next"]["kind"] == "NFP" and out["next"]["minutes_away"] == 25.0
+    assert len(out["tier1_nearby"]) >= 3
+    assert "NFP in 25 min" in out["label"]
+    assert out["blocks_anything"] is False
+
+
+def test_bitcoin_observes_only_dollar_events():
+    rows = [{"title": "CPI Flash Estimate y/y", "currency": "EUR", "impact": "medium",
+             "time_utc": "2026-10-02T09:00:00+00:00"}]
+    assert _ed.events_near(rows, pd.Timestamp("2026-10-02 09:30:00", tz="UTC"), "BTCUSD")["nearby"] == []

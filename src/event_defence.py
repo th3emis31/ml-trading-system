@@ -50,6 +50,165 @@ LIVE_TITLE_TIER1 = (
 )
 
 
+# ---------------------------------------------------------------------------------------------------
+# WHAT THE SYSTEM KNOWS, as opposed to what it blocks on. Added 2 October 2026.
+#
+# The owner: "System needs to know everything about CPI, NFP, payroll, investment ... the need really
+# to know everything for impact news system the need better analyzes."
+#
+# He is right that the vocabulary was too small, and the gaps were not minor:
+#
+#   * AVERAGE HOURLY EARNINGS and the UNEMPLOYMENT RATE are released in the SAME MINUTE as Non-Farm
+#     Payrolls. Neither was recognised. The wage number is frequently what actually moves gold - a
+#     headline beat with soft wages and a headline miss with hot wages trade in opposite directions -
+#     so the system was watching one third of the release it cared most about.
+#   * CORE PCE was absent entirely. It is the Fed's PREFERRED inflation gauge; CPI was in the list and
+#     the measure the Fed actually targets was not.
+#   * EUR CPI could not be seen at all, for two independent reasons: `classify_live_event` returns
+#     None for any currency that is not USD, and the title the calendar publishes is "CPI Flash
+#     Estimate y/y", which does not contain the substring "cpi y/y".
+#   * ADP, PPI, GDP, Retail Sales, ISM, JOLTS, claims and central-bank decisions: all invisible.
+#
+# THIS DOES NOT CHANGE WHAT IS BLOCKED. `TIER1_EVENTS`, `LIVE_TITLE_TIER1` and `classify_live_event`
+# are untouched, so every gate behaves exactly as before and no signal is newly suppressed. The owner
+# has said twice this week not to block anything, and he is right about that too: a wider blocking set
+# would silently stop trades firing and starve the very record needed to judge whether these events
+# matter. So this vocabulary is for OBSERVING and LOGGING - the bias beside the signal, the same shape
+# as the Coinversa Pulse card. Whether any of it should ever gate a trade is decided later, from the
+# accumulated outcomes, by the owner.
+TIER = {"1": "moves the market on its own", "2": "moves it when it surprises", "3": "context"}
+
+#: (title fragment, event kind, tier). Checked in order, first match wins, so the more specific
+#: fragment must come first - "core cpi" before "cpi", "adp non-farm" before "non-farm".
+EVENT_VOCABULARY = (
+    # -- central banks ------------------------------------------------------------------------------
+    ("fomc press conference", "FOMC_PRESS_CONFERENCE", "1"),
+    ("fomc meeting minutes", "FOMC_MINUTES", "1"),
+    ("fomc statement", "FOMC_DECISION", "1"),
+    ("federal funds rate", "FOMC_DECISION", "1"),
+    ("fomc member", "FED_SPEAKER", "3"),
+    ("fed chair", "FED_SPEAKER", "2"),
+    ("main refinancing rate", "ECB_DECISION", "1"),
+    ("ecb press conference", "ECB_DECISION", "1"),
+    ("official bank rate", "BOE_DECISION", "1"),
+    ("cash rate", "RBA_DECISION", "2"),
+    ("rate statement", "CB_STATEMENT", "2"),
+    ("monetary policy", "CB_STATEMENT", "2"),
+    # -- inflation ----------------------------------------------------------------------------------
+    ("core pce price index", "CORE_PCE", "1"),       # the Fed's preferred gauge; was missing entirely
+    ("pce price index", "PCE", "1"),
+    ("core cpi", "CORE_CPI", "1"),
+    ("trimmed mean cpi", "CORE_CPI", "2"),
+    ("cpi flash estimate", "CPI", "1"),              # the EUR title; "cpi y/y" never matched it
+    ("cpi m/m", "CPI", "1"),
+    ("cpi y/y", "CPI", "1"),
+    ("cpi q/q", "CPI", "1"),
+    ("core ppi", "CORE_PPI", "2"),
+    ("ppi m/m", "PPI", "2"),
+    ("inflation expectations", "INFLATION_EXPECTATIONS", "3"),
+    # -- jobs and payrolls --------------------------------------------------------------------------
+    ("adp non-farm", "ADP", "2"),                    # the payrolls preview, two days before
+    ("non-farm employment change", "NFP", "1"),
+    ("average hourly earnings", "AVG_HOURLY_EARNINGS", "1"),   # same minute as NFP
+    ("unemployment rate", "UNEMPLOYMENT_RATE", "1"),           # same minute as NFP
+    ("unemployment claims", "JOBLESS_CLAIMS", "2"),
+    ("jolts job openings", "JOLTS", "2"),
+    ("employment change", "EMPLOYMENT", "2"),
+    ("claimant count", "EMPLOYMENT", "2"),
+    # -- growth, demand, surveys --------------------------------------------------------------------
+    ("advance gdp", "GDP", "2"),
+    ("final gdp", "GDP", "2"),
+    ("prelim gdp", "GDP", "2"),
+    ("gdp m/m", "GDP", "2"),
+    ("gdp q/q", "GDP", "2"),
+    ("core retail sales", "CORE_RETAIL_SALES", "2"),
+    ("retail sales", "RETAIL_SALES", "2"),
+    ("ism manufacturing pmi", "ISM_MANUFACTURING", "2"),
+    ("ism services pmi", "ISM_SERVICES", "2"),
+    ("flash manufacturing pmi", "PMI", "3"),
+    ("flash services pmi", "PMI", "3"),
+    ("consumer confidence", "CONSUMER_CONFIDENCE", "3"),
+    ("consumer sentiment", "CONSUMER_SENTIMENT", "3"),
+    ("durable goods", "DURABLE_GOODS", "3"),
+    ("factory orders", "FACTORY_ORDERS", "3"),
+    ("building approvals", "BUILDING", "3"),
+    ("business confidence", "BUSINESS_CONFIDENCE", "3"),
+    ("trade balance", "TRADE_BALANCE", "3"),
+    ("crude oil inventories", "OIL_INVENTORIES", "3"),
+)
+
+#: Which currencies' events are worth recording against which instruments. Wider than
+#: AFFECTED_SYMBOLS (which governs BLOCKING and stays USD-only), because gold reacts to the euro leg
+#: of the dollar as well as to the dollar's own data - a hot EUR CPI moves EURUSD and therefore XAUUSD,
+#: and the system could not see one before.
+OBSERVED_CURRENCIES = {
+    "XAUUSD": ("USD", "EUR", "GBP", "CHF"),
+    "BTCUSD": ("USD",),
+}
+
+
+def classify_calendar_event(title: str, currency: str) -> Optional[dict]:
+    """Classify ANY calendar row for observation. Never used to block - see the note above.
+
+    Returns {"kind", "tier", "currency", "title"} or None when the row is not in the vocabulary.
+    Unlike `classify_live_event` this accepts every currency, because an event that cannot be named
+    cannot be studied, and the question "does this kind of release change our results?" needs the
+    releases recorded first.
+    """
+    lowered = str(title or "").lower()
+    for needle, kind, tier in EVENT_VOCABULARY:
+        if needle in lowered:
+            return {"kind": kind, "tier": tier, "currency": str(currency or "").upper(),
+                    "title": str(title or "")}
+    return None
+
+
+def events_near(calendar_events: Iterable[dict], now, symbol: str = "XAUUSD",
+                before_min: int = 120, after_min: int = 120) -> dict:
+    """Every recognised event around ``now`` for ``symbol``, for logging beside a signal.
+
+    This is the "better analysis" half: it answers "what was happening when this trade was taken?"
+    and records it, so that after enough trades the question "do we actually do worse near payrolls?"
+    can be settled with the system's own outcomes instead of with an opinion. It blocks nothing and
+    returns no verdict.
+    """
+    now = _as_utc(now)
+    symbol = symbol.upper()
+    wanted = OBSERVED_CURRENCIES.get(symbol, ("USD",))
+    seen, nearby, upcoming = [], [], []
+    for row in calendar_events or []:
+        if not row.get("time_utc"):
+            continue
+        hit = classify_calendar_event(row.get("title"), row.get("currency"))
+        if not hit or hit["currency"] not in wanted:
+            continue
+        when = _as_utc(row["time_utc"])
+        entry = {**hit, "time_utc": when,
+                 "minutes_away": round((when - now).total_seconds() / 60.0, 1),
+                 "impact": row.get("impact"), "forecast": row.get("forecast"),
+                 "previous": row.get("previous"), "actual": row.get("actual")}
+        seen.append(entry)
+        if -after_min <= entry["minutes_away"] <= before_min:
+            nearby.append(entry)
+        if entry["minutes_away"] > 0:
+            upcoming.append(entry)
+    seen.sort(key=lambda e: e["time_utc"])
+    nearby.sort(key=lambda e: abs(e["minutes_away"]))
+    upcoming.sort(key=lambda e: e["time_utc"])
+    tier1_nearby = [e for e in nearby if e["tier"] == "1"]
+    return {
+        "symbol": symbol, "at_utc": now, "recognised": len(seen),
+        "nearby": nearby, "upcoming": upcoming[:8],
+        "next": upcoming[0] if upcoming else None,
+        "tier1_nearby": tier1_nearby,
+        # One readable line to stamp on a signal, e.g. "NFP in 25 min; AVG_HOURLY_EARNINGS in 25 min".
+        "label": "; ".join(f"{e['kind']} in {int(e['minutes_away'])} min" if e["minutes_away"] >= 0
+                           else f"{e['kind']} {int(-e['minutes_away'])} min ago"
+                           for e in nearby[:4]) or "no recognised event within the window",
+        "blocks_anything": False,
+    }
+
+
 def historical_events_path() -> Path:
     return smartentry_data_dir() / "historical_events.csv"
 
