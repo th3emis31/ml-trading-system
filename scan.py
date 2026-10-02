@@ -53,10 +53,17 @@ FEEDS = {
 PRIMARY_PUBLISHERS = ("bloomberg", "reuters", "cnbc", "marketwatch", "barron", "yahoo finance",
                       "wsj", "wall street journal", "financial times", "associated press", "ap news")
 
-# Generic words that must never match a company on their own. "Applied" alone pulls in every
-# unrelated Applied Something, and "Strategy" matches half the tape. A name token has to be
-# distinctive or it is not evidence that a headline is about this ticker.
-NAME_STOPWORDS = {
+# A headline only counts as a catalyst if it names the ticker on a word boundary, or carries a
+# DISTINCTIVE company name token of four or more letters. Three traps this closes, each one seen in
+# real data: generic words like Applied, Digital, Holdings, Technologies, Strategy, Energy and Motors
+# must never match a company alone, because "Applied" hits both Applied Optoelectronics and Applied
+# Digital and would hand one firm's news to the other as its catalyst; a ticker that is also an
+# ordinary English word (ON, ALL, IT, KEY, NOW) matched plain market copy such as "traders focused ON
+# the jobs report", which is how a stock with no news ends up flagged as having one; and a company
+# whose every word is generic, Applied Digital being exactly that, was left with no usable token at
+# all, so the full name is matched as a PHRASE instead, which is distinctive even when no single word
+# in it is.
+NAME_STOP = {
     "the", "inc", "inc.", "corp", "corp.", "corporation", "company", "co", "co.", "ltd", "limited",
     "plc", "holdings", "holding", "group", "technologies", "technology", "tech", "systems",
     "solutions", "services", "international", "global", "industries", "enterprises", "partners",
@@ -67,6 +74,15 @@ NAME_STOPWORDS = {
     "cloud", "software", "semiconductor", "semiconductors", "micro", "devices", "electric", "new",
     "american", "america", "us", "usa", "national", "first", "general", "united",
 }
+
+# Tickers that are also ordinary English words. These never match on the ticker alone: the headline
+# has to carry a distinctive company token or the full name phrase instead.
+TICKER_WORD_TRAP = {
+    "ON", "ALL", "IT", "KEY", "NOW", "OPEN", "GOOD", "CAR", "RUN", "BIG", "MAIN", "SO", "AN", "BE",
+    "BY", "DO", "GO", "HE", "IF", "IN", "IS", "NO", "OR", "SEE", "ARE", "CAN", "FOR", "ONE", "OUT",
+    "WELL", "WORK", "LOVE", "LIFE", "REAL", "FAST", "EAT", "PLAY", "RIDE", "TRUE", "EDIT", "HOPE",
+}
+MIN_TICKER_LEN = 3          # a one or two letter ticker alone is never evidence
 
 SPAM = (re.compile(r"price\s+prediction", re.I), re.compile(r"\b20\d{2}\s*(?:to|-|‐)\s*20\d{2}\b"))
 
@@ -281,17 +297,47 @@ def econ_calendar():
 
 # --------------------------------------------------------------------------- 6. enrichment
 def name_tokens(ticker, name):
-    toks = {str(ticker).upper()}
-    for raw in re.split(r"[^A-Za-z0-9]+", str(name or "")):
-        word = raw.strip()
-        if len(word) >= 4 and word.lower() not in NAME_STOPWORDS and not word.isdigit():
-            toks.add(word.upper())
-    return toks
+    """What may stand as proof a headline is about this ticker.
+
+    Returns {"ticker": str|None, "distinctive": [...], "phrase": str|None}. Each is allowed to match
+    on its own; anything not in here is not evidence.
+    """
+    tk = str(ticker or "").upper().strip()
+    usable_ticker = tk if (len(tk) >= MIN_TICKER_LEN and tk not in TICKER_WORD_TRAP) else None
+    words = [w for w in re.split(r"[^A-Za-z]+", str(name or "")) if w]
+    distinctive = sorted({w.upper() for w in words
+                          if len(w) >= 4 and w.lower() not in NAME_STOP})
+    # Accepted cost of the rule: a company whose ONLY identifying word is generic, "Strategy Inc"
+    # being the case in point, can be matched by its ticker and by nothing else. A headline reading
+    # "Strategy buys another 4,000 bitcoin" is deliberately missed, because matching the lone word
+    # would re-open the cross-match this whole block exists to close. A missed catalyst shows up as
+    # catalyst_found false, which is visible. A wrong one is silent, which is worse.
+    phrase = None
+    if not distinctive:
+        # Every word was generic, which is Applied Digital's exact problem. The words together are
+        # still distinctive, so the whole name is matched as one phrase rather than word by word.
+        kept = [w.upper() for w in words if w.lower() not in {"inc", "corp", "corporation", "co",
+                                                             "ltd", "plc", "the", "company"}]
+        if len(kept) >= 2:
+            phrase = " ".join(kept)
+    return {"ticker": usable_ticker, "distinctive": distinctive, "phrase": phrase}
 
 
 def headline_matches(title, toks):
-    upper = str(title or "").upper()
-    return any(re.search(rf"\b{re.escape(tok)}\b", upper) for tok in toks)
+    """True when the headline names this company. Returns the reason via match_reason()."""
+    return match_reason(title, toks) is not None
+
+
+def match_reason(title, toks):
+    upper = re.sub(r"\s+", " ", str(title or "")).upper()
+    if toks.get("ticker") and re.search(rf"\b{re.escape(toks['ticker'])}\b", upper):
+        return f"ticker {toks['ticker']}"
+    for tok in toks.get("distinctive") or []:
+        if re.search(rf"\b{re.escape(tok)}\b", upper):
+            return f"name token {tok}"
+    if toks.get("phrase") and re.search(rf"\b{re.escape(toks['phrase'])}\b", upper):
+        return f"name phrase {toks['phrase']}"
+    return None
 
 
 def publisher_rank(publisher):
@@ -318,7 +364,7 @@ def catalyst_headlines(ticker, name, rss):
         if key in seen or not headline_matches(f["title"], toks):
             continue
         seen.add(key)
-        clean.append(f)
+        clean.append({**f, "matched_on": match_reason(f["title"], toks)})
     clean.sort(key=lambda f: publisher_rank(f["publisher"]))
     return clean[:6]
 
