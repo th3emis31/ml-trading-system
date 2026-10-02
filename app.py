@@ -1306,20 +1306,42 @@ def _atomic_write_json(path: Path, payload) -> None:
       sleep(0.05 * (attempt + 1))        # `from time import sleep` at the top; `time` is not imported
 
 
-def _read_state_json(path: Path):
-  """Return parsed JSON dict from path, or None when missing/unreadable."""
+def _read_state_json(path: Path, *, detail: bool = False):
+  """Return the parsed dict, or None. With detail=True returns (value, why).
+
+  `why` is one of "ok", "missing", "unreadable" or "corrupt", and the distinction is the whole point.
+  Until 2 October 2026 this collapsed an OSError and a parse error into the same None, and the caller
+  read any None as "corrupt" and moved the live file aside. On 28 September that destroyed
+  data/auto_trader_state.json: the quarantined copy parses as perfectly valid JSON, so nothing was
+  ever corrupt. A Windows file lock on READ, the same WinError 32 class already fixed on the write
+  side, was enough to lose the file. A file that cannot be opened right now is not a damaged file.
+  """
+  def answer(value, why):
+    return (value, why) if detail else value
   if not path.exists():
-    return None
+    return answer(None, "missing")
   try:
-    parsed = json.loads(path.read_text(encoding="utf-8"))
-  except (ValueError, OSError):
-    return None
-  return parsed if isinstance(parsed, dict) else None
+    text = path.read_text(encoding="utf-8")
+  except OSError:
+    return answer(None, "unreadable")       # locked, busy, permission. Transient. Do NOT quarantine.
+  try:
+    parsed = json.loads(text)
+  except ValueError:
+    return answer(None, "corrupt")          # really damaged: quarantining is correct
+  return answer(parsed, "ok") if isinstance(parsed, dict) else answer(None, "corrupt")
 
 
 def load_auto_trader_state() -> dict:
-  raw = _read_state_json(AUTO_TRADER_STATE_PATH)
-  if raw is None and AUTO_TRADER_STATE_PATH.exists():
+  raw, why = _read_state_json(AUTO_TRADER_STATE_PATH, detail=True)
+  if why == "unreadable":
+    # Busy, not broken. Hand back the last good snapshot for this read and leave the live file
+    # exactly where it is, so a momentary lock can never cost the trade history again.
+    logger.warning("auto_trader_state.json could not be opened right now; using %s for this read "
+                   "and leaving the live file untouched", AUTO_TRADER_STATE_PATH.name + ".bak")
+    recovered = _read_state_json(AUTO_TRADER_STATE_PATH.with_suffix(
+        AUTO_TRADER_STATE_PATH.suffix + ".bak"))
+    raw = recovered if recovered is not None else raw
+  if raw is None and why == "corrupt" and AUTO_TRADER_STATE_PATH.exists():
     # The live file exists but is corrupt. Quarantine it and recover the last
     # good snapshot rather than silently handing back an empty state, which
     # the next save would then persist over the real trade history.

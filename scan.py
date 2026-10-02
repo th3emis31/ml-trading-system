@@ -435,23 +435,70 @@ def next_earnings(ticker):
 
 
 # --------------------------------------------------------------------------- 7. eligibility flags
+def corporate_action_suspect(g):
+    """True when the "gap" is almost certainly a split or spin-off, not a move. Flag only, never a filter.
+
+    CTVA showed up on the first live run at a gap of -83.8%, price 12.57, against a 200 day average of
+    78.13. A stock does not fall to a sixth of its own average overnight. Yahoo was comparing an
+    unadjusted previous close with an adjusted price across a corporate action. It was the largest
+    "gap" in the list and it was not real.
+
+    The row is kept, because this file gathers and does not judge, and silently dropping rows is how a
+    scanner starts lying. It is flagged instead, so the AI stage sees a warning rather than inventing a
+    story about a stock that collapsed.
+    """
+    price, sma200, gap = num(g.get("price")), num(g.get("sma200")), num(g.get("gap_pct"))
+    reasons = []
+    if price and sma200 and sma200 > 0:
+        ratio = price / sma200
+        if ratio < 0.4 or ratio > 2.5:
+            reasons.append(f"price {price:g} is {ratio:.2f}x its 200 day average {sma200:g}")
+    if gap is not None and abs(gap) >= 50:
+        reasons.append(f"gap of {gap:g}% is far past anything a normal session produces")
+    return (bool(reasons), "; ".join(reasons) or None)
+
+
 def flags(g):
     """The two validated rule sets from WATCHLIST_CRITERIA.md, computed in code.
 
     Deliberately not left to a model. These are AND filters and four out of five is a fail, which is
     exactly the sort of thing a language model rounds off when it likes the story.
+
+    Also returns WHY a flag is false. A bare False cannot be told apart from a rule that failed and a
+    number that was never measured, and before the open today_open is simply absent, so every flag
+    reads false for a reason that has nothing to do with the stock.
     """
     gap, price = num(g.get("gap_pct")), num(g.get("price"))
     cap, rvol = num(g.get("market_cap")), num(g.get("rvol"))
     prior_high, open_px, sma200 = num(g.get("prior_day_high")), num(g.get("today_open")), num(g.get("sma200"))
-    day = all([gap is not None and gap > 3, price is not None and price > 3,
-               cap is not None and cap > 1_000_000_000, rvol is not None and rvol > 1.5,
-               price is not None and prior_high is not None and price > prior_high])
-    swing = all([gap is not None and gap >= 8, price is not None and price > 3,
-                 open_px is not None and prior_high is not None and open_px > prior_high,
-                 open_px is not None and sma200 is not None and open_px > sma200,
-                 cap is not None and cap >= 800_000_000, bool(g.get("catalyst_found"))])
-    return bool(day), bool(swing)
+
+    def test(name, value, ok):
+        return {"rule": name, "value": value, "passed": bool(value is not None and ok),
+                "measured": value is not None}
+
+    day_tests = [
+        test("gap > 3", gap, gap is not None and gap > 3),
+        test("price > 3", price, price is not None and price > 3),
+        test("market_cap > 1B", cap, cap is not None and cap > 1_000_000_000),
+        test("rvol > 1.5", rvol, rvol is not None and rvol > 1.5),
+        test("price > prior_day_high", prior_high,
+             None not in (price, prior_high) and price > prior_high),
+    ]
+    swing_tests = [
+        test("gap >= 8", gap, gap is not None and gap >= 8),
+        test("price > 3", price, price is not None and price > 3),
+        test("open > prior_day_high", open_px, None not in (open_px, prior_high) and open_px > prior_high),
+        test("open > sma200", open_px, None not in (open_px, sma200) and open_px > sma200),
+        test("market_cap >= 800M", cap, cap is not None and cap >= 800_000_000),
+        {"rule": "catalyst_found", "value": bool(g.get("catalyst_found")),
+         "passed": bool(g.get("catalyst_found")), "measured": True},
+    ]
+    def summarise(tests):
+        unmeasured = [t["rule"] for t in tests if not t["measured"]]
+        failed = [t["rule"] for t in tests if t["measured"] and not t["passed"]]
+        return {"passed": all(t["passed"] for t in tests), "failed_rules": failed,
+                "unmeasured_rules": unmeasured, "tests": tests}
+    return summarise(day_tests), summarise(swing_tests)
 
 
 # --------------------------------------------------------------------------- 8. packet
@@ -477,6 +524,12 @@ GAPS_TO_FILL = [
     "volume, so a true premarket RVOL needs a premarket feed such as Alpaca. Treat the day_eligible "
     "flag as provisional until that feed exists.",
     "No float or short interest data, so dilution and squeeze risk cannot be measured here.",
+    "A gap can be a corporate action rather than a move. corporate_action_suspect flags the obvious "
+    "cases by comparing price against the 200 day average, but a modest split is not detectable this "
+    "way and no split or dividend feed is read here.",
+    "Before the open there is no today bar, so today_open and today_volume are absent and both "
+    "eligibility flags read false for every name. day_check and swing_check carry unmeasured_rules "
+    "so a false flag can be told apart from a failed rule.",
 ]
 
 
@@ -503,8 +556,15 @@ def main():
         g["rvol"] = round(today_vol / avg20, 3) if (avg20 and today_vol) else None
         g["rvol_note"] = "full day relative volume, not premarket"
         g["next_earnings"] = next_earnings(tk)
-        g["day_eligible"], g["swing_eligible"] = flags(g)
+        suspect, why = corporate_action_suspect(g)
+        g["corporate_action_suspect"] = suspect
+        g["corporate_action_note"] = why
+        day, swing = flags(g)
+        g["day_eligible"], g["swing_eligible"] = day["passed"], swing["passed"]
+        g["day_check"], g["swing_check"] = day, swing
         enriched.append(g)
+        if suspect:
+            say(f"      flagged: likely corporate action, {why}")
 
     packet = {
         "generated_at": started.isoformat(),

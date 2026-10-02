@@ -138,11 +138,25 @@ the rules are live.
   system trades. The watchlist setups above are written for stocks.
 - **No swing path at all.** Rules 3 and 4 use the open, which the scanner does not evaluate.
 
-**One real conflict to fix:** the scanner requires yesterday's close to be above the 200 day average
-before it calls a daily breakout. That condition is **not** in the day trading rules above. The 200
-day average belongs to the **swing** setup, rule 4. Until it is removed from the day path, the
-scanner is running a stricter filter than the one that was backtested at 54.6%, which means its
-results will not match the backtest and nobody will know why.
+**Two things called Trend Join Long, and they are not the same thing.** Worth writing down before
+somebody "fixes" one to match the other.
+
+`src/tjl_scanner.py` requires yesterday's close to be above the 200 day average before it calls a
+daily breakout. That condition is not in the equity day rules above. It is not a bug: that scanner
+was built to the earlier TradingView specification for **gold and bitcoin**, where the 200 day
+average was part of the setup, and it has been running on those two markets since. Its own docstring
+says so.
+
+So:
+
+- **`src/tjl_scanner.py` stays as it is**, on gold and bitcoin, with its 200 day condition. It is not
+  the equity scanner and must not be bent into one.
+- **The equity rules above get their own implementation.** They need gap percent, price, market cap
+  and RVOL, which that scanner has no feed for anyway.
+- **Do not copy the 200 day condition into the equity day path.** It would make the day filter
+  stricter than the one backtested at 54.6%, and the live hit rate would drift from the backtest for
+  a reason nobody would find. On the equity side the 200 day average belongs to the swing setup,
+  rule 4, and nowhere else.
 
 ---
 
