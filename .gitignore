@@ -42,3 +42,7 @@ config.local.json
 *.bak_*
 *.orig
 .claude/hook-log
+
+# Pre-market scan artefacts: regenerated every run, never committed
+packet.json
+.ff_calendar_cache.json
