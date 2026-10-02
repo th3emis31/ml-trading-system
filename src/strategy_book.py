@@ -387,6 +387,7 @@ def rescore_market(registry: dict, market: lab.Market, deadline: Optional[float]
     ``on_progress`` is called every 25 candidates (keeps the run lock's heartbeat fresh during long re-scores).
     """
     done = skipped = 0
+    unscoreable: dict[str, int] = {}
     for key, record in list(registry["candidates"].items()):
         if record.get("market") != market.key or record.get("tag"):
             continue
@@ -394,6 +395,26 @@ def rescore_market(registry: dict, market: lab.Market, deadline: Optional[float]
             continue
         if deadline is not None and time.monotonic() > deadline:
             skipped += 1
+            continue
+        # A family the lab can no longer evaluate must not take the whole update down with it.
+        #
+        # The registry holds candidates from families that have since left `strategy_lab.SIGNALS`,
+        # `trendline_break` being the live case: it has its own paper forward test but no entry in
+        # SIGNALS, so `strategy_orders` raised KeyError on it. That killed `update_book` partway
+        # through the rescore, 263 times in the lab log, and a half-finished rescore leaves the
+        # market's counts at whatever it had reached. On 2 October that briefly showed one strategy
+        # past the locked holdout when nothing had passed, which is the worst way for this to fail:
+        # a crash that reports as a result.
+        #
+        # The record is kept exactly as it is, marked so it is visible, and the run carries on.
+        # Nothing is deleted and no gate changes: an unscoreable candidate is not promoted, it is
+        # simply left at its last honest score until its family exists again.
+        family = (record.get("spec") or {}).get("family")
+        if family not in lab.SIGNALS:
+            unscoreable[str(family)] = unscoreable.get(str(family), 0) + 1
+            record["rescore_skipped"] = (f"family {family!r} is not in strategy_lab.SIGNALS, so this "
+                                         f"candidate cannot be re-evaluated; its stored score stands")
+            record["rescore_skipped_at"] = lab._iso(pd.Timestamp.now(tz="UTC"))
             continue
         fresh = lab.evaluate_candidate(market, record["spec"], with_holdout=bool(record.get("holdout")))
         fresh["previous_cost_model"] = record.get("cost_model") or "spread-only"
@@ -406,7 +427,13 @@ def rescore_market(registry: dict, market: lab.Market, deadline: Optional[float]
         done += 1
         if on_progress is not None and done % 25 == 0:
             on_progress()
-    return {"rescored": done, "remaining": skipped}
+    report = {"rescored": done, "remaining": skipped}
+    if unscoreable:
+        # Reported, never silent. A family that quietly stopped being evaluated is how a book drifts
+        # away from what the lab can actually score.
+        report["unscoreable_families"] = unscoreable
+        report["unscoreable_total"] = sum(unscoreable.values())
+    return report
 
 
 def _take_lock(status_path: Optional[Path], task: str) -> tuple[Optional[dict], dict]:

@@ -215,3 +215,48 @@ def test_a_smaller_n_never_lowers_the_pass_mark_itself():
     """The 0.95 bar is untouched; only the N fed into the deflation changes."""
     from src import strategy_lab as lab
     assert lab.HOLDOUT_CRITERIA["min_deflated_sharpe"] == 0.95
+
+
+def test_a_family_the_lab_cannot_evaluate_never_takes_the_rescore_down():
+    """The 2 October 2026 crash, reproduced.
+
+    The registry holds candidates whose family has since left strategy_lab.SIGNALS. trendline_break
+    is the live case: it has its own paper forward test but no SIGNALS entry, so strategy_orders
+    raised KeyError on it and killed update_book partway through the rescore, 263 times in the lab
+    log. A half-finished rescore leaves the market's counts at whatever it reached, and on that
+    morning the daily note reported one strategy past the locked holdout when nothing had passed.
+    A crash that reports as a result is the worst shape this failure can take.
+    """
+    assert "trendline_break" not in lab.SIGNALS, "the family really is absent; that is the premise"
+
+    class _Market:
+        key = "BTCUSD:4h"
+        info = {"cost_model": "spread+swap-v4-percent-rt0.0115"}
+
+    known = sorted(lab.SIGNALS)[0]
+    registry = {"candidates": {
+        "gone": {"market": "BTCUSD:4h", "cost_model": "old", "spec": {"family": "trendline_break"},
+                 "holdout": {}, "validated": True, "search": {"trades": 40}},
+        "also_gone": {"market": "BTCUSD:4h", "cost_model": "old", "spec": {"family": "no_such_family"},
+                      "validated": True},
+        "other_market": {"market": "XAUUSD:4h", "cost_model": "old",
+                         "spec": {"family": "trendline_break"}, "validated": True},
+    }}
+    before = json.dumps(registry["candidates"]["gone"]["search"], sort_keys=True)
+
+    report = sb.rescore_market(registry, _Market(), deadline=None)
+
+    assert report["rescored"] == 0
+    assert report["unscoreable_total"] == 2
+    assert report["unscoreable_families"] == {"trendline_break": 1, "no_such_family": 1}
+
+    kept = registry["candidates"]["gone"]
+    assert "trendline_break" in kept["rescore_skipped"]
+    assert kept["rescore_skipped_at"]
+    assert json.dumps(kept["search"], sort_keys=True) == before, "the stored score must stand untouched"
+    assert kept["spec"]["family"] == "trendline_break", "nothing is deleted or rewritten"
+    assert kept.get("status") != "rejected_after_rescore", "unscoreable is not rejected"
+
+    other = registry["candidates"]["other_market"]
+    assert "rescore_skipped" not in other, "a different market's records are not touched"
+    assert known in lab.SIGNALS
