@@ -334,9 +334,73 @@ SIGNALS: dict[str, Callable] = {
 # register a builder here: builder(ind, spec) -> (side, stop, target), the same arrays strategy_orders returns.
 ORDER_BUILDERS: dict = {}
 
+# WHICH MODULE OWNS WHICH FAMILY, and why this map has to exist.
+#
+# A builder only lands in ORDER_BUILDERS when its module is imported, and the dispatch below falls
+# back to SIGNALS when the family is not there. So the SAME stored candidate is scoreable or not
+# depending purely on what the ENTRY POINT happened to import. `src/crt_forward.py` knew this and
+# carries an explicit `from . import aurum_flow_lab  # registers the trendline-break order builder`.
+# `src/strategy_book.py` imports none of them, so running `python -m src.strategy_book` left
+# ORDER_BUILDERS empty and every stored candidate from these families raised
+# `KeyError: '<family>'` out of the SIGNALS lookup. That crash appears 297 times in the lab log and
+# was still killing the hourly book update on 4 October 2026.
+#
+# The families below are IMPLEMENTED. They were never missing. Skipping them would have been the
+# wrong repair: it turns a loud crash into a silent gap, and a strategy that quietly stops being
+# re-scored keeps its old number for ever.
+#
+# Only MODULE-LEVEL registrations belong here. fvg_retest, poi_liquidity, tokyo_breakout and
+# direction_sweep register inside a function, so importing them registers nothing and they genuinely
+# cannot be resolved this way. `tests/test_order_builder_registry.py` reads this file's own source and
+# fails if a module-level registration is ever added without a map entry, so the map cannot drift.
+FAMILY_MODULES: dict[str, str] = {
+    "aurum_flow": "aurum_flow_lab",
+    "trendline_break": "aurum_flow_lab",
+    "candle_pattern": "candle_pattern_lab",
+    "cisd": "cisd_lab",
+    "crt": "crt_lab",
+    "crt_displacement": "crt_displacement",
+    "crt_fvg": "crt_fvg_lab",
+    "crt_htf": "crt_htf_lab",
+    "crt_mss": "crt_mss_lab",
+    "gold_short_h1": "gold_short_h1",
+    "lyra_mtf": "lyra_mtf_lab",
+    "smart_entry_arch": "smart_entry_arch",
+    "sweep_reversal": "sweep_reversal",
+    "volatility_breakout": "vtb_lab",
+}
+
+#: Modules already attempted, so a broken or missing one is tried once and not on every candidate.
+_FAMILY_MODULES_TRIED: set[str] = set()
+
+
+def ensure_family(family) -> bool:
+    """True when ``family`` can be built right now, importing the module that owns it if needed.
+
+    Cheap on the hot path: two dict lookups when the family is already available, which is the normal
+    case. The import is lazy rather than top-level because every one of these modules does
+    ``from . import strategy_lab as lab``, so importing them here at module scope would be circular.
+    By the time this runs, strategy_lab is fully initialised and the import resolves to it.
+    """
+    name = str(family)
+    if name in ORDER_BUILDERS or name in SIGNALS:
+        return True
+    module = FAMILY_MODULES.get(name)
+    if not module or module in _FAMILY_MODULES_TRIED:
+        return False
+    _FAMILY_MODULES_TRIED.add(module)           # added first: a module that raises is not retried
+    try:
+        import importlib
+
+        importlib.import_module(f"{__package__}.{module}")
+    except Exception:
+        return False
+    return name in ORDER_BUILDERS or name in SIGNALS
+
 
 def strategy_orders(ind: Indicators, spec: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per bar: side (+1/-1/0), stop and target computed from that closed bar (NaN without a signal)."""
+    ensure_family(spec["family"])
     builder = ORDER_BUILDERS.get(spec["family"])
     if builder is not None:
         orders = builder(ind, spec)

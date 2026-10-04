@@ -396,7 +396,7 @@ def rescore_market(registry: dict, market: lab.Market, deadline: Optional[float]
         if deadline is not None and time.monotonic() > deadline:
             skipped += 1
             continue
-        # A family the lab can no longer evaluate must not take the whole update down with it.
+        # A family the lab genuinely cannot evaluate must not take the whole update down with it.
         #
         # The registry holds candidates from families that have since left `strategy_lab.SIGNALS`,
         # `trendline_break` being the live case: it has its own paper forward test but no entry in
@@ -409,10 +409,14 @@ def rescore_market(registry: dict, market: lab.Market, deadline: Optional[float]
         # The record is kept exactly as it is, marked so it is visible, and the run carries on.
         # Nothing is deleted and no gate changes: an unscoreable candidate is not promoted, it is
         # simply left at its last honest score until its family exists again.
+        # `lab.ensure_family` imports the module that owns the family before deciding. Checking
+        # `lab.SIGNALS` alone, as this did on 2 October 2026, was wrong: trendline_break, crt,
+        # aurum_flow and eleven others live in ORDER_BUILDERS, so that guard would have quietly
+        # stopped re-scoring fourteen IMPLEMENTED families instead of fixing anything.
         family = (record.get("spec") or {}).get("family")
-        if family not in lab.SIGNALS:
+        if not lab.ensure_family(family):
             unscoreable[str(family)] = unscoreable.get(str(family), 0) + 1
-            record["rescore_skipped"] = (f"family {family!r} is not in strategy_lab.SIGNALS, so this "
+            record["rescore_skipped"] = (f"no order builder or signal for family {family!r}, so this "
                                          f"candidate cannot be re-evaluated; its stored score stands")
             record["rescore_skipped_at"] = lab._iso(pd.Timestamp.now(tz="UTC"))
             continue

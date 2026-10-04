@@ -29,6 +29,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -141,9 +142,44 @@ def _summarise(rows: List[dict]) -> dict:
     }
 
 
+def _mt4_open_tickets():
+    """Tickets open on MT4 right now, or None when that cannot be checked.
+
+    Read out of the already-running app module rather than imported, because importing app.py from a
+    blueprint that app.py registered would be circular. If the module or its engines are not there,
+    this answers None and the caller says "unverified" instead of guessing.
+    """
+    module = sys.modules.get("app") or sys.modules.get("__main__")
+    engines = getattr(module, "MT4_ENGINES", None)
+    if not engines:
+        return None
+    tickets, saw_any = set(), False
+    for engine in engines:
+        try:
+            if not (engine.status() or {}).get("connected"):
+                continue
+            book = engine.open_trades()
+        except Exception:
+            continue
+        if not book.get("ok"):
+            continue
+        saw_any = True
+        tickets.update(int(t.get("ticket") or 0) for t in book.get("trades") or [])
+    return tickets if saw_any else None
+
+
 def _mirror_state() -> dict:
-    """What the MT4 leg did, straight out of the executor's own journal."""
-    out = {"available": False, "last": None, "open_ticket": None, "no_stop": None,
+    """What the MT4 leg did, straight out of the executor's own journal.
+
+    The journal records what was PLACED, never what closed: the mirror is opened and then left to its
+    own stop and target, and nothing syncs its exit back. So the last executed mirror ticket is not
+    evidence that a position is still open. This page said ticket 652199599 was open for two days
+    after it had stopped out on 2 October 2026, which is the precise failure this page exists to
+    prevent. The ticket is now checked against the broker's open book, and when that cannot be
+    reached it is reported as the last mirrored ticket with its state unverified, never as open.
+    """
+    out = {"available": False, "last": None, "open_ticket": None, "last_ticket": None,
+           "ticket_state": "unknown", "no_stop": None,
            "failures": [], "second_platform": None, "note": ""}
     try:
         data = json.loads(JOURNAL.read_text(encoding="utf-8"))
@@ -164,7 +200,16 @@ def _mirror_state() -> dict:
                        "ticket": first.get("ticket"), "message": first.get("message")}
         out["second_platform"] = second.get("reason") or ("ok" if second.get("executed") else None)
         if first.get("executed") and first.get("ticket"):
-            out["open_ticket"] = first.get("ticket")
+            ticket = first.get("ticket")
+            out["last_ticket"] = ticket
+            live = _mt4_open_tickets()
+            if live is None:
+                out["ticket_state"] = "unverified"      # bridge unreachable: claim nothing
+            elif int(ticket) in live:
+                out["ticket_state"] = "open"
+                out["open_ticket"] = ticket             # only set when the broker confirms it
+            else:
+                out["ticket_state"] = "closed"
         break
     out["failures"] = [
         {"at": e.get("at"), "reason": e.get("reason"),
@@ -386,7 +431,12 @@ async function load() {
   (d.open_positions || []).filter(p => p.no_stop).forEach(p =>
     alerts.push(`${esc(p.symbol)} ${p.side} ${p.volume} (${esc(p.strategy)}) is open with <strong>no stop loss</strong>.`));
   const m = d.mt4_mirror || {};
-  if (m.open_ticket) alerts.push(`MT4 mirror ticket <strong>${esc(m.open_ticket)}</strong> is open on ${esc((m.last||{}).server||'MT4')}. The MT4 leg is not included in the money figures above.`);
+  // Only the broker's own open book may say "open". "unverified" is a real answer and gets said.
+  if (m.ticket_state === 'open') {
+    alerts.push(`MT4 mirror ticket <strong>${esc(m.open_ticket)}</strong> is open on ${esc((m.last||{}).server||'MT4')}. The MT4 leg is not included in the money figures above.`);
+  } else if (m.ticket_state === 'unverified' && m.last_ticket) {
+    alerts.push(`Last MT4 mirror ticket <strong>${esc(m.last_ticket)}</strong>, placed ${esc((m.last||{}).at||'')}. The MT4 bridge could not be read, so whether it is still open is <strong>unverified</strong>.`);
+  }
   if (m.second_platform && m.second_platform !== 'ok') alerts.push(`Second MT4 platform did not mirror: ${esc(m.second_platform)}.`);
   document.getElementById('alerts').innerHTML = alerts.map(t => `<div class="banner">${t}</div>`).join('');
 
@@ -396,7 +446,7 @@ async function load() {
     weekCard('All time', d.all_time, cur) +
     `<div class="card"><h2>Open now</h2>
        <div class="big ${cls(d.open_floating)}">${(d.open_positions||[]).length ? money(d.open_floating, cur) : '&mdash;'}</div>
-       <div class="wl"><span class="dim">${(d.open_positions||[]).length} position(s) on MT5${m.open_ticket ? ' + 1 on MT4' : ''}</span></div></div>`;
+       <div class="wl"><span class="dim">${(d.open_positions||[]).length} position(s) on MT5${m.ticket_state === 'open' ? ' + 1 on MT4' : ''}</span></div></div>`;
 
   const open = d.open_positions || [];
   document.getElementById('open').innerHTML = open.length
