@@ -28,6 +28,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -512,6 +513,97 @@ def check_scheduled_tasks(csv_text: Optional[str] = None) -> dict:
                    f"All {len(TASKS)} scheduled tasks exist, last ran OK and run from the live folder.", **detail)
 
 
+# A SCHEDULED TASK RETURNING 0 IS NOT EVIDENCE ITS WORK HAPPENED.
+#
+# `check_scheduled_tasks` above asks three questions: does the task exist, what did it exit with, and
+# which folder does it run from. It never asks whether the job PRODUCED anything, and that is the gap
+# every silent failure of the week of 29 September 2026 fell straight through:
+#
+#   * The System Doctor itself stopped writing for FOURTEEN HOURS after its --fix launched
+#     start_trading.bat, which inherited the redirected log handle and locked it. The task still
+#     existed and still ran. Every page read the frozen report and showed a dead app.
+#   * `strategy_book update` crashed on every hourly run for days. It runs inside the Strategy Lab
+#     task, whose lab half succeeded, so the task exited 0 and nothing anywhere said the book had not
+#     been rebuilt.
+#   * A half-finished book rescore then reported "1 passed the locked holdout" when none had.
+#
+# So this check watches the ARTEFACT, not the exit code. If a job is alive, the file it owns gets
+# newer. If that file stops moving, something is wrong no matter what the task reports.
+#
+# Two rules kept this honest when the table was built:
+#   * Watch what the job WRITES, never its config. `demo_session_pullback.json` is configuration and
+#     is correctly 25 days old; the cycle writes `demo_session_pullback_state.json`, which is minutes
+#     old. Watching the first would warn for ever and teach everyone to ignore it.
+#   * Every limit is at least twice the interval, so ordinary lateness is silent and only a real
+#     stall speaks. A check that cries wolf gets ignored, which is worse than not having it.
+#
+# Read-only. It opens nothing, fixes nothing and places no orders.
+WATCHED_OUTPUTS = (
+    {"job": "SmartEntry System Doctor", "every": "30 min", "max_age_min": 90,
+     "path": "data/system_health/doctor_latest.json",
+     "why": "the report every page reads; it froze for 14 h on 1 October and nothing noticed"},
+    {"job": "SmartEntry System Doctor Daily", "every": "daily 06:30", "max_age_min": 36 * 60,
+     "path": "data/system_health/doctor_latest_deep.json",
+     "why": "the deep check that compiles the code and runs the suite"},
+    {"job": "SmartEntry Strategy Lab", "every": "hourly :20", "max_age_min": 150,
+     "path": "data/strategy_lab/status.json", "why": "the lab's own heartbeat"},
+    {"job": "SmartEntry Strategy Lab (book half)", "every": "hourly, after the lab", "max_age_min": 240,
+     "path": "data/strategy_lab/strategy_book.json",
+     "why": "THE ONE THAT WAS SILENT: the book crashed hourly for days while the task exited 0"},
+    {"job": "SmartEntry i40 Pilot", "every": "hourly", "max_age_min": 150,
+     "path": "data/i40_pilot/latest.json", "why": "the brief the dashboard banner is built from"},
+    {"job": "SmartEntry Paper Trader", "every": "hourly :05", "max_age_min": 150,
+     "path": "data/paper_trading/demo_execution_journal.json",
+     "why": "the gold 4H executor's journal, where every order attempt is recorded"},
+    {"job": "SmartEntry Demo Pullback", "every": "hourly :01", "max_age_min": 150,
+     "path": "data/paper_trading/demo_session_pullback_state.json",
+     "why": "the gold session pullback writes its cycle verdict here every hour, even when it does not trade"},
+    {"job": "SmartEntry Demo Breakout", "every": "hourly :03", "max_age_min": 150,
+     "path": "data/paper_trading/demo_volatility_breakout_state.json",
+     "why": "the only strategy SENDING live demo orders; if this stops moving it has stopped deciding"},
+    {"job": "SmartEntry Demo Plan", "every": "hourly :07", "max_age_min": 150,
+     "path": "data/paper_trading/demo_plan_trader_state.json",
+     "why": "the daily plan executor records each hourly cycle here whether or not a plan fired"},
+    {"job": "SmartEntry Demo Sweep", "every": "hourly :09", "max_age_min": 150,
+     "path": "data/paper_trading/demo_sweep_trader_state.json",
+     "why": "the sweep reversal strategy, which placed both of this week's closed trades"},
+    {"job": "SmartEntry CRT Forward", "every": "hourly :25", "max_age_min": 150,
+     "path": "data/strategy_lab/crt_forward.json", "why": "the gold CRT paper forward test"},
+    {"job": "SmartEntry Daily Learning", "every": "daily 05:30", "max_age_min": 36 * 60,
+     "path": "data/learning_decisions.json", "why": "the gated retrain's decision record"},
+)
+
+
+def check_job_outputs(now: Optional[float] = None, watched=WATCHED_OUTPUTS) -> dict:
+    """Is every scheduled job still PRODUCING, not merely exiting 0?"""
+    now = time.time() if now is None else now
+    rows, stale, missing = [], [], []
+    for item in watched:
+        path = ROOT / item["path"]
+        row = {"job": item["job"], "path": item["path"], "every": item["every"],
+               "max_age_min": item["max_age_min"], "why": item["why"]}
+        if not path.exists():
+            row.update(age_min=None, state="missing")
+            missing.append(item["job"])
+        else:
+            age = (now - path.stat().st_mtime) / 60.0
+            row.update(age_min=round(age, 1), state="stale" if age > item["max_age_min"] else "fresh")
+            if row["state"] == "stale":
+                stale.append(f"{item['job']} ({age / 60:.1f} h old, limit {item['max_age_min'] / 60:.1f} h)")
+        rows.append(row)
+    detail = {"watched": rows, "stale": stale, "missing": missing,
+              "note": "a task exiting 0 is not evidence its work happened; this watches what it writes"}
+    if missing:
+        return _result("Job outputs", "schedule", "warn",
+                       "Nothing has been written by: " + ", ".join(missing)
+                       + (f"; stale: {', '.join(stale)}" if stale else ""), **detail)
+    if stale:
+        return _result("Job outputs", "schedule", "warn",
+                       "These jobs report success but have stopped producing: " + "; ".join(stale), **detail)
+    return _result("Job outputs", "schedule", "ok",
+                   f"All {len(rows)} watched jobs are still writing their output on time.", **detail)
+
+
 def check_data_freshness(get: GetJson = get_json) -> dict:
     code, feed = get("/api/data-feed", 120)
     if code != 200 or not isinstance(feed, dict):
@@ -987,7 +1079,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_ai_employee, check_scheduled_tasks,
+               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_ai_employee, check_scheduled_tasks, check_job_outputs,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
