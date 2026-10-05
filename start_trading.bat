@@ -63,7 +63,22 @@ rem Harmless until a DWX bridge is actually running on 1420704416: the engine si
 rem and the second account stays idle while the first trades as normal.
 set MT4_ACCOUNT_2=1420704416
 
-C:\Users\th_em\AppData\Local\Programs\Python\Python310\python.exe app.py
+rem CAPTURE THE CRASH. app.py ran with NO redirection at all, and logging.basicConfig has no
+rem filename, so every traceback went to this console window and was thrown away.
+rem logs\app_stderr.log is a relic of an older launcher: nothing has written it since
+rem 13 September, yet the System Doctor still reads it and prints 'No errors in the app log'
+rem every 30 minutes from 22-day-old bytes. On 5 October the app crash-looped 18 times, took the
+rem broker interface down for minutes at a time, cost three strategies their hourly cycle, and
+rem left no record of why.
+rem
+rem A UNIQUE file per launch, never a shared one. The doctor.log lesson of 1 October: a
+rem long-lived child inheriting a redirected handle locked that log and silently killed every
+rem later run. A name nothing else can hold cannot do that, and the file count itself becomes
+rem the restart count.
+if not exist logs\app mkdir logs\app
+set "APPLOG=logs\app\app_%RANDOM%%RANDOM%.log"
+echo ===== app.py launched %date% %time% >> "%APPLOG%"
+C:\Users\th_em\AppData\Local\Programs\Python\Python310\python.exe app.py >> "%APPLOG%" 2>&1
 
 echo.
 echo [!] Server stopped or crashed. Restarting in 5 seconds...

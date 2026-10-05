@@ -34,6 +34,7 @@ import pandas as pd
 
 from . import demo_executor
 from . import demo_session_pullback as shared
+from .app_cycle import post_cycle
 from .runtime_paths import smartentry_data_dir
 
 STRATEGY = "swing_trend_pullback_plan"
@@ -258,12 +259,10 @@ def main(argv=None) -> int:
         print(json.dumps(plan_status(), indent=1, default=str)[:4000])
         return 0
 
-    request = urllib.request.Request(CYCLE_URL, data=b"{}", method="POST",
-                                     headers={"Content-Type": "application/json",
-                                              SECRET_HEADER: load_or_create_secret()})
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            body = json.loads(response.read().decode("utf-8"))
+        body = post_cycle(CYCLE_URL,
+                          {"Content-Type": "application/json", SECRET_HEADER: load_or_create_secret()},
+                          log=print)
     except Exception as exc:
         print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} cycle call failed: {exc}")
         return 1

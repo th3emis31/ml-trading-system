@@ -216,8 +216,19 @@ def _main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(_main())
+# The entry point used to sit HERE, seventeen lines above `HOME_ENV = "I40_HOME"`. Running the module
+# as `python -m src.runtime_paths` therefore executed _main() before that constant existed, and the
+# first call into _owned_dir raised `NameError: name 'HOME_ENV' is not defined`. Importing the module
+# normally ran the whole file first, so HOME_ENV was there and nothing looked wrong.
+#
+# That one line of ordering stopped the system learning for seventeen days. The daily task writes its
+# start marker through exactly this entry point; the marker never refreshed, so every training run
+# then self-blocked as "outside the learning window" and reported
+# `blocked_outside_learning_window ... Nothing was trained and no model file was written` - while the
+# task itself exited 0 and every freshness check saw a file being written on time.
+#
+# The guard now sits at the END of the file, which is where Python expects it and the only position
+# that guarantees every module-level name is defined before _main() can reach it.
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +353,7 @@ def machine_report() -> dict:
         "excel_workbook": {"path": workbook, "exists": bool(workbook) and Path(workbook).exists()},
         "missing": [name for name, row in terminals.items() if not row["exists"]],
     }
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

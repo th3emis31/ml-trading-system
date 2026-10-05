@@ -13,6 +13,7 @@ from. It never asks whether the job PRODUCED anything, and every silent failure 
 
 These tests reconstruct those three situations and require the check to speak.
 """
+import datetime
 import json
 import time
 from pathlib import Path
@@ -149,3 +150,72 @@ def test_the_check_never_raises_even_with_a_nonsense_table(tmp_path, monkeypatch
     out = doc.check_job_outputs(watched=({"job": "ghost", "every": "hourly", "max_age_min": 60,
                                           "path": "nothing/here.json", "why": "a path that is not there"},))
     assert out["status"] == "warn" and out["detail"]["missing"] == ["ghost"]
+
+
+# --------------------------------------------------------------------------------------------------
+# The "App errors" check could not go red. It read logs/app_stderr.log, which nothing has written
+# since 13 September 2026, and printed "No errors in the app log in the last 24 h" every thirty
+# minutes - straight through the 5 October crash-loop, where app.py died 18 times, took the broker
+# interface down for minutes at a time and cost three strategies their hourly cycle.
+
+def test_silence_from_a_dead_log_is_reported_as_blindness_not_health(tmp_path, monkeypatch):
+    """The exact failure: a stale log must NEVER produce a green line."""
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    folder = tmp_path / "logs" / "app"
+    folder.mkdir(parents=True)
+    stale = folder / "app_1234.log"
+    stale.write_text("2026-09-13 11:27:00 INFO started\n", encoding="utf-8")
+    import os
+    old = time.time() - 22 * 24 * 3600
+    os.utime(stale, (old, old))
+
+    out = doc.check_app_errors()
+    assert out["status"] == "warn", "a 22-day-old log must not read as healthy"
+    assert "blind" in out["summary"].lower()
+
+
+def test_no_app_log_at_all_is_a_warning_not_an_info(tmp_path, monkeypatch):
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    out = doc.check_app_errors()
+    assert out["status"] == "warn"
+    assert "cannot be seen" in out["summary"]
+
+
+def test_it_reads_the_newest_per_launch_log(tmp_path, monkeypatch):
+    """One file per launch; the running app's is the newest."""
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    folder = tmp_path / "logs" / "app"
+    folder.mkdir(parents=True)
+    import os
+    older = folder / "app_111.log"
+    older.write_text("2026-10-05 09:00:00 ERROR an old crash\n", encoding="utf-8")
+    os.utime(older, (time.time() - 7200, time.time() - 7200))
+    newest = folder / "app_222.log"
+    newest.write_text("2026-10-05 12:00:00 INFO healthy\n", encoding="utf-8")
+
+    assert doc.newest_app_log(tmp_path) == newest
+    assert doc.check_app_errors()["status"] == "ok"
+
+
+def test_a_real_error_in_the_current_log_goes_red(tmp_path, monkeypatch):
+    monkeypatch.setattr(doc, "ROOT", tmp_path)
+    folder = tmp_path / "logs" / "app"
+    folder.mkdir(parents=True)
+    now = datetime.datetime.now()
+    (folder / "app_333.log").write_text(
+        f"{now:%Y-%m-%d %H:%M:%S} ERROR Traceback (most recent call last): boom\n", encoding="utf-8")
+    out = doc.check_app_errors()
+    assert out["status"] == "warn" and "error lines" in out["summary"]
+
+
+def test_the_launcher_really_writes_a_per_launch_log():
+    """The check is only as good as the launcher feeding it."""
+    from pathlib import Path
+    bat = (Path(__file__).resolve().parents[1] / "start_trading.bat").read_text(encoding="utf-8")
+    assert "APPLOG" in bat, "no per-launch log variable"
+    assert "%RANDOM%%RANDOM%" in bat, "the log name is not unique per launch, so a child can lock it"
+    assert 'app.py >> "%APPLOG%" 2>&1' in bat, "app.py output is not captured"
+    # The only launch line must be the redirected one. A bare `... python.exe app.py` would send every
+    # traceback back to a console window, which is the state that made the 5 October crashes invisible.
+    bare = [line for line in bat.splitlines() if line.strip().lower().endswith("app.py")]
+    assert bare == [], f"a bare unredirected launch remains: {bare}"

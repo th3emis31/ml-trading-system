@@ -625,12 +625,47 @@ ERROR_LINE = re.compile(r"\b(ERROR|CRITICAL)\b|^Traceback|\" 500 -")
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 
 
-def check_app_errors(log_path: Path = ROOT / "logs" / "app_stderr.log", now_local: Optional[datetime] = None,
+def newest_app_log(root: Optional[Path] = None) -> Optional[Path]:
+    """The log of the CURRENT app launch, or None when none has been written.
+
+    start_trading.bat writes one uniquely-named file per launch under logs/app/, because a shared log
+    can be locked open by a long-lived child (that is how doctor.log silently killed every System
+    Doctor run for fourteen hours on 1 October 2026). The newest file is the running app's.
+    """
+    folder = Path(root or ROOT) / "logs" / "app"
+    if not folder.is_dir():
+        return None
+    logs = sorted(folder.glob("app_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return logs[0] if logs else None
+
+
+def check_app_errors(log_path: Optional[Path] = None, now_local: Optional[datetime] = None,
                      hours: int = 24) -> dict:
+    """Errors in the log of the app that is ACTUALLY RUNNING.
+
+    This read `logs/app_stderr.log` unconditionally. Nothing has written that file since 13 September
+    2026: the launcher starts `python.exe app.py` with no redirection, and `logging.basicConfig` has no
+    filename, so every traceback went to a console window and was discarded. The check therefore could
+    not go red. It scanned 22-day-old bytes and printed "No errors in the app log in the last 24 h"
+    every thirty minutes - including through the 5 October crash-loop, where the app died 18 times,
+    took the broker interface down for minutes at a time and cost three strategies their hourly cycle.
+
+    It now reads the newest per-launch log, falling back to the old path only if that is all there is,
+    and says plainly when NOTHING is being written rather than reporting silence as health.
+    """
     now_local = now_local or datetime.now()
-    path = Path(log_path)
+    path = Path(log_path) if log_path is not None else (newest_app_log() or ROOT / "logs" / "app_stderr.log")
     if not path.exists():
-        return _result("App errors", "app", "info", "No app error log found.")
+        return _result("App errors", "app", "warn",
+                       "No app log is being written, so a crash in the live app cannot be seen. "
+                       "start_trading.bat should write logs/app/app_*.log per launch.",
+                       looked_at=str(path))
+    age_h = (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds() / 3600.0
+    if age_h > 24:
+        return _result("App errors", "app", "warn",
+                       f"The app log has not been written for {age_h:.0f} h, so this check is blind: "
+                       f"silence here is not evidence the app is healthy.",
+                       looked_at=str(path), age_hours=round(age_h, 1))
     with path.open("rb") as handle:
         size = path.stat().st_size
         handle.seek(max(0, size - 600_000))

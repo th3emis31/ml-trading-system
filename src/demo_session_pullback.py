@@ -44,6 +44,7 @@ import numpy as np
 import pandas as pd
 
 from . import demo_executor, paper_trader
+from .app_cycle import post_cycle
 from .event_defence import (load_historical_events, tier1_events_from_calendar, tier1_window, utc_timestamp,
                             volatility_breaker_mask)
 from .gold_session_pullback_lab import RULES, session_pullback_exit, session_pullback_setups
@@ -629,12 +630,10 @@ if __name__ == "__main__":
 
     with closing_run("demo_pullback", kind="scheduled",
                      observed="one scheduled cycle asked of the running app") as run:
-        cycle_request = urllib.request.Request(CYCLE_URL, data=b"{}", method="POST",
-                                               headers={"Content-Type": "application/json",
-                                                        SECRET_HEADER: load_or_create_secret()})
         try:
-            with urllib.request.urlopen(cycle_request, timeout=300) as response:
-                body = json.loads(response.read().decode("utf-8"))
+            body = post_cycle(CYCLE_URL,
+                              {"Content-Type": "application/json", SECRET_HEADER: load_or_create_secret()},
+                              log=print)
         except Exception as exc:
             run.decided = "could not reach the app to run a cycle"
             run.note = f"{type(exc).__name__}: {exc}"[:200]
