@@ -383,6 +383,49 @@ class MT4Service:
         except Exception as exc:
             return {"ok": False, "trades": [], "message": f"{type(exc).__name__}: {exc}"}
 
+    def close_ticket(self, ticket: int, expect_symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Close ONE open ticket at market, by number. Nothing else is reachable from here.
+
+        Written on 5 October 2026 to close the one real gap left in the trading path: the gold 4H
+        executor mirrors every MT5 order onto MT4, but position sync, the time exit and the
+        one-position rule all run against MT5 only. The MT4 leg was opened and then abandoned, so an
+        MT5 time exit left a live MT4 position with nothing managing it.
+
+        Deliberately narrow:
+
+        * It sends only ``TRADE;CLOSE`` for a SINGLE ticket. CLOSE_ALL, CLOSE_MAGIC and
+          CLOSE_PARTIAL exist in the EA and none of them is reachable from this method.
+        * It refuses a ticket that is not open, rather than reporting a success it did not achieve.
+        * With ``expect_symbol`` it refuses a ticket whose symbol does not match, so a stale number
+          can never close somebody else's position.
+        * It reads the open book back afterwards and reports what the broker actually holds.
+        """
+        if not self.connected:
+            return {"ok": False, "closed": False, "ticket": ticket, "message": "MT4 not connected"}
+        book = self.open_trades()
+        if not book.get("ok"):
+            return {"ok": False, "closed": False, "ticket": ticket,
+                    "message": f"could not read open trades: {book.get('message')}"}
+        order = next((t for t in book["trades"] if int(t.get("ticket", 0)) == int(ticket)), None)
+        if order is None:
+            return {"ok": True, "closed": False, "ticket": ticket, "already_closed": True,
+                    "message": f"ticket {ticket} is not open; nothing to close"}
+        if expect_symbol and str(order.get("symbol") or "").upper() != str(expect_symbol).upper():
+            return {"ok": False, "closed": False, "ticket": ticket,
+                    "message": (f"ticket {ticket} is {order.get('symbol')}, not {expect_symbol}; "
+                                f"refusing to close a position that is not the one asked for")}
+        try:
+            reply = self._send_command(f"TRADE;CLOSE;0;{str(order.get('symbol') or '').upper()};0;0;0;;0;0;{int(ticket)}")
+            raw = str(reply.get("raw", "")) + str(reply.get("response", ""))
+        except Exception as exc:
+            return {"ok": False, "closed": False, "ticket": ticket, "message": f"{type(exc).__name__}: {exc}"}
+        still_open = any(int(t.get("ticket", 0)) == int(ticket)
+                         for t in self.open_trades().get("trades", []))
+        closed = (not still_open) and ("NOT_FOUND" not in raw.upper())
+        return {"ok": closed, "closed": closed, "ticket": ticket,
+                "symbol": order.get("symbol"), "pnl": order.get("pnl"),
+                "message": raw[:200] if closed else f"close not confirmed; still open: {still_open}. {raw[:160]}"}
+
     def set_stops(self, ticket: int, stop_loss: Optional[float] = None,
                   take_profit: Optional[float] = None, only_if_missing: bool = True) -> Dict[str, Any]:
         """Put a protective stop and target on an order that is ALREADY OPEN.

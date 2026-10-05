@@ -214,3 +214,75 @@ def test_the_repair_can_only_modify_never_close():
     assert all(m.startswith("TRADE;GET_OPEN_TRADES") or m.startswith("TRADE;MODIFY") or m.startswith("RATES")
                for m in live.sent), live.sent
     assert not any("CLOSE" in m for m in live.sent)
+
+
+# --------------------------------------------------------------------------------------------------
+# Closing ONE ticket, by number. The last gap in the trading path: the mirror was opened and then
+# abandoned, so an MT5 time exit left a live MT4 position with nothing managing it.
+
+class _Closer(_Live):
+    def __init__(self, book=None, after_close=None, **kw):
+        super().__init__(book=book or _BOOK, **kw)
+        self._after_close = after_close if after_close is not None else (
+            "{'_action': 'OPEN_TRADES', '_trades': {}}")
+        self._did_close = False
+
+    def _send_command(self, message):
+        self.sent.append(message)
+        if message.startswith("TRADE;CLOSE"):
+            self._did_close = True
+            return {"raw": "{'_action': 'CLOSE', '_ticket': 652199599, '_response': 'CLOSE_MARKET', "
+                           "'_response_value': 'SUCCESS'}"}
+        if message.startswith("TRADE;GET_OPEN_TRADES"):
+            return self._parse_response(self._after_close if self._did_close else self._book)
+        return {"raw": ""}
+
+
+def test_closing_a_ticket_sends_the_ticket_in_field_ten_and_confirms_it_is_gone():
+    bridge = _Closer()
+    out = bridge.close_ticket(652199599, expect_symbol="XAUUSD")
+    close = [m for m in bridge.sent if m.startswith("TRADE;CLOSE")][0].split(";")
+    assert close[0:2] == ["TRADE", "CLOSE"]
+    assert close[10] == "652199599", "the EA reads the ticket from field 10"
+    assert out["ok"] is True and out["closed"] is True and out["symbol"] == "XAUUSD"
+
+
+def test_a_close_that_did_not_take_is_reported_as_not_closed():
+    """If the position is still in the open book afterwards, say so. Never claim a close."""
+    bridge = _Closer(after_close=_BOOK)          # still open after the attempt
+    out = bridge.close_ticket(652199599, expect_symbol="XAUUSD")
+    assert out["ok"] is False and out["closed"] is False
+    assert "still open" in out["message"]
+
+
+def test_a_ticket_that_is_not_open_is_not_an_error_and_sends_no_close():
+    bridge = _Closer()
+    out = bridge.close_ticket(111111, expect_symbol="XAUUSD")
+    assert out["already_closed"] is True and out["closed"] is False
+    assert not any(m.startswith("TRADE;CLOSE") for m in bridge.sent), "nothing may be sent"
+
+
+def test_a_symbol_mismatch_refuses_rather_than_closing_the_wrong_position():
+    """A stale ticket number must never close somebody else's trade."""
+    bridge = _Closer()
+    out = bridge.close_ticket(652199599, expect_symbol="BTCUSD")
+    assert out["ok"] is False and "not BTCUSD" in out["message"]
+    assert not any(m.startswith("TRADE;CLOSE") for m in bridge.sent)
+
+
+def test_close_ticket_can_never_reach_the_bulk_close_commands():
+    """CLOSE_ALL, CLOSE_MAGIC and CLOSE_PARTIAL exist in the EA. None is reachable from here."""
+    bridge = _Closer()
+    bridge.close_ticket(652199599, expect_symbol="XAUUSD")
+    for message in bridge.sent:
+        assert "CLOSE_ALL" not in message
+        assert "CLOSE_MAGIC" not in message
+        assert "CLOSE_PARTIAL" not in message
+
+
+def test_a_disconnected_bridge_closes_nothing():
+    bridge = _Closer()
+    bridge.connected = False
+    out = bridge.close_ticket(652199599)
+    assert out["closed"] is False and "not connected" in out["message"]
+    assert bridge.sent == []

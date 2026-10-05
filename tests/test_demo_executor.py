@@ -308,3 +308,120 @@ def test_the_mirror_records_whether_the_stop_actually_reached_the_broker():
                                        "magic": 440401, "stop_loss": 4365.96, "take_profit": 4289.52})
     assert out["executed"] is True
     assert out["unprotected"] is True and out["stops_applied"] is False
+
+
+# --------------------------------------------------------------------------------------------------
+# 5 October 2026. The MT4 mirror was opened and then abandoned: position sync, the time exit and the
+# one-position rule all ran against MT5 only, so an MT5 time exit left a live MT4 position with
+# nothing managing it and the two legs could end days apart.
+
+
+class _Mirror4(_Mirror):
+    """A mirror that can also close, and remembers whether it was asked to."""
+
+    def __init__(self, open_tickets=(999,), closes_ok=True, **kw):
+        super().__init__(**kw)
+        self.open_tickets = set(open_tickets)
+        self.closed = []
+        self._closes_ok = closes_ok
+
+    def close_ticket(self, ticket, expect_symbol=None):
+        self.closed.append((ticket, expect_symbol))
+        if int(ticket) not in self.open_tickets:
+            return {"ok": True, "closed": False, "already_closed": True, "ticket": ticket,
+                    "message": "not open"}
+        if not self._closes_ok:
+            return {"ok": False, "closed": False, "ticket": ticket, "message": "close not confirmed"}
+        self.open_tickets.discard(int(ticket))
+        return {"ok": True, "closed": True, "ticket": ticket, "pnl": -3.21, "message": "CLOSE_MARKET SUCCESS"}
+
+
+def _open_record(ticket=555, mirror_ticket=999, expires="2026-09-14 12:23:00"):
+    return {"status": "open", "ticket": ticket, "expires_at": expires, "side": "SELL",
+            "mirror": [{"sent": True, "executed": True, "ticket": mirror_ticket,
+                        "server": "ICMarketsSC-Demo01"},
+                       {"sent": False, "reason": "second platform not connected"}]}
+
+
+def test_the_mt4_leg_is_closed_when_the_mt5_leg_closed_at_the_broker():
+    """The mirror FOLLOWS the exit. It is only reached once the MT5 position is already gone."""
+    engine, m = FakeEngine(positions=[]), _Mirror4()
+    journal = {"attempts": {"2026-09-13 21:00": _open_record()}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert m.closed == [(999, "XAUUSD")], "the mirror ticket, checked against the symbol"
+    assert 999 not in m.open_tickets
+    closed = [e for e in events if e["event"] == "closed_at_broker"][0]
+    assert closed["mirror_closed"][0]["closed"] is True
+    assert journal["attempts"]["2026-09-13 21:00"]["mirror_closed"][0]["ticket"] == 999
+
+
+def test_the_mt4_leg_is_closed_when_the_mt5_leg_hits_the_time_limit():
+    """The case that actually orphaned a position: MT5 has a time exit, MT4 had none."""
+    engine = FakeEngine(positions=[{"ticket": 555, "magic": 440401, "profit": 1.0}])
+    m = _Mirror4()
+    journal = {"attempts": {"2026-09-13 21:00": _open_record(expires="2026-09-14 00:00:00")}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert engine.closed == [555], "MT5 closed first"
+    assert m.closed == [(999, "XAUUSD")], "and the mirror followed"
+    ev = [e for e in events if e["event"] == "closed_time_limit"][0]
+    assert ev["mirror_closed"][0]["closed"] is True
+
+
+def test_the_mirror_is_NOT_closed_when_the_mt5_close_failed():
+    """A failed MT5 close must not flatten MT4 and leave the platforms disagreeing the other way."""
+    class _StubbornMT5(FakeEngine):
+        def close_position(self, ticket, comment=""):
+            return {"executed": False, "message": "Request timeout"}
+
+    engine = _StubbornMT5(positions=[{"ticket": 555, "magic": 440401, "profit": 1.0}])
+    m = _Mirror4()
+    journal = {"attempts": {"2026-09-13 21:00": _open_record(expires="2026-09-14 00:00:00")}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert m.closed == [], "MT4 must stay open while MT5 is still open"
+    assert [e for e in events if e["event"] == "close_failed"]
+
+
+def test_the_mirror_is_never_closed_while_the_mt5_leg_is_still_running():
+    """It can only ever follow. Nothing here may initiate an exit."""
+    engine = FakeEngine(positions=[{"ticket": 555, "magic": 440401, "profit": 1.0}])
+    m = _Mirror4()
+    journal = {"attempts": {"2026-09-13 21:00": _open_record(expires="2099-01-01 00:00:00")}}
+    de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert m.closed == [], "the MT5 leg is open and not expired; the mirror must be untouched"
+
+
+def test_a_non_demo_platform_is_refused():
+    engine, m = FakeEngine(positions=[]), _Mirror4(server="ICMarketsSC-Live02")
+    journal = {"attempts": {"2026-09-13 21:00": _open_record()}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert m.closed == [], "nothing may be closed on a live account"
+    result = [e for e in events if e["event"] == "closed_at_broker"][0]["mirror_closed"][0]
+    assert "not a demo" in result["reason"]
+
+
+def test_an_attempt_with_no_mirror_ticket_closes_nothing():
+    engine, m = FakeEngine(positions=[]), _Mirror4()
+    record = {"status": "open", "ticket": 555, "expires_at": "2026-09-14 12:23:00",
+              "mirror": [{"sent": False, "reason": "second platform not connected"}]}
+    journal = {"attempts": {"2026-09-13 21:00": record}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=m)
+    assert m.closed == []
+    assert [e for e in events if e["event"] == "closed_at_broker"][0]["mirror_closed"] is None
+
+
+def test_a_broken_mirror_never_breaks_the_mt5_bookkeeping():
+    """The MT5 side must still record its close even if the second platform explodes."""
+    engine = FakeEngine(positions=[])
+    journal = {"attempts": {"2026-09-13 21:00": _open_record()}}
+    events = de.sync_positions(engine, _config(), journal, NOW, mirror=_Mirror4(raises=True))
+    assert journal["attempts"]["2026-09-13 21:00"]["status"] == "closed_at_broker"
+    assert [e for e in events if e["event"] == "closed_at_broker"]
+
+
+def test_sync_without_a_mirror_behaves_exactly_as_before():
+    """Every existing caller passes no mirror; that path must be untouched."""
+    engine = FakeEngine(positions=[])
+    journal = {"attempts": {"2026-09-13 21:00": _open_record()}}
+    events = de.sync_positions(engine, _config(), journal, NOW)
+    assert journal["attempts"]["2026-09-13 21:00"]["status"] == "closed_at_broker"
+    assert [e for e in events if e["event"] == "closed_at_broker"][0]["mirror_closed"] is None

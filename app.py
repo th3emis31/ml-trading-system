@@ -24089,7 +24089,12 @@ def demo_model_sync_api():
   with _demo_model_lock:
     config = demo_executor.load_config(config_path)
     journal = demo_executor.load_journal(journal_path)
-    events = demo_executor.sync_positions(MT5_ENGINE, config, journal)
+    # The same mirror the open path uses. Without it the MT4 leg is opened and then abandoned: position
+    # sync, the time exit and the one-position rule all run against MT5 only, so an MT5 time exit left a
+    # live MT4 position with nothing managing it. close_mirror only ever runs AFTER the MT5 leg has
+    # gone, so it follows an exit and can never make one.
+    sync_mirror = MT4_ENGINES if config.get('mirror_mt4') else None
+    events = demo_executor.sync_positions(MT5_ENGINE, config, journal, mirror=sync_mirror)
     demo_executor.save_journal(journal, journal_path)
   return jsonify({'events': events})
 

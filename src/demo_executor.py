@@ -304,7 +304,63 @@ def mirror_order(mirror, request: dict) -> Optional[dict]:
         return {"sent": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
-def sync_positions(engine, config: dict, journal: dict, now=None) -> list[dict]:
+def mirror_tickets(record: dict) -> list[int]:
+    """The MT4 tickets this attempt opened, read out of the journal entry it wrote."""
+    mirror = record.get("mirror")
+    mirror = mirror if isinstance(mirror, list) else [mirror]
+    return [int(leg["ticket"]) for leg in mirror
+            if isinstance(leg, dict) and leg.get("executed") and leg.get("ticket")]
+
+
+def close_mirror(mirror, record: dict, symbol: str, why: str) -> Optional[list]:
+    """Close the MT4 leg because its MT5 twin has ALREADY closed. It can never exit first.
+
+    The gap this closes: the executor mirrors every order onto MT4, but position sync, the time exit
+    and the one-position rule all run against MT5 only. So an MT5 time exit left a live MT4 position
+    with nothing managing it, and the two legs could end days apart.
+
+    This is not closing a trade by hand, which the owner has ruled out. It is completing an exit the
+    strategy has already taken: it is only ever called once the MT5 position is gone, and it closes
+    only the ticket this attempt's own journal entry records opening. It cannot initiate an exit,
+    cannot touch another expert's order, and cannot close anything on a non-demo account.
+    """
+    tickets = mirror_tickets(record)
+    if mirror is None or not tickets:
+        return None
+    legs = mirror if isinstance(mirror, (list, tuple)) else [mirror]
+    out = []
+    for ticket in tickets:
+        done = False
+        for one in legs:
+            try:
+                status = one.status() or {}
+                if not bool(status.get("connected")):
+                    continue
+                server = str(status.get("server") or "")
+                if "demo" not in server.lower():
+                    out.append({"ticket": ticket, "closed": False,
+                                "reason": f"refused: '{server or 'unknown server'}' is not a demo account"})
+                    done = True
+                    break
+                result = one.close_ticket(ticket, expect_symbol=symbol) or {}
+                if result.get("ok") or result.get("already_closed"):
+                    out.append({"ticket": ticket, "closed": bool(result.get("closed")),
+                                "already_closed": bool(result.get("already_closed")),
+                                "server": server, "pnl": result.get("pnl"),
+                                "why": why, "message": result.get("message")})
+                    done = True
+                    break
+            except Exception as exc:      # a second broker must never cost the first its bookkeeping
+                out.append({"ticket": ticket, "closed": False,
+                            "reason": f"{type(exc).__name__}: {exc}"})
+                done = True
+                break
+        if not done:
+            out.append({"ticket": ticket, "closed": False, "reason": "no connected demo platform held it"})
+    return out or None
+
+
+def sync_positions(engine, config: dict, journal: dict, now=None, mirror=None) -> list[dict]:
     """Mark positions the broker closed (stop/target) and close positions that reached the time limit."""
     now = pd.Timestamp(now) if now is not None else pd.Timestamp(datetime.now(timezone.utc))
     events = []
@@ -328,14 +384,28 @@ def sync_positions(engine, config: dict, journal: dict, now=None) -> list[dict]:
         position = live.get(ticket)
         if position is None:
             record["status"] = "closed_at_broker"
+            # The MT5 leg is already gone, so the mirror is now following an exit, never making one.
+            mirror_result = close_mirror(mirror, record, str(config["symbol"]).upper(),
+                                         "MT5 leg closed at the broker")
+            if mirror_result:
+                record["mirror_closed"] = mirror_result
             events.append(_event(journal, now, "closed_at_broker", signal_bar=bar, ticket=ticket,
-                                 reason="position no longer open (stop or target hit, or closed by hand)"))
+                                 reason="position no longer open (stop or target hit, or closed by hand)",
+                                 mirror_closed=mirror_result))
             continue
         if now < pd.Timestamp(record["expires_at"], tz="UTC"):
             continue
         result = engine.close_position(ticket, comment="GOLD4H time limit") or {}
+        mirror_result = None
         if result.get("executed"):
             record["status"] = "closed_time_limit"
+            # Only after MT5 actually closed. A failed MT5 close must not orphan the MT4 leg the
+            # other way round, leaving one platform flat and the other still running.
+            mirror_result = close_mirror(mirror, record, str(config["symbol"]).upper(),
+                                         "MT5 leg hit the time limit")
+            if mirror_result:
+                record["mirror_closed"] = mirror_result
         events.append(_event(journal, now, "closed_time_limit" if result.get("executed") else "close_failed",
-                             signal_bar=bar, ticket=ticket, profit=position.get("profit"), reason=result.get("message")))
+                             signal_bar=bar, ticket=ticket, profit=position.get("profit"),
+                             reason=result.get("message"), mirror_closed=mirror_result))
     return events
