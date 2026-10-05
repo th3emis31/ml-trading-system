@@ -58,7 +58,17 @@ WARMUP_BARS = 300
 SEARCH_FRACTION, VALIDATION_FRACTION = 0.6, 0.2
 GATES = {"search_min_trades": 30, "validation_min_trades": 15, "min_profit_factor": 1.1, "min_year_share": 0.6,
          "min_trades_per_counted_year": 5}
-HOLDOUT_CRITERIA = {"min_profit_factor": 1.2, "min_trades": 30, "max_drawdown_pct": 20.0, "min_deflated_sharpe": 0.95}
+HOLDOUT_CRITERIA = {
+    "min_profit_factor": 1.2, "min_trades": 30, "max_drawdown_pct": 20.0, "min_deflated_sharpe": 0.95,
+    # THE STANDING CONTROL, added 5 October 2026. `buy_and_hold_pct` has been recorded on every split
+    # since the beginning and nothing ever read it. Measured that day: the single best candidate out of
+    # 754,597 - the only one ever to approach the bar - returned 42.03% on its holdout while holding
+    # gold returned 65.98%, and it lost to buy-and-hold on ALL THREE splits. It was riding a bull
+    # market, not finding an edge. This gates PROMOTION only; nothing about evaluation, scoring,
+    # ranking or learning changes.
+    "require_beating_buy_and_hold": True,
+    "benchmark_margin_pct": 0.0,     # beating it is enough; no extra hurdle is invented
+}
 # expectancy_r is the after-cost R; avg_r beside it is the gross one, kept so the cost of a strategy in R is
 # visible rather than hidden. Read expectancy_r when judging a candidate.
 SUMMARY_KEYS = ("trades", "long_trades", "short_trades", "win_rate_pct", "profit_factor", "expectancy_pct",
@@ -953,11 +963,37 @@ def print_variant_table(report: dict, *, title: str, sort: str = "net", limit: i
         print(f"  passed the holdout bar: {market.get('passed_holdout') or 'none'}")
 
 
+def passive_benchmark(spec: dict, summary: dict) -> Optional[float]:
+    """The passive alternative this candidate has to beat, in its OWN direction.
+
+    `summary["buy_and_hold_pct"]` has been recorded on every split since the beginning and nothing has
+    ever read it. On 5 October 2026 that was measured: the single best candidate out of 754,597 - the
+    only one ever to get near the bar - returned 42.03% on its holdout while simply holding gold
+    returned 65.98%, and it lost to buy-and-hold on ALL THREE splits (19.7 vs 99.7, 12.5 vs 43.2,
+    42.0 vs 66.0). It was not finding an edge; it was riding a bull market and charging 52 round trips
+    for a fraction of it. BASELINE.md already records the same trap on 19 September.
+
+    Direction matters, or the test is unfair to exactly the candidates worth finding:
+      * long  -> the passive alternative is buy and hold;
+      * short -> it is hold-short, which is the negative of the same number. A short that makes +10%
+        while gold rises 66% has beaten its own passive alternative by a mile, and demanding it beat
+        +66% would reject every short strategy on a rising instrument by construction.
+      * both  -> buy and hold. Using max(bh, -bh) would be a hindsight benchmark: nobody knew which
+        way to hold in advance.
+    """
+    value = summary.get("buy_and_hold_pct")
+    if value is None:
+        return None
+    side = str(((spec or {}).get("params") or {}).get("side") or "long").lower()
+    return -float(value) if side == "short" else float(value)
+
+
 def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional[dict]:
     holdout = record.get("holdout")
     if not holdout:
         return None
     dsr = deflated_sharpe(np.asarray(record.get("holdout_returns") or [], dtype=float) / 100.0, n_trials, sr_variance)
+    benchmark = passive_benchmark(record.get("spec") or {}, holdout)
     checks = {
         "profit_factor": _profit_factor(holdout) >= HOLDOUT_CRITERIA["min_profit_factor"],
         "trades": (holdout.get("trades") or 0) >= HOLDOUT_CRITERIA["min_trades"],
@@ -965,6 +1001,16 @@ def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional
         <= HOLDOUT_CRITERIA["max_drawdown_pct"],
         "positive_return": (holdout.get("total_return_pct") or -1) > 0,
         "deflated_sharpe": dsr is not None and dsr >= HOLDOUT_CRITERIA["min_deflated_sharpe"],
+        # THE STANDING CONTROL. A strategy that cannot beat holding the instrument has not found an
+        # edge in it, however good its profit factor looks. This gates MONEY, not learning: the
+        # candidate is still evaluated, scored, stored, ranked and available to the research loop
+        # exactly as before. Only promotion is refused. A missing benchmark fails closed, because
+        # promotion needs evidence and an unverifiable control is not evidence.
+        "beats_buy_and_hold": (
+            benchmark is not None
+            and (holdout.get("total_return_pct") is not None)
+            and float(holdout["total_return_pct"]) > benchmark + HOLDOUT_CRITERIA["benchmark_margin_pct"]
+        ) if HOLDOUT_CRITERIA["require_beating_buy_and_hold"] else True,
     }
     # summarize_trades returns numpy floats, so comparisons give numpy bools that JSON cannot encode.
     checks = {name: bool(value) for name, value in checks.items()}
@@ -976,6 +1022,10 @@ def holdout_verdict(record: dict, n_trials: int, sr_variance: float) -> Optional
     target = sharpe_target(n_trials, sr_variance)
     achieved = per_trade_sharpe(record.get("holdout_returns") or [])
     return {"passed": all(checks.values()), "checks": checks, "deflated_sharpe": dsr, "n_trials": int(n_trials),
+            "passive_benchmark_pct": benchmark,
+            "beat_benchmark_by_pct": (round(float(holdout["total_return_pct"]) - benchmark, 3)
+                                      if benchmark is not None and holdout.get("total_return_pct") is not None
+                                      else None),
             "per_trade_sharpe": achieved, "per_trade_sharpe_needed": target,
             "shortfall": (round(target - achieved, 4) if achieved is not None and target is not None else None),
             "deflation_note": _deflation_note(achieved, target, dsr),

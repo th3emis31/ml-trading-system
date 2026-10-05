@@ -2148,3 +2148,48 @@ size above `max_lot` is refused rather than cut.
 Regression: only `test_engine_package`, `test_risk_engine` and `test_signal_engine` touch the changed
 modules, and nothing in `src/`, `app.py` or `trading/` imports them - the `engine/` package is
 self-contained. 169 tests pass across it. No strategy file was touched.
+
+## 2026-10-05 — the best candidate of 754,597, and the control that was always there
+
+**Pre-flight.** XAUUSD 4h, bars `app(cache 20261005_1200)` from the broker feed, cost 0.000115 round
+trip (spread + swap), holdout 2024-08-30 to 2026-10-05 (3,236 bars) never seen by selection, the lab's
+own boundaries, controls run before any claim.
+
+**The search to date.** 754,597 candidates evaluated across 8 markets, 81,570 past validation,
+**0 past the locked holdout, ever**. Forward record: 533 strategies with trades, **0 positive**, and
+the reported 1,822 forward trades are **187 distinct** — a 9.7x duplication from near-identical
+strategies taking the same trade.
+
+**The best candidate the lab has ever produced**, XAUUSD:4h, archived as outside the top 10 watchlist:
+
+`donchian_breakout, long, close beyond 100-bar high/low, EMA100 trend filter | stop swing(5) − 1.0 ATR, 1.5R target, trail 3.5 ATR, max 12 bars`
+
+| split | trades | PF | return | buy and hold |
+|---|---:|---:|---:|---:|
+| search | 107 | 1.297 | +19.70% | **+99.74%** |
+| validation | 44 | 1.858 | +12.49% | **+43.16%** |
+| holdout | 52 | 2.828 | +42.03% | **+65.98%** |
+
+Per-trade Sharpe 0.3874 against the 0.331 that 90,231 trials demand, max drawdown 4.70%, 19.3% time in
+market. **It loses to simply holding gold on all three splits.** The inverse is a real control, not a
+free pass: 18 trades, PF 0.759, −4.47%.
+
+**REJECTED, and the reason is the finding.** It is a beta rider: it captures part of a bull market and
+charges 52 round trips for a fraction of it. The identical trap is recorded on 19 September. The
+deflated Sharpe was not being unfair to a good strategy — it was correctly refusing this.
+
+**A cost diagnostic, labelled and not a result.** 59 book strategies re-scored on the same bars and
+splits with cost set to zero: **0 passed with costs, 0 passed without**, median profit factor moved by
+about 0.04, and all 59 failed on the same gate. Cost is not the binding constraint. Nothing may ever be
+promoted on the zero-cost column.
+
+**What changed.** `buy_and_hold_pct` had been recorded on every split from the beginning and nothing
+had ever read it. It is now a promotion criterion (`require_beating_buy_and_hold`), measured in the
+candidate's own direction so a short is judged against holding short rather than against a rising
+market. It gates money only: the search and validation gates are byte-identical and a refused candidate
+is still validated, scored, ranked and learned from. The 0.95 bar is unchanged.
+
+**The open question.** Every family is long-biased in practice — the book holds 909 long XAUUSD entries
+against 1 short, not because the generator excludes shorts (`SIDES = long/short/both`) but because
+longs out-score them in-sample on a rising instrument. The owner's own manual record is the opposite:
+51 SELL gold at a 70.6% win rate while gold rose 9%. Short gold has never been searched on its merits.
