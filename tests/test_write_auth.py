@@ -17,7 +17,7 @@ from src import execution_guard
 
 # The list the owner approved, in their order. A route added to SECRET_GUARDED_ENDPOINTS without a
 # decorator, or decorated without being listed, is the failure this pair of assertions catches.
-NINE = (
+GUARDED = (
     "/api/jarvis-command",
     "/api/quality-retrain",
     "/api/auto-trade/approve",
@@ -27,6 +27,13 @@ NINE = (
     "/api/brain/think-and-plan",
     "/api/screenshot-learn",
     "/api/strategy-lab/run",
+    # Added 5 October 2026. The loopback premise above stopped holding: start_trading.bat:51 sets
+    # SMARTENTRY_BIND=0.0.0.0 and cloudflared was not running, so the whole LAN reached every endpoint
+    # unauthenticated. These two complete the chain to a live order - start-session arms the mode the
+    # execute core reads, autonomy-control sets auto_execute true, and the boot-time autonomy loop
+    # then calls the order core on its own timer.
+    "/api/jarvis/autonomy-control",
+    "/api/auto-trade/start-session",
 )
 
 
@@ -41,25 +48,56 @@ def guarded_client(tmp_path, monkeypatch):
     return app_module.app.test_client()
 
 
-@pytest.mark.parametrize("path", NINE)
+@pytest.mark.parametrize("path", GUARDED)
 def test_every_guarded_endpoint_refuses_a_request_with_no_secret(guarded_client, path):
     """Loopback is not a pass. The test client's requests come from 127.0.0.1 and must still be refused."""
     response = guarded_client.post(path, json={})
     assert response.status_code == 403, f"{path} answered {response.status_code} without the secret"
 
 
-@pytest.mark.parametrize("path", NINE)
+@pytest.mark.parametrize("path", GUARDED)
 def test_every_guarded_endpoint_refuses_a_wrong_secret(guarded_client, path):
     response = guarded_client.post(path, json={}, headers={execution_guard.SECRET_HEADER: "not-the-secret"})
     assert response.status_code == 403, f"{path} answered {response.status_code} for a wrong secret"
 
 
 def test_the_approved_list_matches_the_endpoints_that_are_guarded():
-    assert set(app_module.SECRET_GUARDED_ENDPOINTS) == set(NINE)
+    assert set(app_module.SECRET_GUARDED_ENDPOINTS) == set(GUARDED)
+
+
+def test_the_loopback_assumption_is_either_true_or_compensated_for():
+    """This exists because the test below was toothless, and an audit caught it on 5 October 2026.
+
+    That test reads app.py's SOURCE, so it passed happily while the server was actually serving
+    0.0.0.0 to the whole LAN: the override lives in start_trading.bat, which it never opens. A guard
+    that cannot see the thing that disables it is not a guard.
+
+    The invariant here is deliberately CONDITIONAL, and deliberately not "the launcher must bind
+    loopback". Where the dashboard is reachable from is the owner's decision - he added that line
+    himself after a loopback bind cut his phone off. What is not negotiable is that WHEN the server is
+    exposed past loopback, every endpoint on the chain to a live order is guarded.
+    """
+    launcher = Path(app_module.__file__).resolve().parent / "start_trading.bat"
+    if not launcher.exists():
+        pytest.skip("no launcher on this machine")
+    bind = re.search(r"^[ \t]*set[ \t]+SMARTENTRY_BIND[ \t]*=[ \t]*(\S+)",
+                     launcher.read_text(encoding="utf-8"), re.MULTILINE | re.IGNORECASE)
+    if not bind or bind.group(1).strip() == "127.0.0.1":
+        return                      # loopback: the original design holds and nothing more is needed
+    for route in ("/api/jarvis/autonomy-control", "/api/auto-trade/start-session",
+                  "/api/auto-trade/execute", "/api/auto-trade/approve"):
+        assert route in app_module.SECRET_GUARDED_ENDPOINTS, (
+            f"the launcher binds {bind.group(1).strip()}, so the server is reachable beyond this "
+            f"machine and {route} MUST be guarded: it is on the chain from an unauthenticated POST "
+            f"to a real order")
 
 
 def test_the_server_binds_to_loopback_by_default():
-    """A regression to host='0.0.0.0' would re-expose the 94 write endpoints that are NOT on the list."""
+    """A regression to host='0.0.0.0' IN THE CODE would re-expose every endpoint not on the list.
+
+    Note what this does NOT see: the SMARTENTRY_BIND override in start_trading.bat. That is what
+    test_the_loopback_assumption_is_either_true_or_compensated_for above is for.
+    """
     source = Path(app_module.__file__).read_text(encoding="utf-8")
     run_call = source.split("if __name__ == '__main__':", 1)[1]
     assert "app.run(" in run_call
@@ -85,7 +123,7 @@ def test_every_dashboard_caller_of_a_guarded_endpoint_sends_the_header():
     helper_prefixes = tuple(re.findall(r"'([^']+)'", helper.group(1)))
 
     unprotected = []
-    for path in NINE:
+    for path in GUARDED:
         for match in re.finditer(r"(fetchJson|fetch)\(\s*'" + re.escape(path) + r"'", source):
             if match.group(1) == "fetchJson" and path.startswith(helper_prefixes):
                 continue  # the helper attaches the header for this prefix

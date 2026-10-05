@@ -123,6 +123,14 @@ SECRET_GUARDED_ENDPOINTS = (
   '/api/brain/think-and-plan',
   '/api/screenshot-learn',
   '/api/strategy-lab/run',
+  # Added 5 October 2026. The paragraph above says the list is short because "the server binds to the
+  # loopback interface ... and the Cloudflare tunnel puts Cloudflare Access in front". That premise is
+  # no longer true: start_trading.bat sets SMARTENTRY_BIND=0.0.0.0 and cloudflared is not running, so
+  # the whole LAN reaches every endpoint directly. These two are the chain that turns that into real
+  # orders - autonomy-control sets auto_execute true, and start-session arms the mode the execute core
+  # reads - so they are guarded regardless of where the request came from.
+  '/api/jarvis/autonomy-control',
+  '/api/auto-trade/start-session',
 )
 
 
@@ -13721,7 +13729,11 @@ AUTO_TRADER_TEMPLATE = """
       const opts = Object.assign({}, options || {});
       // Both guarded auto-trade endpoints, not just execute: /approve is on the secret-guarded list too,
       // and attaching the header only to execute is what would leave the Approve buttons returning 403.
-      const GUARDED = ['/api/auto-trade/execute', '/api/auto-trade/approve'];
+      // start-session is here because it ARMS a mode the execute core then reads: a session started as
+      // 'mt5_live' is what turns the autonomy loop's orders into real ones. It was unguarded while the
+      // server was reachable from the whole LAN, so this page must now prove it holds the secret like
+      // the other two.
+      const GUARDED = ['/api/auto-trade/execute', '/api/auto-trade/approve', '/api/auto-trade/start-session'];
       if (GUARDED.some((p) => String(path).indexOf(p) === 0) && SMARTENTRY_CONTROL_SECRET) {
         opts.headers = Object.assign({}, opts.headers || {}, { 'X-Control-Secret': SMARTENTRY_CONTROL_SECRET });
       }
@@ -16967,6 +16979,7 @@ def auto_trade_settings_api():
 
 
 @app.route('/api/auto-trade/start-session', methods=['POST'])
+@require_control_secret
 def auto_trade_start_session_api():
   payload = request.get_json(silent=True) or request.form.to_dict() or {}
   platform = str(payload.get('platform', 'mt5') or 'mt5').strip().lower()
@@ -28001,6 +28014,7 @@ def jarvis_autonomy_report_api():
 
 
 @app.route('/api/jarvis/autonomy-control', methods=['POST'])
+@require_control_secret
 def jarvis_autonomy_control_api():
   payload = request.get_json(silent=True) or {}
   command = str(payload.get('command') or '').strip().lower()
