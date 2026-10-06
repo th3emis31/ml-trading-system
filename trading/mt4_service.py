@@ -73,17 +73,31 @@ class MT4Service:
             return False
     
     def _close_sockets(self):
-        for attr in ('cmd_socket', 'resp_socket'):
-            if hasattr(self, attr):
+        """Tear down the socket pair and its context, never while another thread is using them.
+
+        This lock is the other half of the race that killed the live app at 10:28 on
+        6 October 2026 with "Resource temporarily unavailable (ctx.cpp:185)" - a libzmq
+        errno_assert, which aborts the PROCESS rather than raising. _send_command already
+        holds _io_lock while blocked in recv; terminating the context underneath it from a
+        second thread is exactly what libzmq answers with that abort, and it takes the whole
+        trading app down, not just the MT4 call.
+
+        The window is widest precisely when the bridge is unreachable: every probe then sits
+        here for the full receive timeout across four port sets instead of microseconds, which
+        is why the crashes cluster on days the bridge is down.
+        """
+        with self._io_lock:
+            for attr in ('cmd_socket', 'resp_socket'):
+                if hasattr(self, attr):
+                    try:
+                        getattr(self, attr).close()
+                    except Exception:
+                        pass
+            if hasattr(self, 'context'):
                 try:
-                    getattr(self, attr).close()
+                    self.context.term()
                 except Exception:
                     pass
-        if hasattr(self, 'context'):
-            try:
-                self.context.term()
-            except Exception:
-                pass
 
     def _try_port(self, command_port: int) -> bool:
         """Open sockets against one port set and heartbeat it.
@@ -169,17 +183,22 @@ class MT4Service:
         if not self.available:
             return False
         errors = []
-        for candidate in self._scan_order():
-            try:
-                if self._try_port(candidate):
-                    logger.info(
-                        "MT4 bridge connected on port %s (account %s)",
-                        candidate, self.account_number,
-                    )
-                    return True
-                errors.append(f"{candidate}: {self._last_error}")
-            except Exception as exc:
-                errors.append(f"{candidate}: {exc}")
+        # The whole scan is one critical section. Holding the lock only inside each
+        # _try_port would still let a second thread start its own scan between two port
+        # attempts and reassign cmd_socket/resp_socket under the first one. _io_lock is an
+        # RLock, so the nested acquisitions in _close_sockets and _send_command are fine.
+        with self._io_lock:
+            for candidate in self._scan_order():
+                try:
+                    if self._try_port(candidate):
+                        logger.info(
+                            "MT4 bridge connected on port %s (account %s)",
+                            candidate, self.account_number,
+                        )
+                        return True
+                    errors.append(f"{candidate}: {self._last_error}")
+                except Exception as exc:
+                    errors.append(f"{candidate}: {exc}")
         self._last_error = "; ".join(errors) if errors else "no bridge found"
         logger.warning("MT4 bridge not found. Tried %s", self._last_error)
         return False
@@ -840,15 +859,28 @@ class MT4Service:
             }
     
     def close(self):
-        """Close MT4 connection."""
+        """Close MT4 connection.
+
+        Guarded for the same reason as _close_sockets, and more urgently: __del__ calls this,
+        and __del__ runs on whatever thread happens to trigger the collection. An unguarded
+        context.term() from the garbage collector while a request thread is inside recv is the
+        same libzmq abort, arriving at a moment nothing in the code chose.
+
+        _io_lock is looked up defensively because __del__ can also fire on an object whose
+        __init__ raised partway, where the attribute may not exist yet.
+        """
+        lock = getattr(self, '_io_lock', None)
+        if lock is None:
+            return
         try:
-            if hasattr(self, 'cmd_socket'):
-                self.cmd_socket.close()
-            if hasattr(self, 'resp_socket'):
-                self.resp_socket.close()
-            if hasattr(self, 'context'):
-                self.context.term()
-            self.connected = False
+            with lock:
+                if hasattr(self, 'cmd_socket'):
+                    self.cmd_socket.close()
+                if hasattr(self, 'resp_socket'):
+                    self.resp_socket.close()
+                if hasattr(self, 'context'):
+                    self.context.term()
+                self.connected = False
         except:
             pass
     
