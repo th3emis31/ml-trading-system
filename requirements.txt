@@ -7,3 +7,4 @@ yfinance==0.2.32
 Pillow==10.4.0
 pytesseract==0.3.10
 gunicorn==23.0.0
+arch>=8.0  # Hansen SPA / StepM data-snooping tests (src/snooping_test.py); optional, degrades to a status
