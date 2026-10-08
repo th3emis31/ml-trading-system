@@ -1324,6 +1324,47 @@ def _markets_block(path: Path) -> dict:
                 return {}
 
 
+def market_meta_mismatches(path: Optional[Path] = None, meta_path: Optional[Path] = None) -> list[dict]:
+    """Every market where the cached sidecar disagrees with the registry it claims to describe.
+
+    The sidecar decides each market's split boundaries, so a wrong one silently moves the holdout. On
+    8 October 2026 it claimed a holdout starting 2022-02-15 while the registry said 2024-08-30: an
+    extra 2.5 years of bars that selection had already seen, counted as out-of-sample. Nothing
+    detected it, and a whole afternoon of survey numbers was measured that way.
+
+    Reads the registry's `markets` block only, so it costs a few seconds rather than parsing 617 MB.
+    Returns [] when they agree, including when there is no sidecar yet - absent is not wrong.
+    """
+    registry_path = Path(path or REGISTRY_PATH)
+    cache_path = Path(meta_path) if meta_path else _meta_path_for(registry_path)
+    if not registry_path.exists() or not cache_path.exists():
+        return []
+    try:
+        cached = (json.loads(cache_path.read_text(encoding="utf-8")) or {}).get("markets") or {}
+    except Exception:
+        return [{"market": "(whole file)", "field": "sidecar", "cached": "unreadable", "registry": "-"}]
+    truth = _markets_block(registry_path)
+    if not truth:
+        return []          # cannot read the registry cheaply; say nothing rather than guess
+    out = []
+    for market, actual in truth.items():
+        if not isinstance(actual, dict):
+            continue
+        row = cached.get(market)
+        if not isinstance(row, dict):
+            out.append({"market": market, "field": "missing", "cached": None,
+                        "registry": (actual.get("boundaries") or {}).get("holdout_start")})
+            continue
+        for field in ("boundaries", "candidates_tried"):
+            if row.get(field) != actual.get(field):
+                out.append({"market": market, "field": field,
+                            "cached": row.get(field), "registry": actual.get(field)})
+    for market in cached:
+        if market not in truth:
+            out.append({"market": market, "field": "not in registry", "cached": "present", "registry": None})
+    return out
+
+
 def market_meta(path: Optional[Path] = None, meta_path: Optional[Path] = None) -> dict:
     """Per-market ``boundaries`` and ``candidates_tried``, without parsing the whole registry.
 

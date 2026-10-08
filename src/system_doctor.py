@@ -604,6 +604,41 @@ def check_job_outputs(now: Optional[float] = None, watched=WATCHED_OUTPUTS) -> d
                    f"All {len(rows)} watched jobs are still writing their output on time.", **detail)
 
 
+def check_split_boundaries() -> dict:
+    """The cached split boundaries must match the registry, or every measurement is against the wrong
+    holdout.
+
+    data/strategy_lab/market_meta.json decides where each market's search, validation and holdout
+    windows begin. On 8 October 2026 it claimed a holdout starting 2022-02-15 while the registry said
+    2024-08-30 - an extra 2.5 years of bars that selection had already seen, counted as out-of-sample.
+    Every number measured in that window was against something that was not a holdout, and nothing
+    detected it. The survey reported a candidate at 81 trades and PF 1.41 where the real boundaries
+    give 41 and 1.482.
+
+    This is the cheapest possible guard: it reads the registry's markets block only, not the 617 MB of
+    candidate history, and it never writes.
+    """
+    try:
+        from . import strategy_lab as lab
+    except Exception as exc:                 # noqa: BLE001
+        return _result("Split boundaries", "research", "info", f"The lab could not be imported: {exc}")
+    try:
+        rows = lab.market_meta_mismatches()
+    except Exception as exc:                 # noqa: BLE001
+        return _result("Split boundaries", "research", "warn",
+                       f"The boundary check could not run: {type(exc).__name__}: {exc}")
+    if not rows:
+        return _result("Split boundaries", "research", "ok",
+                       "Every market's cached split boundaries match the registry.")
+    worst = "; ".join(f"{r['market']} {r['field']}: cached {r['cached']} vs registry {r['registry']}"
+                      for r in rows[:4])
+    return _result("Split boundaries", "research", "fail",
+                   "The cached split boundaries DISAGREE with the registry, so measurements are being "
+                   "taken against the wrong holdout: " + worst,
+                   mismatches=rows,
+                   fix="delete data/strategy_lab/market_meta.json; the next read rebuilds it")
+
+
 # How long a whole-system survey may sit before it stops describing the system it claims to survey.
 SURVEY_MAX_AGE_DAYS = 14
 
@@ -1192,7 +1227,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_strategy_families, check_ai_employee, check_scheduled_tasks, check_job_outputs,
+               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_strategy_families, check_split_boundaries, check_ai_employee, check_scheduled_tasks, check_job_outputs,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
