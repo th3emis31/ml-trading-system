@@ -340,10 +340,13 @@ WATCHLIST = (
                   "side is the one currently blocked: SwingTrendPullback is pinned to side='long' and "
                   "discarded 18 short setups in ten days. Two warnings travel with it. 41 trades is "
                   "above the 30 minimum but far below 100, and the expectancy is small at +0.03 R, so "
-                  "costs and slippage matter more here than for any other candidate. The survey reported "
-                  "81 trades at PF 1.41 for this variant and that does NOT reproduce: the survey forces "
-                  "a direction by zeroing signals after the builder runs, which changes which trades a "
-                  "one-position-at-a-time engine takes. The figures above are the reproducible ones"},
+                  "costs and slippage matter more here than for any other candidate. CORRECTION, same "
+                  "day: an earlier version of this note claimed the survey's 81 trades at PF 1.41 did "
+                  "not reproduce because forcing a side post-hoc differs from params['side']. That was "
+                  "wrong - the two are identical, because strategy_orders already applies params['side'] "
+                  "to registered builders. The 81 came from a period when the cached split boundaries "
+                  "disagreed with the registry and the holdout was 2.5 years too long. On the real "
+                  "boundaries both routes give the 41 trades and PF 1.482 recorded above"},
     {"key": "crt_displacement_xauusd_4h",
      "state": "strategy_lab/forward_crt_displacement_xau_4h.json",
      # Measured from the engine's per-trade net_r. Discounted to a quarter like the others: 16 variants
