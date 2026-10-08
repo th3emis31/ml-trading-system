@@ -164,6 +164,31 @@ CANDIDATES["crt_displacement_xau_4h"] = {
     "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
     "state": lab.LAB_DIR / "forward_crt_displacement_xau_4h.json"}
 
+# Added 8 October 2026. The owner's reclaim rule on BITCOIN, which is the evidence that it is not a gold
+# artefact: the same `ref` 1 and `rr` 3 his wording implies, on a different instrument, with the trend
+# filter OFF rather than on. It passes every holdout check except the deflated Sharpe, including
+# beats_buy_and_hold - bitcoin returned -0.70 % over the same holdout, so +44.14 % is not a bull-market
+# ride. The gold version fails that control; this one does not.
+#
+# Drawdown 19.36 % is inside the 20 % limit but only just, and that is the honest reason to watch it on
+# paper rather than argue about it.
+#
+# NOT promoted. Deflated Sharpe 0.0003 against 0.95. Paper only.
+_RECLAIM_BTC = next(v for v in sweep_reversal.reclaim_variants("BTCUSD", "4h")
+                    if v["variant"] == "reclaim|ref1|rr3|notrend")
+CANDIDATES["reclaim_btc_4h"] = {
+    "spec": {**_RECLAIM_BTC,
+             "description": "4H candle takes out the PREVIOUS candle's low and closes ABOVE its high "
+                            "(mirrored for sells), no trend filter, stop beyond its own swept extreme, "
+                            "target 3 R, BTCUSD 4h (the owner's 26 September rule on a second market) "
+                            "(paper forward test; BASELINE 8 Oct: all three splits positive "
+                            "(+4.01 % / +17.67 % / +44.14 %), 124 holdout trades, PF 1.372, 41.1 % win "
+                            "rate, max drawdown 19.36 %, +0.1746 R after costs with zero ambiguous "
+                            "exits, and it BEATS buy-and-hold (bitcoin -0.70 % over the same holdout); "
+                            "deflated Sharpe 0.0003 against the 0.95 bar, so it is NOT promoted)"},
+    "symbol": "BTCUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_reclaim_btc_4h.json"}
+
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 
 Fetch = Callable[[str, str, int], pd.DataFrame]

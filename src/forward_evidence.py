@@ -361,6 +361,21 @@ WATCHLIST = (
                   "Its splits are the most consistent of the three - 13 / 12 / 28 against the reclaim "
                   "rule's 43 / 13 / 24 - and consistency across windows is what a single lucky regime "
                   "cannot fake. It also trades both directions, which covers the side currently blocked"},
+    {"key": "reclaim_btcusd_4h",
+     "state": "strategy_lab/forward_reclaim_btc_4h.json",
+     "backtest_expectancy_r": 0.1746,
+     "splits_positive": True, "beats_inverse": True, "deflated_sharpe": 0.0003,
+     "label": "Manipulation candle, reclaim, BTCUSD 4H, no trend filter, 3 R target",
+     "evidence": "2026-10-08 BASELINE: positive on all three splits (+4.01 % / +17.67 % / +44.14 %), "
+                 "124 holdout trades, PF 1.372, 41.1 % win rate, max drawdown 19.36 %, +0.1746 R after "
+                 "costs with zero ambiguous exits, beats its own inverse (-29.30 %) AND beats "
+                 "buy-and-hold - bitcoin returned -0.70 % over the same holdout, so this is not a "
+                 "bull-market ride. Deflated Sharpe 0.0003 against 0.95",
+     "why_watch": "the evidence that the owner's rule is not fitted to gold: the same ref 1 and rr 3 his "
+                  "wording implies, on a different instrument, surviving all three splits. It passes "
+                  "every holdout check except the deflated Sharpe, which the gold version does not - the "
+                  "gold version loses to buy-and-hold. Drawdown 19.36 % is inside the 20 % limit but only "
+                  "just, which is the honest reason to watch it on paper rather than argue about it"},
 )
 
 
