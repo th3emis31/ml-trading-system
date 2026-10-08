@@ -1,5 +1,22 @@
 # SmartEntry Map for TradingView
 
+> **TURNED OFF on 8 October 2026, at the owner's request.** The panel is fixed to the top right and
+> covered the price axis and the newest candles on his layout, which is the part of the chart a setup
+> is read from, and across that week it had shown nothing but `NO TRADE` because SwingTrendPullback is
+> pinned to `side="long"` and gold was in a downtrend. A box that hides the chart to report zero is
+> worse than no box.
+>
+> **Nothing is deleted.** `content.js` and `background.js` are untouched and complete. The manifest's
+> `content_scripts` key was renamed to `_disabled_content_scripts_see_README`, so Chrome and Edge
+> inject nothing and no panel or pill is drawn.
+>
+> **To turn it back on:** rename that key back to `content_scripts` in `manifest.json`, then reload the
+> extension at `edge://extensions` and refresh the chart tab.
+>
+> **To make it disappear right now without touching files:** open `edge://extensions` and toggle the
+> extension off, or press Remove. That takes effect immediately. A manifest change only applies after
+> the extension is reloaded, which is why the earlier default-to-hidden change appeared to do nothing.
+
 A small Edge extension that draws the SmartEntry panel on the real TradingView chart: the day's
 plan, how close the checklist is, and every strategy that can place an order right now with what
 each is waiting for and what it has banked.
