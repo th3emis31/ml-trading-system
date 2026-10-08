@@ -604,6 +604,84 @@ def check_job_outputs(now: Optional[float] = None, watched=WATCHED_OUTPUTS) -> d
                    f"All {len(rows)} watched jobs are still writing their output on time.", **detail)
 
 
+# How long a whole-system survey may sit before it stops describing the system it claims to survey.
+SURVEY_MAX_AGE_DAYS = 14
+
+
+def check_strategy_families(lab_dir: Path = ROOT / "data" / "strategy_lab", now: Optional[datetime] = None) -> dict:
+    """A strategy family the survey could not evaluate is a strategy the system does not have.
+
+    WHY THIS EXISTS
+    ---------------
+    `src/direction_sweep.py` surveys every family the system owns, long then short, and records any it
+    could not run in a `failures` list inside its report. On 27 September 2026 that list contained:
+
+        {"family": "sweep_reclaim", "market": "XAUUSD:30m", "error": "no registered builder"}
+
+    `sweep_reclaim` is the owner's own 4H manipulation rule, worded by him on 26 September. The survey
+    that claims to test every strategy skipped it, wrote the reason into a JSON file, and reported
+    success. Nothing read that file for eleven days. The rule was finally measured on 8 October and came
+    out positive on all three splits with the highest after-cost expectancy of any candidate in the book.
+
+    The failure itself is already fixed (direction_sweep now falls back to the family the specs name),
+    but nothing would have told anyone it had happened, and the next silent skip would cost another
+    eleven days. This check reads the failures that are already being written and puts them in front of
+    someone.
+
+    It also watches the survey's AGE. A survey from before a bug fix describes the old code, which is
+    exactly the trap here: the 27 September report still showed the pre-fix error long after the fix
+    landed, and looked like current evidence.
+
+    Read-only, and it never runs a backtest: it reads the reports the sweep already wrote.
+    """
+    moment = now or datetime.now(timezone.utc)
+    reports = sorted(Path(lab_dir).glob("direction_sweep_*.json")) if Path(lab_dir).exists() else []
+    if not reports:
+        return _result("Strategy families", "research", "info",
+                       "No whole-system strategy survey has ever been written "
+                       "(python -m src.direction_sweep run --side long).")
+
+    newest: dict = {}
+    for path in reports:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        side = str(payload.get("side") or path.stem)
+        stamp = path.stat().st_mtime
+        if side not in newest or stamp > newest[side]["mtime"]:
+            newest[side] = {"mtime": stamp, "payload": payload, "path": path}
+    if not newest:
+        return _result("Strategy families", "research", "warn",
+                       f"{len(reports)} survey reports exist but none could be read.")
+
+    problems, detail = [], {"surveys": {}}
+    for side, row in sorted(newest.items()):
+        payload = row["payload"]
+        failures = [f for f in (payload.get("failures") or []) if isinstance(f, dict)]
+        age_days = (moment.timestamp() - row["mtime"]) / 86400.0
+        detail["surveys"][side] = {
+            "file": row["path"].name, "age_days": round(age_days, 1),
+            "variants_tested": payload.get("variants_tested"),
+            "profitable_on_holdout": payload.get("profitable_on_holdout"),
+            "failures": [{"family": f.get("family"), "market": f.get("market"), "error": f.get("error")}
+                         for f in failures],
+        }
+        for f in failures:
+            problems.append(f"{side}: {f.get('family')} on {f.get('market')} could not run ({f.get('error')})")
+        if age_days > SURVEY_MAX_AGE_DAYS:
+            problems.append(f"{side}: the survey is {age_days:.0f} days old, so it describes the code as it "
+                            f"was, not as it is")
+
+    if problems:
+        return _result("Strategy families", "research", "warn",
+                       "The whole-system survey did not cover everything it claims to: "
+                       + "; ".join(problems[:6]), **detail)
+    covered = ", ".join(f"{s} {d['variants_tested']} variants" for s, d in sorted(detail["surveys"].items()))
+    return _result("Strategy families", "research", "ok",
+                   f"Every declared family ran in the latest survey ({covered}).", **detail)
+
+
 def check_data_freshness(get: GetJson = get_json) -> dict:
     code, feed = get("/api/data-feed", 120)
     if code != 200 or not isinstance(feed, dict):
@@ -1114,7 +1192,7 @@ def run_doctor(deep: bool = False, fix: bool = False, get: GetJson = get_json, s
                lambda: check_demo_pullback(ROOT / "data" / "paper_trading" / "demo_volatility_breakout_state.json",
                                            ROOT / "data" / "paper_trading" / "demo_volatility_breakout.json",
                                            label="Demo breakout", task="SmartEntry Demo Breakout"),
-               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_ai_employee, check_scheduled_tasks, check_job_outputs,
+               check_paper_trader, check_atomic_analyst, check_positioning, check_i40_pilot, check_model_drift, check_strategy_lab, check_strategy_families, check_ai_employee, check_scheduled_tasks, check_job_outputs,
                lambda: check_data_freshness(get), check_app_errors, check_resources, check_model_integrity]
     if deep:
         runners += [check_code_compiles, check_tests]
