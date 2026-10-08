@@ -1243,12 +1243,126 @@ def load_registry(path: Optional[Path] = None) -> dict:
     return {"version": 1, "markets": {}, "candidates": {}}
 
 
-def save_registry(registry: dict, path: Optional[Path] = None) -> None:
+MARKET_META_PATH = LAB_DIR / "market_meta.json"
+
+
+def _markets_block(path: Path) -> dict:
+    """Parse ONLY the registry's ``markets`` object, reading as little of the file as possible.
+
+    The registry is written as {"version": .., "markets": {..}, "candidates": {..}} and ``candidates``
+    is essentially all of it. Streaming until the markets object closes reads a few megabytes instead
+    of the whole file.
+
+    Brace depth is tracked with string and escape state so a brace inside a string value cannot end the
+    scan early. If anything about the layout is not what is expected the function gives up and returns
+    an empty dict, and the caller falls back to the slow path rather than inventing boundaries.
+    """
+    with path.open("r", encoding="utf-8") as handle:
+        prefix = handle.read(1 << 16)
+        marker = prefix.find('"markets"')
+        if marker < 0:
+            return {}
+        start = prefix.find("{", marker + len('"markets"'))
+        if start < 0:
+            return {}
+        chunk, depth, in_string, escaped = prefix[start:], 0, False, False
+        out: list[str] = []
+        while True:
+            for ch in chunk:
+                out.append(ch)
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads("".join(out))
+                        except Exception:
+                            return {}
+            chunk = handle.read(1 << 20)
+            if not chunk:
+                return {}
+
+
+def market_meta(path: Optional[Path] = None, meta_path: Optional[Path] = None) -> dict:
+    """Per-market ``boundaries`` and ``candidates_tried``, without parsing the whole registry.
+
+    WHY THIS EXISTS
+    ---------------
+    ``direction_sweep.evaluate_family`` called ``load_registry()`` to read one thing: the two
+    timestamps in ``registry["markets"][key]["boundaries"]``. It is called once per family, so a
+    survey of a dozen families parsed a 617 MB JSON a dozen times. Each parse holds the file as a
+    string and then as Python objects, several gigabytes at a time, and on 8 October 2026 that killed
+    the whole-system survey twice on a 7.5 GB machine - once at full scope and again narrowed to a
+    single symbol and timeframe. The lab could no longer survey its own strategies.
+
+    The split date boundaries are a few dozen bytes. This keeps them in a small sidecar file that is
+    rewritten whenever the registry is saved, so the expensive path runs at most once and usually never.
+
+    Falls back to the full registry only if both the sidecar and the streamed read fail, so a missing
+    or malformed cache costs speed and never correctness.
+    """
+    registry_path = Path(path or REGISTRY_PATH)
+    cache_path = Path(meta_path or MARKET_META_PATH)
+    try:
+        if cache_path.exists() and (not registry_path.exists()
+                                    or cache_path.stat().st_mtime >= registry_path.stat().st_mtime):
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and isinstance(cached.get("markets"), dict):
+                return cached["markets"]
+    except Exception:
+        pass
+
+    if not registry_path.exists():
+        return {}
+
+    markets = _markets_block(registry_path)
+    if not markets:
+        markets = (load_registry(registry_path).get("markets") or {})   # slow, correct, last resort
+    trimmed = {key: {"boundaries": (value or {}).get("boundaries"),
+                     "candidates_tried": (value or {}).get("candidates_tried")}
+               for key, value in markets.items() if isinstance(value, dict)}
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"markets": trimmed}, default=str), encoding="utf-8")
+        os.replace(tmp, cache_path)
+    except Exception:
+        pass        # a cache that cannot be written is a speed problem, never a correctness one
+    return trimmed
+
+
+def save_registry(registry: dict, path: Optional[Path] = None, meta_path: Optional[Path] = None) -> None:
     path = Path(path or REGISTRY_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(registry, default=str), encoding="utf-8")
     os.replace(tmp, path)
+    # Refresh the small sidecar market_meta() reads, so the expensive streamed read of a 617 MB file
+    # happens at most once and normally never. Written AFTER the registry so its mtime is never older,
+    # which is the staleness test market_meta uses. A failure here only costs speed.
+    try:
+        cache_path = Path(meta_path or MARKET_META_PATH)
+        trimmed = {key: {"boundaries": (value or {}).get("boundaries"),
+                         "candidates_tried": (value or {}).get("candidates_tried")}
+                   for key, value in (registry.get("markets") or {}).items() if isinstance(value, dict)}
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_tmp = cache_path.with_suffix(".tmp")
+        cache_tmp.write_text(json.dumps({"markets": trimmed}, default=str), encoding="utf-8")
+        os.replace(cache_tmp, cache_path)
+    except Exception:
+        pass
 
 
 def read_status(path: Optional[Path] = None) -> dict:

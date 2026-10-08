@@ -93,14 +93,19 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
     """Every declared variant of one family, on one market and timeframe, on one side only."""
     from .mtf_data import load_bars
 
-    registry = lab.load_registry()
+    # market_meta() instead of load_registry(): this function runs once per family, and the registry is
+    # 617 MB of candidate history for the sake of two timestamps. A dozen families meant a dozen full
+    # parses, several gigabytes each, which killed the whole-system survey twice on 8 October 2026 - at
+    # full scope and again narrowed to one symbol and one timeframe. The sidecar carries the same
+    # boundaries and costs nothing.
+    meta = lab.market_meta()
     key = f"{symbol}:{timeframe}"
     bars = load_bars(symbol, timeframe, source="app")
     if bars is None or bars.empty:
         return [{"family": family, "market": key, "error": "no broker bars"}]
     try:
         market = lab.Market(symbol, timeframe, bars,
-                            boundaries=(registry["markets"].get(key) or {}).get("boundaries"), swap=True)
+                            boundaries=(meta.get(key) or {}).get("boundaries"), swap=True)
     except Exception as exc:                     # noqa: BLE001 - too few bars, usually
         return [{"family": family, "market": key, "error": f"{type(exc).__name__}: {exc}"[:120]}]
 
@@ -333,9 +338,11 @@ def save_candidates(report: dict, limit: int = 12) -> dict:
         spec = {**spec, "family": family, "params": {**spec["params"], "side": side}}
 
         bars = load_bars(symbol, timeframe, source="app")
-        registry = lab.load_registry()
+        # Same reason as evaluate_family, and worse: this sits inside the per-candidate loop, so it
+        # parsed the whole 617 MB registry once for every candidate being saved.
+        meta = lab.market_meta()
         market = lab.Market(symbol, timeframe, bars,
-                            boundaries=(registry["markets"].get(market_key) or {}).get("boundaries"),
+                            boundaries=(meta.get(market_key) or {}).get("boundaries"),
                             swap=True)
         record = lab.evaluate_candidate(market, spec, with_holdout=True)
         evidence = book_module.gather_evidence(market, spec, report.get("variants_tested") or 1,
