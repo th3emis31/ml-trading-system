@@ -244,12 +244,24 @@ def sweep_variants(symbol: str, timeframe: str) -> list:
 def run(symbols=("XAUUSD", "BTCUSD"), timeframes=("4h",)) -> dict:
     from .mtf_data import load_bars
 
-    registry = lab.load_registry()
-    n_trials = (len(MODES) * len(LOOKBACKS) * len(BODY_FILTERS) * len(REWARD_RATIOS)
-                * len(symbols) * len(timeframes))
+    # market_meta() rather than load_registry(): the registry is 617 MB of candidate history and the
+    # only thing needed here is each market's split boundaries.
+    meta = lab.market_meta()
+    # BOTH grids are counted and BOTH are run. Until 8 October 2026 this function iterated
+    # sweep_variants() alone, so reclaim_variants() - the owner's rule as he worded it on 26 September,
+    # "manipulate lower than previous low and close above the previous high for buy" - was declared in
+    # this very module and never executed by it. Its absence was invisible because n_trials below
+    # matched what was actually run (2 modes x 3 lookbacks x 2 body filters x 3 reward ratios = 36),
+    # so the report looked complete and self-consistent while omitting the rule it was written for.
+    n_sweep = len(MODES) * len(LOOKBACKS) * len(BODY_FILTERS) * len(REWARD_RATIOS)
+    n_reclaim = len(RECLAIM_REFS) * len(REWARD_RATIOS) * len(RECLAIM_TREND_EMAS)
+    n_trials = (n_sweep + n_reclaim) * len(symbols) * len(timeframes)
     report = {"generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-              "rule": "a 4H candle sweeps the prior N-candle extreme and closes back inside; trade the reversal",
-              "n_trials_total": n_trials, "places_orders": False, "markets": {}}
+              "rule": "a 4H candle sweeps the prior N-candle extreme and either closes back inside it "
+                      "(reject), closes beyond it (continue), or takes out one extreme and closes past "
+                      "the OPPOSITE one (reclaim, the owner's own wording)",
+              "n_trials_total": n_trials, "n_trials_sweep": n_sweep, "n_trials_reclaim": n_reclaim,
+              "places_orders": False, "markets": {}}
     for symbol, timeframe in product(symbols, timeframes):
         key = f"{symbol}:{timeframe}"
         bars = load_bars(symbol, timeframe, source="app")
@@ -257,9 +269,9 @@ def run(symbols=("XAUUSD", "BTCUSD"), timeframes=("4h",)) -> dict:
             report["markets"][key] = {"error": "no broker bars"}
             continue
         market = lab.Market(symbol, timeframe, bars,
-                            boundaries=(registry["markets"].get(key) or {}).get("boundaries"), swap=True)
+                            boundaries=(meta.get(key) or {}).get("boundaries"), swap=True)
         records = []
-        for spec in sweep_variants(symbol, timeframe):
+        for spec in list(sweep_variants(symbol, timeframe)) + list(reclaim_variants(symbol, timeframe)):
             record = lab.evaluate_candidate(market, spec, with_holdout=True)
             orders = lab.strategy_orders(market.ind, spec)
             record["variant"] = spec["variant"]
