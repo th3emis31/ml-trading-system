@@ -192,10 +192,23 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
     return out
 
 
-def run(side: str = "long", symbols=SYMBOLS, timeframes=TIMEFRAMES) -> dict:
+def run(side: str = "long", symbols=SYMBOLS, timeframes=TIMEFRAMES, families_wanted=None) -> dict:
+    """``families_wanted`` limits the survey to named families.
+
+    Added 8 October 2026 because the survey was killed by the operating system four times that
+    day. The cause was not the survey: the machine has 7,566 MB of physical RAM with 18,006 MB
+    committed, and Memory Compression alone was holding 1,710 MB. One family evaluates in about
+    two seconds, so running them one process at a time keeps peak memory to a single family and
+    lets the research run at all on a machine in that state.
+    """
     warnings.filterwarnings("ignore")
     side_wanted = {"long": 1, "short": -1, "both": 0}[side]
     families = load_families()
+    if families_wanted:
+        missing = [f for f in families_wanted if f not in families]
+        if missing:
+            raise SystemExit(f"unknown families: {missing}; known: {sorted(families)}")
+        families = {k: v for k, v in families.items() if k in families_wanted}
     rows, failures = [], []
     for family, variants_for in families.items():
         if isinstance(variants_for, Exception):
@@ -419,13 +432,16 @@ def main(argv=None) -> int:
     runner.add_argument("--symbols", nargs="+", default=list(SYMBOLS))
     runner.add_argument("--timeframes", nargs="+", default=list(TIMEFRAMES))
     runner.add_argument("--save", action="store_true", help="store the survivors in the strategy book")
+    runner.add_argument("--families", nargs="+", default=None,
+                        help="only these families, so the survey can be run one at a time on a "
+                             "machine that cannot hold all of them at once")
     args = parser.parse_args(argv)
 
     # The pre-flight is printed BEFORE anything is run, not alongside the results. A number without it
     # in front of it does not count.
     print_preflight(preflight(tuple(args.symbols), tuple(args.timeframes)))
     print()
-    report = run(args.side, tuple(args.symbols), tuple(args.timeframes))
+    report = run(args.side, tuple(args.symbols), tuple(args.timeframes), args.families)
     print_sweep_report(report)
     print(f"\n  written to {report['path']}")
     if args.save:
