@@ -70,7 +70,7 @@ function build() {
   // dismissed on every page load.
   panel.querySelector(".se-x").addEventListener("click", () => {
     panel.style.display = "none";
-    chrome.storage.local.set({ hidden: true });
+    chrome.storage.local.set({ panel: "closed", hidden: true });
     let pill = document.getElementById("smartentry-show");
     if (!pill) {
       pill = document.createElement("div");
@@ -79,20 +79,24 @@ function build() {
       pill.addEventListener("click", () => {
         panel.style.display = "";
         pill.remove();
-        chrome.storage.local.set({ hidden: false });
+        chrome.storage.local.set({ panel: "open", hidden: false });
       });
       document.body.appendChild(pill);
     }
   });
-  // HIDDEN BY DEFAULT since 8 October 2026, at the owner's request: the panel is fixed to the top right,
-  // which on his layout sits over the price axis and the newest candles - exactly the part of the chart he
-  // is reading a setup from. A panel that covers the thing it describes is worse than no panel.
+  // OFF BY DEFAULT since 8 October 2026, at the owner's request, repeated twice: the panel is fixed to the
+  // top right, which on his layout covers the price axis and the newest candles - exactly the part of the
+  // chart a setup is read from. A panel that hides the thing it describes is worse than no panel.
   //
-  // Nothing is removed. The small "SmartEntry" pill reopens it, and once he opens it the choice is stored
-  // as hidden:false and respected on every later load. The test is `!== false` rather than a plain truth
-  // test so that an unset value - a fresh profile, or anyone who has never touched it - starts closed
-  // instead of starting open.
-  chrome.storage.local.get("hidden", v => { if (v?.hidden !== false) panel.querySelector(".se-x").click(); });
+  // This reads a NEW key, `panel`, instead of the old `hidden` boolean. That is deliberate and it is the
+  // whole point: anyone who had ever opened the old panel has `hidden:false` sitting in chrome.storage,
+  // and a default that only applies when nothing is stored would keep showing it for exactly the person
+  // who asked for it to stop. An unset `panel` key means closed, so the change takes effect for everyone
+  // on the next load regardless of what they did before.
+  //
+  // Nothing is removed. The small "SmartEntry" pill reopens it and stores panel:"open", which is then
+  // respected on every later load.
+  chrome.storage.local.get("panel", v => { if (v?.panel !== "open") panel.querySelector(".se-x").click(); });
   return panel;
 }
 
