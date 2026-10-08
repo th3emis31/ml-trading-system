@@ -162,6 +162,36 @@ FORWARD_CANDIDATE = {
     "variant": FORWARD_VARIANT,
 }
 
+# BASELINE 2026-10-08, XAUUSD 4h, same cost model. This is the owner's rule as he actually stated it on
+# 26 September - sweep the PREVIOUS candle's low and CLOSE ABOVE its high, mirrored for sells - and until
+# today it had never been run: `run()` iterates sweep_variants() only, so reclaim_variants() was declared
+# and never executed. Measured on the locked holdout: positive in all three windows (search +42.70 %,
+# validation +13.43 %, holdout +23.70 % over 103 trades at PF 1.402, max drawdown 9.65 %), beating its own
+# inverse (inverse PF 0.804), after-cost expectancy +0.2959 R with zero ambiguous exits - a higher
+# expectancy than FORWARD_CANDIDATE above.
+#
+# It does NOT pass the bar and is not promoted: deflated Sharpe 0.5913 against 0.95 with 18 declared
+# variants charged, and it loses to buy-and-hold on raw return (gold returned 64.53 % over the same
+# holdout, against this rule's 23.70 %). Worth forward testing precisely because those two gaps are the
+# kind a pre-declared forward test can close without anyone lowering a bar: gold cannot rise 64 % every
+# two years, and a single declared rule incurs no trial-count deflation at all.
+#
+# `ref` 1 is the owner's words read literally, and it is also the only window with a usable sample: at
+# ref 10 the rule fires 3 times in the holdout and at ref 20 it never fires, because a candle that takes
+# out twenty candles' low AND closes above their high is close to nonexistent.
+FORWARD_RECLAIM_VARIANT = "reclaim|ref1|rr3|ema400"
+FORWARD_RECLAIM = {
+    "family": "sweep_reversal",
+    "params": {"symbol": "XAUUSD", "timeframe": "4h", "ref": 1, "lookback": 1, "require_body": False,
+               "rr": 3.0, "mode": RECLAIM_MODE, "trend_ema": 400},
+    "exits": {"stop": "fixed", "sl_atr": 0.0, "rr": 0.0, "trail_atr": 0.0,
+              "max_bars": MAX_BARS, "swing_lookback": 0},
+    "description": ("4H candle takes out the PREVIOUS candle's low and closes ABOVE its high (mirrored for sells), "
+                    "with the EMA400, stop beyond its own swept extreme, target 3 R, gold 4H "
+                    "(the owner's 26 September rule, stated in his words)"),
+    "variant": FORWARD_RECLAIM_VARIANT,
+}
+
 
 def reclaim_variants(symbol: str, timeframe: str) -> list:
     """The owner's 26 September rule: 18 per market - 3 reference windows x 3 reward ratios x 2 trend filters.

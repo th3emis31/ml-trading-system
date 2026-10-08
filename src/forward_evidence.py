@@ -304,6 +304,26 @@ WATCHLIST = (
                   "three windows AND beat its inverse AND have its sign independent of the engine's "
                   "stop-before-target assumption; 0.181 is far from 0.95, and the gap is a trial-count "
                   "penalty that only unfitted forward trades can pay off"},
+    {"key": "reclaim_xauusd_4h",
+     "state": "strategy_lab/forward_reclaim_xau_4h.json",
+     # Measured on the holdout from the engine's per-trade net_r, not inferred from the profit factor.
+     # Discounted to a quarter like the others: it was selected out of 18 declared variants.
+     "backtest_expectancy_r": 0.2959,
+     "splits_positive": True, "beats_inverse": True, "deflated_sharpe": 0.5913,
+     "label": "Manipulation candle, reclaim, XAUUSD 4H, EMA400 filter, 3 R target",
+     "evidence": "2026-10-08 BASELINE: positive on all three splits (+42.70 % / +13.43 % / +23.70 %), "
+                 "103 holdout trades, PF 1.402, max drawdown 9.65 %, +0.2959 R after costs with zero "
+                 "ambiguous exits, beating its own inverse (inverse PF 0.804). Fails the bar on two counts: "
+                 "deflated Sharpe 0.5913 against 0.95, and it loses to buy-and-hold on raw return (gold "
+                 "+64.53 % over the same holdout against this rule's +23.70 %, though at 28.70 % drawdown "
+                 "against 9.65 %)",
+     "why_watch": "the owner's rule as he actually worded it on 26 September, which had NEVER been run until "
+                  "8 October because sweep_reversal.run() iterates sweep_variants() only and "
+                  "reclaim_variants() was declared and never called. Highest after-cost expectancy of any "
+                  "candidate here, and the only short-capable one: SwingTrendPullback is pinned to "
+                  "side='long' and discarded 18 short setups in the ten days to 8 October, while its own "
+                  "short side measures -13.87 % on the holdout at PF 0.682, so covering that side needs a "
+                  "different rule rather than switching that one on"},
 )
 
 

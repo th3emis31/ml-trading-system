@@ -84,6 +84,30 @@ CANDIDATES["sweep_continue_xau_4h"] = {
     "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
     "state": lab.LAB_DIR / "forward_sweep_continue_xau_4h.json"}
 
+# Added 8 October 2026. This is the owner's rule as he actually worded it on 26 September - take out the
+# PREVIOUS candle's low and CLOSE ABOVE its high, mirrored for sells - and until today it had never been
+# executed: sweep_reversal.run() iterates sweep_variants() only, so reclaim_variants() was declared and
+# never called. Measured on the locked holdout it has a HIGHER after-cost expectancy than the
+# continuation candidate above (+0.2959 R against +0.2193 R) and is positive in all three windows.
+#
+# It matters for a second reason. SwingTrendPullback is pinned to side="long", so in a downtrend the
+# daily plan is structurally mute - 18 short setups were computed and discarded in the ten days to
+# 8 October while zero long setups fired. Switching that strategy to shorts is NOT the fix: measured on
+# the same 19 years its short side returns -13.87 % on the holdout at PF 0.682. This rule trades both
+# directions on its own evidence, which is the honest way to cover the side that is currently blocked.
+#
+# Paper only. places_orders stays False and nothing here can send an order.
+CANDIDATES["reclaim_xau_4h"] = {
+    "spec": {**sweep_reversal.FORWARD_RECLAIM,
+             "description": sweep_reversal.FORWARD_RECLAIM["description"]
+                            + " (paper forward test; BASELINE 8 Oct: all three splits positive "
+                              "(+42.70 % / +13.43 % / +23.70 %), holdout PF 1.402 over 103 trades, max drawdown "
+                              "9.65 %, +0.2959 R after costs with zero ambiguous exits, beats its own inverse "
+                              "(inverse PF 0.804); deflated Sharpe 0.5913 against the 0.95 bar and it loses to "
+                              "buy-and-hold on raw return, so it is NOT promoted)"},
+    "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_reclaim_xau_4h.json"}
+
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 
 Fetch = Callable[[str, str, int], pd.DataFrame]

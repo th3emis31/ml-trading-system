@@ -84,7 +84,15 @@ function build() {
       document.body.appendChild(pill);
     }
   });
-  chrome.storage.local.get("hidden", v => { if (v?.hidden) panel.querySelector(".se-x").click(); });
+  // HIDDEN BY DEFAULT since 8 October 2026, at the owner's request: the panel is fixed to the top right,
+  // which on his layout sits over the price axis and the newest candles - exactly the part of the chart he
+  // is reading a setup from. A panel that covers the thing it describes is worse than no panel.
+  //
+  // Nothing is removed. The small "SmartEntry" pill reopens it, and once he opens it the choice is stored
+  // as hidden:false and respected on every later load. The test is `!== false` rather than a plain truth
+  // test so that an unset value - a fresh profile, or anyone who has never touched it - starts closed
+  // instead of starting open.
+  chrome.storage.local.get("hidden", v => { if (v?.hidden !== false) panel.querySelector(".se-x").click(); });
   return panel;
 }
 
