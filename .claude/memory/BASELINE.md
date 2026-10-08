@@ -2193,3 +2193,92 @@ is still validated, scored, ranked and learned from. The 0.95 bar is unchanged.
 against 1 short, not because the generator excludes shorts (`SIDES = long/short/both`) but because
 longs out-score them in-sample on a rising instrument. The owner's own manual record is the opposite:
 51 SELL gold at a 70.6% win rate while gold rose 9%. Short gold has never been searched on its merits.
+
+---
+
+## 2026-10-08 — The first both-directions survey, and the rule that had never been run
+
+**Provenance** `mt5:XAUUSD` and `mt5:BTCUSD` through the app, 16,119 4H bars from 2007-06-21.
+**Costs** `spread+swap-v4`, round trip 0.0115%, overnight swap included (gold shorts are a credit).
+**Splits** search 2008-08 to 2022-08, validation 2022-08 to 2024-08, holdout 2024-08 to 2026-10.
+
+### The defect this session existed to find
+
+`src/sweep_reversal.py` declares three readings of the owner's 4H manipulation candle. `run()` iterated
+`sweep_variants()` alone, so `reclaim_variants()` — his own wording of 26 September, "manipulate lower
+than previous low and close above the previous high for buy" — was declared in that module and **never
+executed by it**. `n_trials_total` was computed from exactly what ran (36), so the report was internally
+consistent and looked complete while omitting the rule it was written for. A backtest was reported to the
+owner on that basis; he said it was wrong and he was right.
+
+A second mechanism hid it from the whole-system survey: `direction_sweep` looked the order builder up by
+registry key, and `sweep_reclaim`'s specs declare family `sweep_reversal`, so it failed with
+`no registered builder` on 27 September and the survey moved on. The failure sat unread on disk for
+eleven days.
+
+### Forcing a side is not a neutral act
+
+`direction_sweep` only ran strategies long-only or short-only. Evaluated as declared, the reclaim rule is
+positive on all three splits. Forced to one side, **all 36 of its survey rows had a negative validation
+split** while search and holdout stayed positive. The survey could measure every family in the system and
+still be structurally unable to see its best candidate. `--side both` now exists.
+
+### Result: 146 variants, nine families, XAUUSD 4h, both directions
+
+78 profitable on the holdout, 16 surviving all three splits AND beating their own inverse. **Only three
+survivors have 100 or more holdout trades, and all three are rules the owner specified himself.** The
+815,989-candidate random search contributed none of them.
+
+| candidate | search | validation | holdout | n | PF | inverse | amb |
+|---|---|---|---|---|---|---|---|
+| `crt_displacement body\|disp\|sweep\|rr2` | +13.17% | +12.14% | +27.63% | 116 | 1.367 | −26.16% | 0 |
+| `reclaim\|ref1\|rr3\|ema400` | +42.70% | +13.43% | +23.70% | 103 | 1.402 | −11.89% | 0 |
+| `reclaim\|ref1\|rr2\|ema400` | +27.45% | +20.24% | +20.62% | 109 | 1.366 | −16.77% | 0 |
+
+Per family: sweep_reclaim 7 survivors of 18, cisd 6 of 16 (every one under 100 trades), candle_pattern 2
+of 24, crt_displacement 1 of 16, and **zero** from sweep_reversal (0 of 36), crt_mss, poi_liquidity,
+smart_entry_arch and crt_htf.
+
+### It is not a gold artefact
+
+BTCUSD 4h, same rule, same `ref1` and `rr3` the owner's wording implies:
+`reclaim|ref1|rr3|notrend` — **124 trades, PF 1.37, +44.14%, inverse −29.30%, 0 ambiguous exits.**
+Also `crt_displacement body|disp|nosweep|rr2` 182 trades PF 1.14 +24.36%, and
+`poi_liquidity ride|nobos|rr3` 158 trades PF 1.11 +10.60%. CISD produced no survivors on bitcoin.
+
+XAUUSD 1h: **zero survivors** from sweep_reclaim, crt_displacement, cisd or poi_liquidity. The edge is a
+4H phenomenon on this evidence.
+
+### None of it is promoted, and the reasons are specific
+
+| candidate | fails on |
+|---|---|
+| `reclaim\|ref1\|rr3\|ema400` | deflated Sharpe 0.5913 vs 0.95; loses to buy-and-hold (+64.53% vs +23.70%) |
+| `crt_displacement body\|disp\|sweep\|rr2` | deflated Sharpe 0.0007; loses to buy-and-hold |
+| `cisd run2\|sweep10\|wait5\|rr1` short-only | deflated Sharpe 0.0659; **passes buy-and-hold**, the only one that does |
+
+Buy-and-hold is harsh here and stays: gold returned +64.53% over the holdout at a **28.70% drawdown**,
+against the reclaim rule's +23.70% at 9.65%. Better per unit of risk, worse on raw return, and the
+control compares raw return. The bar does not move.
+
+### Reproducibility warning
+
+The survey's own figures for a forced-side variant **do not reproduce** from the spec. It forces a
+direction by zeroing signals *after* the builder runs, which changes which trades a
+one-position-at-a-time engine takes: the survey reported `cisd run2|sweep10|wait5|rr1` at 81 trades and
+PF 1.41, while evaluating the same spec with `side="short"` gives 41 trades and PF 1.482. Forward tests
+are registered with the reproducible figures.
+
+### What now carries the evidence forward
+
+Eight paper forward tests, none placing orders, each with a verdict at 30 trades: the reclaim rule (both
+directions), CRT displacement, CISD short, sweep continuation, trendline break, morning star, and the two
+original CRT candidates.
+
+### The standing finding about the lab itself
+
+All 1,972 strategy-book entries fail the deflated Sharpe — every one. Trials charged per candidate run
+from 708 to 108,833, median 18,041, and the best deflated Sharpe ever reached is 0.9366. Random search
+cannot clear its own bar, because searching more makes the bar harder for everything already searched. A
+declared hypothesis charged 18 trials reached 0.5913 on its first honest run. The lab's value is in
+measuring named hypotheses cheaply, not in trawling.
