@@ -129,7 +129,13 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
         return [{"family": family, "market": key,
                  "error": f"no registered builder for {family!r} or {engine_family!r}"}]
 
-    lab.ORDER_BUILDERS[family] = one_side_builder(original, side_wanted)
+    # side_wanted 0 means BOTH directions: run the family exactly as it declared itself.
+    # This mode exists because forcing a side is not a neutral act. The owner's reclaim rule is positive
+    # on all three splits when it may trade both ways (validation +13.43 %), and on 8 October 2026 every
+    # one of its 36 one-sided survey rows had a NEGATIVE validation split while search and holdout stayed
+    # positive. A survey that only ever forces a side cannot see a rule whose edge needs both, and will
+    # report it as a failure.
+    lab.ORDER_BUILDERS[family] = one_side_builder(original, side_wanted) if side_wanted else original
     out = []
     try:
         for spec in specs:
@@ -188,7 +194,7 @@ def evaluate_family(family: str, variants_for: Callable, symbol: str, timeframe:
 
 def run(side: str = "long", symbols=SYMBOLS, timeframes=TIMEFRAMES) -> dict:
     warnings.filterwarnings("ignore")
-    side_wanted = 1 if side == "long" else -1
+    side_wanted = {"long": 1, "short": -1, "both": 0}[side]
     families = load_families()
     rows, failures = [], []
     for family, variants_for in families.items():
@@ -409,7 +415,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Every strategy, one side at a time. Never trades.")
     sub = parser.add_subparsers(dest="command", required=True)
     runner = sub.add_parser("run", help="survey one side")
-    runner.add_argument("--side", choices=("long", "short"), default="long")
+    runner.add_argument("--side", choices=("long", "short", "both"), default="long")
     runner.add_argument("--symbols", nargs="+", default=list(SYMBOLS))
     runner.add_argument("--timeframes", nargs="+", default=list(TIMEFRAMES))
     runner.add_argument("--save", action="store_true", help="store the survivors in the strategy book")
