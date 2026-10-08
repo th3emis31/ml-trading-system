@@ -28,6 +28,7 @@ import pandas as pd
 from . import aurum_flow_lab          # registers the trendline-break order builder
 from . import candle_pattern_lab      # registers the candlestick order builder
 from . import cisd_lab                # registers the CISD order builder
+from . import crt_displacement        # registers the CRT displacement order builder
 from . import sweep_reversal          # registers the sweep/manipulation-candle order builder
 from . import crt_lab
 from . import crt_mss_lab
@@ -136,6 +137,32 @@ CANDIDATES["cisd_short_xau_4h"] = {
                             "against the 0.95 bar, so it is NOT promoted)"},
     "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
     "state": lab.LAB_DIR / "forward_cisd_short_xau_4h.json"}
+
+# Added 8 October 2026, from the first both-directions survey of every family the system owns. Of 146
+# variants across nine families on XAUUSD 4h, only THREE survivors had 100 or more holdout trades, and
+# all three are rules the owner specified himself. This is one of them, and it has the most consistent
+# splits of the three: +13.17 % search, +12.14 % validation, +27.63 % holdout, where the reclaim rule
+# runs 42.70 / 13.43 / 23.70. Consistency across windows is the thing a single lucky regime cannot fake.
+#
+# It is the owner's own written CRT specification, declared 20 September 2026: liquidity sweep, then a
+# displacement candle, then a BODY close past the structural break. It trades both directions, which
+# matters because the side that is currently blocked is the short one.
+#
+# NOT promoted. Deflated Sharpe 0.0007 against the 0.95 bar, and it loses to buy-and-hold on raw return
+# (gold +64.53 % over the same holdout). Paper only.
+_CRT_DISP = next(v for v in crt_displacement.displacement_variants("XAUUSD", "4h")
+                 if v["variant"] == "body|disp|sweep|rr2")
+CANDIDATES["crt_displacement_xau_4h"] = {
+    "spec": {**_CRT_DISP,
+             "description": "CRT sweep then displacement then BODY close past the structural break, 2 R, "
+                            "both directions, XAUUSD 4h (the owner's 20 September specification) "
+                            "(paper forward test; BASELINE 8 Oct: all three splits positive "
+                            "(+13.17 % / +12.14 % / +27.63 %), 116 holdout trades, PF 1.367, 39.7 % win "
+                            "rate, max drawdown 8.03 %, +0.1083 R after costs with zero ambiguous exits, "
+                            "beats its own inverse (-26.16 %); deflated Sharpe 0.0007 against the 0.95 "
+                            "bar and it loses to buy-and-hold, so it is NOT promoted)"},
+    "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_crt_displacement_xau_4h.json"}
 
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 

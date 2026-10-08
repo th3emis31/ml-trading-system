@@ -344,6 +344,23 @@ WATCHLIST = (
                   "81 trades at PF 1.41 for this variant and that does NOT reproduce: the survey forces "
                   "a direction by zeroing signals after the builder runs, which changes which trades a "
                   "one-position-at-a-time engine takes. The figures above are the reproducible ones"},
+    {"key": "crt_displacement_xauusd_4h",
+     "state": "strategy_lab/forward_crt_displacement_xau_4h.json",
+     # Measured from the engine's per-trade net_r. Discounted to a quarter like the others: 16 variants
+     # in the displacement grid.
+     "backtest_expectancy_r": 0.1083,
+     "splits_positive": True, "beats_inverse": True, "deflated_sharpe": 0.0007,
+     "label": "CRT sweep + displacement + body close, 2 R, both directions, XAUUSD 4H",
+     "evidence": "2026-10-08 BASELINE: positive on all three splits (+13.17 % / +12.14 % / +27.63 %), "
+                 "116 holdout trades, PF 1.367, 39.7 % win rate, max drawdown 8.03 %, +0.1083 R after "
+                 "costs with zero ambiguous exits, beats its own inverse (-26.16 %). Deflated Sharpe "
+                 "0.0007 against 0.95 and it loses to buy-and-hold on raw return",
+     "why_watch": "one of only three survivors with 100+ holdout trades out of 146 variants across nine "
+                  "families in the first both-directions survey, and all three are rules the owner "
+                  "specified himself rather than anything the 815,989-candidate random search found. "
+                  "Its splits are the most consistent of the three - 13 / 12 / 28 against the reclaim "
+                  "rule's 43 / 13 / 24 - and consistency across windows is what a single lucky regime "
+                  "cannot fake. It also trades both directions, which covers the side currently blocked"},
 )
 
 
