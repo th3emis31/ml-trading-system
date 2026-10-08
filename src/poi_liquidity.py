@@ -315,6 +315,15 @@ def _register() -> None:
     from . import strategy_lab as lab
 
     lab.ORDER_BUILDERS["poi_liquidity"] = poi_orders
+    # Registered in the same place for the same reason: this module imports the lab lazily, so a
+    # module-level registration would raise NameError on import.
+    lab.NEIGHBOUR_GRIDS["poi_liquidity"] = neighbour_grid
+
+
+def neighbour_grid(spec: dict) -> dict:
+    """Settings only. `mode` is deliberately excluded: fade and ride are two different rules, so
+    stepping it would score a ride candidate against a fade strategy."""
+    return {"require_bos": list(BOS_FILTERS), "rr": list(REWARD_RATIOS)}
 
 
 def main(argv=None) -> int:

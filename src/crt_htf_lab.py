@@ -110,6 +110,15 @@ def htf_orders(ind: lab.Indicators, spec: dict):
     return builder(ind, p["target"], p["trend"])
 
 
+def neighbour_grid(spec: dict) -> dict:
+    """`model` selects classic against ea_scaled, which are two different rules, so it is excluded.
+    `target` and `trend` are settings of whichever rule was chosen."""
+    return {"target": ["rr2", "range"], "trend": ["none", "ema200"]}
+
+
+lab.NEIGHBOUR_GRIDS["crt_htf"] = neighbour_grid
+
+
 lab.ORDER_BUILDERS["crt_htf"] = htf_orders
 
 

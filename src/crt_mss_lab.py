@@ -163,6 +163,16 @@ def mss_orders(ind: lab.Indicators, spec: dict):
     return side, stop, target, entry
 
 
+def neighbour_grid(spec: dict) -> dict:
+    """`model` chooses which range is swept (h4, h4_asia, d1, asia) and is a different hypothesis each
+    time, so only the target is stepped. One neighbour from the family grid is thin; the exit grid adds
+    the rest, and a thin result is still better than the None that made this family unapprovable."""
+    return {"target": list(TARGETS)}
+
+
+lab.NEIGHBOUR_GRIDS["crt_mss"] = neighbour_grid
+
+
 lab.ORDER_BUILDERS["crt_mss"] = mss_orders
 
 

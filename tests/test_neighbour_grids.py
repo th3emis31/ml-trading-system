@@ -133,3 +133,45 @@ def test_a_grid_callable_that_raises_does_not_break_the_book(monkeypatch):
 def test_a_grid_callable_returning_nothing_is_treated_as_no_grid(monkeypatch):
     monkeypatch.setitem(lab.NEIGHBOUR_GRIDS, "sweep_reversal", lambda spec: {})
     assert book.neighbours(_reclaim()) == []
+
+
+# ------------------------------------------------------------------ no family may be unmeasurable
+def test_every_surveyed_family_can_have_its_robustness_measured():
+    """The guard for the whole class of bug.
+
+    A family with neither a FAMILIES grid nor a NEIGHBOUR_GRIDS entry gets neighbour_share None,
+    classify() writes "neighbour share n/a", and the entry can never reach approved_for_demo. On
+    8 October 2026 five of the nine surveyed families were in that state, including `cisd`, which was
+    already running as a paper forward test, and `poi_liquidity`, which had produced a 158-trade
+    survivor. Measuring them was worth doing: CISD came out at 5 of 6 neighbours profitable and
+    poi_liquidity at 2 of 4, which are very different verdicts that nobody could see before.
+
+    A new family added without a grid is silently unapprovable, so this fails the build instead.
+    """
+    from src import direction_sweep
+
+    direction_sweep.load_families()
+    unmeasurable = []
+    for family in sorted(direction_sweep.FAMILY_VARIANTS):
+        # A registry key labels a grid; the engine family that owns the builder may differ.
+        engine = "sweep_reversal" if family == "sweep_reclaim" else family
+        if (lab.FAMILIES.get(family) is None and lab.FAMILIES.get(engine) is None
+                and family not in lab.NEIGHBOUR_GRIDS and engine not in lab.NEIGHBOUR_GRIDS):
+            unmeasurable.append(family)
+    assert not unmeasurable, (
+        f"these families have no neighbour grid, so they can never be approved for demo however well "
+        f"they perform: {unmeasurable}. Declare one with lab.NEIGHBOUR_GRIDS[family] = callable(spec).")
+
+
+def test_a_declared_grid_never_steps_a_rule_selector():
+    """`mode`, `model`, `combination` and `side` choose WHICH rule runs. Stepping one compares a
+    candidate against a different strategy, which is not a robustness measurement at all - and it
+    would inflate the score rather than deflate it, so it fails quietly in the flattering direction."""
+    from src import direction_sweep
+
+    direction_sweep.load_families()
+    selectors = {"side", "mode", "model", "combination"}
+    for family, build in sorted(lab.NEIGHBOUR_GRIDS.items()):
+        grid = build({"params": {}, "exits": {}}) or {}
+        leaked = selectors & set(grid)
+        assert not leaked, f"{family}'s neighbour grid steps rule selectors {sorted(leaked)}"

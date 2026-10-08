@@ -88,6 +88,19 @@ def cisd_orders(ind: lab.Indicators, spec: dict):
     return side.astype(int), stop, target
 
 
+def neighbour_grid(spec: dict) -> dict:
+    """The one-step grid for a CISD candidate, so its robustness can be measured.
+
+    Every entry is a SETTING of the one rule, not a choice between rules. Stepping a rule selector
+    would compare a candidate against a different strategy and answer the wrong question.
+    """
+    return {"min_run": list(MIN_RUNS), "sweep_lookback": list(SWEEP_LOOKBACKS),
+            "max_wait": list(MAX_WAITS), "rr": list(REWARD_RATIOS)}
+
+
+lab.NEIGHBOUR_GRIDS["cisd"] = neighbour_grid
+
+
 lab.ORDER_BUILDERS["cisd"] = cisd_orders
 
 

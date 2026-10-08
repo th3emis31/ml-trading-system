@@ -223,6 +223,16 @@ def arch_orders(ind: lab.Indicators, spec: dict):
     return side.astype(int), stop, target
 
 
+def neighbour_grid(spec: dict) -> dict:
+    """`combination` is excluded: it selects WHICH checks the architecture applies, so stepping it
+    swaps the rule rather than adjusting it. That leaves a thin grid, and thin is reported honestly
+    rather than padded with a selector that would flatter the result."""
+    return {"rr": list(REWARD_RATIOS)}
+
+
+lab.NEIGHBOUR_GRIDS["smart_entry_arch"] = neighbour_grid
+
+
 lab.ORDER_BUILDERS["smart_entry_arch"] = arch_orders
 
 
