@@ -344,6 +344,19 @@ SIGNALS: dict[str, Callable] = {
 # register a builder here: builder(ind, spec) -> (side, stop, target), the same arrays strategy_orders returns.
 ORDER_BUILDERS: dict = {}
 
+# family -> callable(spec) -> {param_name: [values]} , declared by the module that owns the family.
+#
+# Families registered through ORDER_BUILDERS declare their variants in code and have no entry in
+# FAMILIES, so strategy_book.neighbours() had no grid to step along and neighbour_share returned None.
+# classify() then recorded "neighbour share n/a", which keeps the entry out of approved_for_demo. Every
+# declared hypothesis was therefore unapprovable by construction - and on 8 October 2026 the declared
+# hypotheses were the ONLY things producing candidates with 100+ holdout trades.
+#
+# A callable rather than a dict because one family can carry several rules with different parameters:
+# sweep_reversal's reject and continue modes step along lookback / rr / require_body, while its reclaim
+# mode steps along ref / rr / trend_ema. The spec decides which grid it belongs to.
+NEIGHBOUR_GRIDS: dict = {}
+
 # WHICH MODULE OWNS WHICH FAMILY, and why this map has to exist.
 #
 # A builder only lands in ORDER_BUILDERS when its module is imported, and the dispatch below falls

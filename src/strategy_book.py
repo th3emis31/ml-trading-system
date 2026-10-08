@@ -103,7 +103,19 @@ def neighbours(spec: dict) -> list[dict]:
     # keeps it out of approved_for_demo. Raising KeyError instead stopped the whole save.
     family_grid = lab.FAMILIES.get(spec["family"])
     if family_grid is None:
-        return []
+        # The family declares its own grid instead (see lab.NEIGHBOUR_GRIDS). Without this the most
+        # important robustness check is simply absent for every declared hypothesis, and absent reads
+        # the same as failed: classify() records "neighbour share n/a" and the entry can never be
+        # approved for demo.
+        declared = lab.NEIGHBOUR_GRIDS.get(spec["family"])
+        if declared is None:
+            return []
+        try:
+            family_grid = declared(spec) or {}
+        except Exception:
+            return []
+        if not family_grid:
+            return []
     grids = [("params", family_grid), ("exits", lab.EXIT_GRID)]
     for group, grid in grids:
         for key, values in grid.items():

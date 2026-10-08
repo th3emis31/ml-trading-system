@@ -142,6 +142,25 @@ def sweep_orders(ind: lab.Indicators, spec: dict):
 
 lab.ORDER_BUILDERS["sweep_reversal"] = sweep_orders
 
+
+def neighbour_grid(spec: dict) -> dict:
+    """The one-step grid for whichever rule this spec is, so robustness can actually be measured.
+
+    reject and continue step along lookback / rr / require_body. reclaim steps along ref / rr /
+    trend_ema, which are different settings entirely - stepping a reclaim spec along `lookback` would
+    change nothing, because sweep_orders reads `ref` in that mode, and would report a fitted spike as a
+    robust plateau.
+    """
+    params = (spec or {}).get("params") or {}
+    if str(params.get("mode", "reject")) == RECLAIM_MODE:
+        return {"ref": list(RECLAIM_REFS), "rr": list(REWARD_RATIOS),
+                "trend_ema": list(RECLAIM_TREND_EMAS)}
+    return {"lookback": list(LOOKBACKS), "rr": list(REWARD_RATIOS),
+            "require_body": list(BODY_FILTERS)}
+
+
+lab.NEIGHBOUR_GRIDS["sweep_reversal"] = neighbour_grid
+
 # The one variant that earned a forward test, declared here ONCE so the forward test carries no trial-counting
 # penalty. It is the owner's own rule read the way the owner stated it - "if the close above the previous high buy,
 # if the close below sell" - with the trend filter that stopped it being a bet on gold's 2024-26 run.
