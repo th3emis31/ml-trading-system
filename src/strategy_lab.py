@@ -1259,6 +1259,22 @@ def load_registry(path: Optional[Path] = None) -> dict:
 MARKET_META_PATH = LAB_DIR / "market_meta.json"
 
 
+def _meta_path_for(registry_path: Path) -> Path:
+    """The sidecar that belongs to THIS registry, beside it.
+
+    Defaulting to the module-level MARKET_META_PATH was a real bug on 8 October 2026: a call that
+    saved a DIFFERENT registry - a sandboxed one, a temp one, anything with `path=` - still wrote the
+    sidecar over the live one. The live sidecar ended up claiming candidates_tried 25 and a holdout
+    starting 2022-02-15 while the registry on disk said 97,133 and 2024-08-30, so every Market built
+    from it silently used the wrong split boundaries. Deriving the name from the registry makes that
+    impossible.
+    """
+    registry_path = Path(registry_path)
+    if registry_path == Path(REGISTRY_PATH):
+        return MARKET_META_PATH
+    return registry_path.with_name(registry_path.stem + "_market_meta.json")
+
+
 def _markets_block(path: Path) -> dict:
     """Parse ONLY the registry's ``markets`` object, reading as little of the file as possible.
 
@@ -1327,7 +1343,7 @@ def market_meta(path: Optional[Path] = None, meta_path: Optional[Path] = None) -
     or malformed cache costs speed and never correctness.
     """
     registry_path = Path(path or REGISTRY_PATH)
-    cache_path = Path(meta_path or MARKET_META_PATH)
+    cache_path = Path(meta_path) if meta_path else _meta_path_for(registry_path)
     try:
         if cache_path.exists() and (not registry_path.exists()
                                     or cache_path.stat().st_mtime >= registry_path.stat().st_mtime):
@@ -1362,18 +1378,21 @@ def save_registry(registry: dict, path: Optional[Path] = None, meta_path: Option
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(registry, default=str), encoding="utf-8")
     os.replace(tmp, path)
-    # Refresh the small sidecar market_meta() reads, so the expensive streamed read of a 617 MB file
-    # happens at most once and normally never. Written AFTER the registry so its mtime is never older,
-    # which is the staleness test market_meta uses. A failure here only costs speed.
+    # INVALIDATE the sidecar rather than rewrite it from this in-memory registry.
+    #
+    # Rewriting it was wrong and it corrupted the live one on 8 October 2026. Two processes save the
+    # registry concurrently - the hourly lab and whatever else is running - and each would publish its
+    # own in-memory view of `markets`. The last sidecar write wins regardless of which registry write
+    # won, so the sidecar ended up claiming candidates_tried 25 and a holdout starting 2022-02-15 while
+    # the registry on disk said 97,133 and 2024-08-30. Every Market built from it then used a holdout
+    # that was 2.5 years longer than the real one, which silently includes bars selection had already
+    # seen. A whole afternoon of survey numbers was computed that way.
+    #
+    # Deleting cannot publish a wrong value. The next market_meta() rebuilds from the file that actually
+    # won the race, at a one-off cost of about four seconds.
     try:
-        cache_path = Path(meta_path or MARKET_META_PATH)
-        trimmed = {key: {"boundaries": (value or {}).get("boundaries"),
-                         "candidates_tried": (value or {}).get("candidates_tried")}
-                   for key, value in (registry.get("markets") or {}).items() if isinstance(value, dict)}
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_tmp = cache_path.with_suffix(".tmp")
-        cache_tmp.write_text(json.dumps({"markets": trimmed}, default=str), encoding="utf-8")
-        os.replace(cache_tmp, cache_path)
+        cache_path = Path(meta_path) if meta_path else _meta_path_for(path)
+        cache_path.unlink(missing_ok=True)
     except Exception:
         pass
 

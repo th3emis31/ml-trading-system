@@ -171,8 +171,48 @@ def test_a_registry_with_no_markets_key_falls_back_to_the_slow_path(tmp_path, mo
 
 
 # ------------------------------------------------------------------ writing keeps the cache honest
-def test_save_registry_refreshes_the_sidecar(tmp_path):
-    """Otherwise every save makes the cache stale and the next read pays the streamed scan again."""
+def test_save_registry_invalidates_the_sidecar_rather_than_rewriting_it(tmp_path):
+    """The first version of this REWROTE the sidecar from the in-memory registry, and that corrupted
+    the live one on 8 October 2026.
+
+    Two processes save the registry concurrently. Each would publish its own view of `markets`, and the
+    last sidecar write wins regardless of which registry write won. The live sidecar ended up claiming
+    candidates_tried 25 and a holdout starting 2022-02-15 while the registry on disk said 97,133 and
+    2024-08-30. Every Market built from it used a holdout 2.5 years longer than the real one, which
+    silently includes bars selection had already seen, so an afternoon of survey numbers was measured
+    against something that was not a holdout.
+
+    Deleting cannot publish a wrong value.
+    """
+    registry = tmp_path / "registry.json"
+    cache = tmp_path / "meta.json"
+    cache.write_text(json.dumps({"markets": {"stale": {"boundaries": None}}}), encoding="utf-8")
+    lab.save_registry({"version": 1, "markets": {"XAUUSD:4h": {"candidates_tried": 5,
+                                                               "boundaries": BOUNDS_4H}},
+                       "candidates": {}}, path=registry, meta_path=cache)
+
+    assert not cache.exists(), "a stale sidecar survived a registry save and will be served as current"
+    assert lab.market_meta(path=registry, meta_path=cache)["XAUUSD:4h"]["boundaries"] == BOUNDS_4H
+
+
+def test_a_save_of_another_registry_never_touches_the_live_sidecar(tmp_path):
+    """The second half of the same bug: meta_path defaulted to the module-level MARKET_META_PATH, so a
+    save of ANY other registry - sandboxed, temporary, a test - reached the live sidecar."""
+    other = tmp_path / "some_other_registry.json"
+    lab.save_registry({"version": 1, "markets": {}, "candidates": {}}, path=other)
+
+    assert lab._meta_path_for(other) != lab.MARKET_META_PATH
+    assert lab._meta_path_for(other).parent == other.parent, \
+        "a registry's sidecar must live beside that registry, not beside the live one"
+
+
+def test_the_live_registry_still_maps_to_the_live_sidecar():
+    assert lab._meta_path_for(lab.REGISTRY_PATH) == lab.MARKET_META_PATH
+
+
+def _retired_save_registry_refreshes_the_sidecar(tmp_path):
+    """Retired on 8 October 2026: refreshing the sidecar on save is what corrupted it. Kept as a
+    record of the behaviour that was wrong, renamed so pytest does not collect it."""
     registry = tmp_path / "registry.json"
     cache = tmp_path / "meta.json"
     lab.save_registry({"version": 1, "markets": {"XAUUSD:4h": {"candidates_tried": 5,
