@@ -27,6 +27,7 @@ import pandas as pd
 
 from . import aurum_flow_lab          # registers the trendline-break order builder
 from . import candle_pattern_lab      # registers the candlestick order builder
+from . import cisd_lab                # registers the CISD order builder
 from . import sweep_reversal          # registers the sweep/manipulation-candle order builder
 from . import crt_lab
 from . import crt_mss_lab
@@ -107,6 +108,34 @@ CANDIDATES["reclaim_xau_4h"] = {
                               "buy-and-hold on raw return, so it is NOT promoted)"},
     "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
     "state": lab.LAB_DIR / "forward_reclaim_xau_4h.json"}
+
+# Added 8 October 2026. The SHORT side is the gap that matters right now: SwingTrendPullback is pinned
+# to side="long", so in a gold downtrend the daily plan is structurally mute - 18 short setups computed
+# and discarded in the ten days to 8 October while zero long setups fired - and its own short side
+# measures -13.87 % on the holdout at PF 0.682, so it is not the answer.
+#
+# The whole-system survey of 8 October found CISD to be the strongest short-capable family on XAUUSD 4h.
+# NOTE the survey's own figures for this variant do NOT reproduce from the spec: it reported 81 trades
+# at PF 1.41 and +21.04 %, because the survey forces a direction by zeroing the unwanted signals AFTER
+# the builder runs, which changes which trades a one-position-at-a-time engine takes. Evaluating the
+# spec directly with side="short" - the thing that can actually be forward tested - gives 41 trades at
+# PF 1.482 and +13.78 %. Those are the numbers recorded here, because they are the ones reproducible
+# from what this candidate actually is.
+#
+# It clears more of the bar than anything else measured today, including beats_buy_and_hold, which the
+# owner's reclaim rule fails. It still fails the deflated Sharpe, so it is NOT promoted. Paper only.
+_CISD_SHORT = next(v for v in cisd_lab.cisd_variants("XAUUSD", "4h") if v["variant"] == "run2|sweep10|wait5|rr1")
+CANDIDATES["cisd_short_xau_4h"] = {
+    "spec": {**_CISD_SHORT,
+             "params": {**_CISD_SHORT["params"], "side": "short"},
+             "description": "CISD run>=2, sweep 10, wait 5, 1 R, SHORT ONLY, XAUUSD 4h "
+                            "(paper forward test; BASELINE 8 Oct: all three splits positive "
+                            "(+27.36 % / +6.74 % / +13.78 %), 41 holdout trades, PF 1.482, max drawdown "
+                            "6.41 %, 51.2 % win rate, +0.0282 R after costs, beats its own inverse "
+                            "(inverse PF 0.742, -7.73 %) and beats buy-and-hold; deflated Sharpe 0.0659 "
+                            "against the 0.95 bar, so it is NOT promoted)"},
+    "symbol": "XAUUSD", "timeframe": "4h", "bars": 3000, "htf_bars": 0, "source": "app",
+    "state": lab.LAB_DIR / "forward_cisd_short_xau_4h.json"}
 
 CRITERIA = {"min_trades": 30, "min_profit_factor": 1.2, "max_drawdown_pct": 20.0}
 

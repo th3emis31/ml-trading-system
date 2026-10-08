@@ -324,6 +324,26 @@ WATCHLIST = (
                   "side='long' and discarded 18 short setups in the ten days to 8 October, while its own "
                   "short side measures -13.87 % on the holdout at PF 0.682, so covering that side needs a "
                   "different rule rather than switching that one on"},
+    {"key": "cisd_short_xauusd_4h",
+     "state": "strategy_lab/forward_cisd_short_xau_4h.json",
+     # Measured from the engine's per-trade net_r on a short-only evaluation of the spec itself.
+     # Discounted to a quarter like the others: 16 variants in the CISD grid, and it was picked after
+     # seeing a 136-configuration survey, so the real selection cost is higher than 16.
+     "backtest_expectancy_r": 0.0282,
+     "splits_positive": True, "beats_inverse": True, "deflated_sharpe": 0.0659,
+     "label": "CISD run>=2, sweep 10, wait 5, 1 R, SHORT ONLY, XAUUSD 4H",
+     "evidence": "2026-10-08 BASELINE: positive on all three splits (+27.36 % / +6.74 % / +13.78 %), "
+                 "41 holdout trades, PF 1.482, 51.2 % win rate, max drawdown 6.41 %, +0.0282 R after "
+                 "costs, beats its own inverse (inverse PF 0.742, -7.73 %) AND beats buy-and-hold - the "
+                 "only candidate here that clears that control. Deflated Sharpe 0.0659 against 0.95",
+     "why_watch": "the strongest short-capable family in the 8 October whole-system survey, and the short "
+                  "side is the one currently blocked: SwingTrendPullback is pinned to side='long' and "
+                  "discarded 18 short setups in ten days. Two warnings travel with it. 41 trades is "
+                  "above the 30 minimum but far below 100, and the expectancy is small at +0.03 R, so "
+                  "costs and slippage matter more here than for any other candidate. The survey reported "
+                  "81 trades at PF 1.41 for this variant and that does NOT reproduce: the survey forces "
+                  "a direction by zeroing signals after the builder runs, which changes which trades a "
+                  "one-position-at-a-time engine takes. The figures above are the reproducible ones"},
 )
 
 
