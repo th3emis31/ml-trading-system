@@ -361,3 +361,44 @@ def test_confirming_two_markets_does_not_confirm_a_third(tmp_path, monkeypatch):
                                                                  "BTCUSD": {"auto_enabled": True},
                                                                  "SP500": {"auto_enabled": True}}}}), encoding="utf-8")
     assert doc.check_autonomy(state)["status"] == "warn", "a newly armed market must warn again"
+
+
+def test_the_live_model_return_states_the_trade_count_not_only_the_bar_count(tmp_path):
+    """"574 unseen bars" reads like a large sample. On 9 October 2026 the figure behind it was
+    THIRTEEN trades, and the champion it replaced had three.
+
+    Bars are how long the model was watched; trades are how many times it was actually right or wrong,
+    and only the second is the sample size of the return being quoted. The project's rule puts the line
+    at 100 closed trades, so under it must be labelled rather than left to be assumed.
+    """
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps([
+        {"symbol": "XAUUSD", "rf_promoted": True,
+         "rf_challenger": {"total_return_pct": 3.128, "rows": 574, "trades": 13},
+         "rf_champion": {"total_return_pct": 1.356, "rows": 574, "trades": 3}},
+    ]), encoding="utf-8")
+
+    text = doc.live_model_return("XAUUSD", path)
+    assert "13 trades" in text, "the trade count is the sample size and must be shown"
+    assert "574 unseen bars" in text, "the bar count stays; it says how long, not how many"
+    assert "INSUFFICIENT EVIDENCE" in text
+
+
+def test_a_hundred_trades_or_more_is_not_labelled_insufficient(tmp_path):
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps([
+        {"symbol": "XAUUSD", "rf_promoted": False,
+         "rf_champion": {"total_return_pct": 2.0, "rows": 900, "trades": 140}},
+    ]), encoding="utf-8")
+    text = doc.live_model_return("XAUUSD", path)
+    assert "140 trades" in text and "INSUFFICIENT" not in text
+
+
+def test_a_missing_trade_count_is_omitted_rather_than_guessed(tmp_path):
+    """Older records predate the trades field. Never invent data to fill a gap."""
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps([
+        {"symbol": "XAUUSD", "rf_promoted": False, "rf_champion": {"total_return_pct": 2.0, "rows": 900}},
+    ]), encoding="utf-8")
+    text = doc.live_model_return("XAUUSD", path)
+    assert "trades" not in text and "+2.00%" in text

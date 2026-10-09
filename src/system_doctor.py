@@ -308,7 +308,20 @@ def live_model_return(symbol: str, decisions_path: Path = ROOT / "data" / "learn
     if not isinstance(ret, (int, float)):
         return "return not recorded"
     bars = (side or {}).get("rows")
-    return f"{ret:+.2f}% after costs" + (f" on {bars} unseen bars" if bars else "")
+    trades = (side or {}).get("trades")
+    text = f"{ret:+.2f}% after costs"
+    if bars:
+        text += f" on {bars} unseen bars"
+    # The TRADE count, not only the bar count. "574 unseen bars" reads like a large sample; on
+    # 9 October 2026 the figure behind it was 13 trades, and the champion it replaced had 3. Bars are
+    # how long the model was watched, trades are how many times it was actually right or wrong, and
+    # only the second is the sample size of the return being quoted. The project's own rule puts the
+    # line at 100 closed trades, so anything under it is labelled rather than left to be assumed.
+    if isinstance(trades, (int, float)):
+        text += f" from {int(trades)} trades"
+        if trades < 100:
+            text += " (INSUFFICIENT EVIDENCE: under 100)"
+    return text
 
 
 def check_model_drift(now: Optional[datetime] = None) -> dict:
